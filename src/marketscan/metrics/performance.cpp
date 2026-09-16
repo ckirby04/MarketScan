@@ -27,6 +27,32 @@ namespace {
     return a < b ? a : b;
 }
 
+/// True when a series varies only at the level of floating point noise.
+///
+/// Testing `sigma <= 0` is not enough, and the difference matters. Summing a
+/// hundred copies of 0.01 does not give exactly a hundred times 0.01 -- the
+/// accumulated rounding leaves a mean a few parts in 10^18 away from the
+/// value, so the deviations are ~1e-18 rather than 0, the standard deviation
+/// is ~1e-18 rather than 0, and a Sharpe ratio computed from it comes out at
+/// 2e16. A strategy that never moved would then sit at the top of the
+/// leaderboard with an astronomical score, which is exactly the outcome the
+/// zero check was written to prevent.
+///
+/// Scale-relative rather than absolute: a series of returns around 1e-4 and a
+/// series of prices around 1e4 have wildly different noise floors. A spread
+/// twelve orders of magnitude below the data is not a signal, and is far above
+/// the ~1e-14 relative error that summation actually accumulates.
+[[nodiscard]] bool negligible_spread(double sigma, std::span<const double> values) noexcept {
+    double scale = 0.0;
+    for (const double value : values) {
+        if (std::isfinite(value)) {
+            scale = std::max(scale, std::fabs(value));
+        }
+    }
+    // Written as a negated greater-than so that a NaN sigma also counts.
+    return !(sigma > scale * 1e-12);
+}
+
 constexpr double kSecondsPerYear = 365.2425 * 24.0 * 3600.0;
 
 }  // namespace
@@ -236,8 +262,9 @@ double sharpe(std::span<const double> returns, const Annualisation& annualisatio
 
     const double sigma = stddev(excess);
     // A series that never moved has no risk-adjusted return. Reporting
-    // infinity would put it at the top of the leaderboard.
-    if (!std::isfinite(sigma) || sigma <= 0.0) {
+    // infinity -- or the 2e16 that floating point noise produces -- would put
+    // it at the top of the leaderboard.
+    if (!std::isfinite(sigma) || negligible_spread(sigma, std::span<const double>(excess))) {
         return kUndefined;
     }
     return (mean(excess) / sigma) * std::sqrt(annualisation.periods_per_year);
@@ -255,9 +282,10 @@ double sortino(std::span<const double> returns, const Annualisation& annualisati
 
     const double target = annualisation.per_period_risk_free();
     const double downside = downside_deviation(clean, target);
-    if (!std::isfinite(downside) || downside <= 0.0) {
-        // Nothing ever fell below the target. That is not an infinite Sortino
-        // ratio; it is a series with no downside to measure.
+    if (!std::isfinite(downside) || negligible_spread(downside, std::span<const double>(clean))) {
+        // Nothing ever fell below the target, or only by an amount indistin-
+        // guishable from rounding. That is not an infinite Sortino ratio; it
+        // is a series with no downside to measure.
         return kUndefined;
     }
     return ((mean(clean) - target) / downside) * std::sqrt(annualisation.periods_per_year);
@@ -395,8 +423,13 @@ Regression regress(std::span<const double> returns,
     }
 
     // A benchmark that never moved explains nothing, and the slope of a
-    // vertical line is not a number.
-    if (sxx <= 0.0) {
+    // vertical line is not a number. Compared against the scale of the data
+    // rather than against zero, for the reason negligible_spread explains.
+    double scale_x = 0.0;
+    for (const double value : x) {
+        scale_x = std::max(scale_x, std::fabs(value));
+    }
+    if (!(sxx > scale_x * scale_x * 1e-24 * static_cast<double>(x.size()))) {
         return result;
     }
 
@@ -448,7 +481,7 @@ double information_ratio(std::span<const double> returns,
 
     const double sigma = stddev(active);
     // Tracking the benchmark exactly is not infinite skill at beating it.
-    if (!std::isfinite(sigma) || sigma <= 0.0) {
+    if (!std::isfinite(sigma) || negligible_spread(sigma, std::span<const double>(active))) {
         return kUndefined;
     }
     return (mean(active) / sigma) * std::sqrt(annualisation.periods_per_year);

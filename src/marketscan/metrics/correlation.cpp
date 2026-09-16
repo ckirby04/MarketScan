@@ -75,7 +75,14 @@ double correlation(std::span<const double> a, std::span<const double> b) noexcep
     }
     // A constant series has no correlation with anything. That is not zero
     // correlation, which would be a claim about independence.
-    if (m.saa <= 0.0 || m.sbb <= 0.0) {
+    //
+    // Compared against the scale of the data rather than against zero: summing
+    // identical values accumulates rounding, so a constant series has a sum of
+    // squared deviations that is tiny but positive, and dividing by its square
+    // root produces a confident-looking number from pure noise.
+    const double floor_a = m.mean_a * m.mean_a * static_cast<double>(m.count) * 1e-24;
+    const double floor_b = m.mean_b * m.mean_b * static_cast<double>(m.count) * 1e-24;
+    if (!(m.saa > floor_a) || !(m.sbb > floor_b)) {
         return kNaN;
     }
     const double r = m.sab / std::sqrt(m.saa * m.sbb);

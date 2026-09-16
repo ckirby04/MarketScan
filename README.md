@@ -74,6 +74,43 @@ given. Run it once per command, as above.
 
 ---
 
+## Python
+
+```powershell
+./scripts/dev-env.ps1 cmake --preset full
+./scripts/dev-env.ps1 cmake --build --preset full
+```
+
+```python
+import sys; sys.path.insert(0, "out/build/full/bin")
+import marketscan as ms
+
+result = ms.run(theories=["out/build/full/bin/theories"],
+                data="data/samples/synthetic_spy_1min.csv")
+
+for theory in result.theories:
+    print(theory.display_name, theory.final_equity, theory.summary.sharpe)
+```
+
+The bindings call the same `run_backtest` the command line does, so a notebook
+and the desktop application cannot disagree about what happened.
+
+See [`bindings/python/examples/quickstart.ipynb`](bindings/python/examples/quickstart.ipynb),
+which is committed with its output.
+
+**Strategies are not written in Python.** The engine's contract is that a
+strategy is a pure function of the events it was shown; a Python callback on the
+per-event path would make replay speed depend on the interpreter and let a
+strategy close over state the engine cannot see. Strategies are DLLs — see
+[`theories/README.md`](theories/README.md).
+
+The module targets whichever Python minor version vcpkg's `python3` port
+provides (currently 3.12). Override with
+`-DMARKETSCAN_PYTHON_EXECUTABLE=<path>` to build against a specific interpreter
+of that same version.
+
+---
+
 ## Milestones
 
 | | Milestone | State |
@@ -86,7 +123,7 @@ given. Run it once per command, as above.
 | M5 | Metrics | ✅ |
 | M6 | GUI shell | ✅ |
 | M7 | Full GUI | ✅ |
-| M8 | Python bindings | ⬜ |
+| M8 | Python bindings | ✅ |
 | M9 | Hardening and polish | ⬜ |
 
 ---

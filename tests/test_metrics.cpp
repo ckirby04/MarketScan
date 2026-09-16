@@ -5,6 +5,7 @@
 // only that it is consistent, which is not the property anyone cares about.
 
 #include <cmath>
+#include <cstddef>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -645,4 +646,80 @@ TEST_CASE("a summary infers the sampling rate from the curve", "[metrics][summar
     Annualisation infer;
     infer.periods_per_year = 0.0;
     REQUIRE(summarise(minutely, infer).volatility > summarise(daily, infer).volatility);
+}
+
+// --------------------------------------------------------------------------
+// Constant series, at length
+// --------------------------------------------------------------------------
+
+// Regression tests for a bug the quickstart notebook found.
+//
+// Testing `sigma <= 0` is not enough. Summing a hundred copies of 0.01 does not
+// give exactly a hundred times 0.01: the accumulated rounding leaves the mean a
+// few parts in 10^18 from the value, the deviations are ~1e-18 rather than 0,
+// and a Sharpe ratio computed from that comes out at 2e16. A strategy that
+// never moved then sits at the top of the leaderboard with an astronomical
+// score -- the exact outcome the zero check was written to prevent.
+//
+// Four identical values happen to sum exactly, which is why the original test
+// passed and this one is written with a hundred.
+TEST_CASE("a long constant series has no Sharpe ratio", "[metrics][regression]") {
+    for (const std::size_t count : {4U, 10U, 100U, 1'000U, 10'000U}) {
+        const std::vector<double> flat(count, 0.01);
+        INFO("series length " << count);
+        require_undefined(sharpe(view(flat), Annualisation{}));
+    }
+}
+
+TEST_CASE("a long constant series has no Sortino ratio", "[metrics][regression]") {
+    const std::vector<double> flat(1'000, 0.01);
+    require_undefined(sortino(view(flat), Annualisation{}));
+}
+
+TEST_CASE("a long constant series correlates with nothing", "[metrics][correlation][regression]") {
+    const std::vector<double> flat(1'000, 0.01);
+    std::vector<double> moving;
+    moving.reserve(1'000);
+    for (std::size_t i = 0; i < 1'000; ++i) {
+        moving.push_back(static_cast<double>(i) * 0.001);
+    }
+
+    require_undefined(correlation(view(flat), view(moving)));
+    require_undefined(correlation(view(flat), view(flat)));
+}
+
+TEST_CASE("a long constant benchmark cannot be regressed against", "[metrics][regression]") {
+    const std::vector<double> flat(1'000, 0.01);
+    std::vector<double> returns;
+    returns.reserve(1'000);
+    for (std::size_t i = 0; i < 1'000; ++i) {
+        returns.push_back(0.001 * static_cast<double>(i % 7) - 0.002);
+    }
+
+    const Regression regression = regress(view(returns), view(flat), Annualisation{});
+    require_undefined(regression.beta);
+    require_undefined(regression.alpha);
+}
+
+TEST_CASE("tracking a benchmark exactly gives no information ratio", "[metrics][regression]") {
+    std::vector<double> series;
+    series.reserve(1'000);
+    for (std::size_t i = 0; i < 1'000; ++i) {
+        series.push_back(0.0005 * static_cast<double>(i % 11));
+    }
+    require_undefined(information_ratio(view(series), view(series), Annualisation{}));
+}
+
+// The guard must not swallow a real, small volatility. A series whose moves are
+// a thousandth of its level is quiet, not constant.
+TEST_CASE("a genuinely small volatility still has a Sharpe ratio", "[metrics][regression]") {
+    std::vector<double> returns;
+    returns.reserve(1'000);
+    for (std::size_t i = 0; i < 1'000; ++i) {
+        returns.push_back(0.01 + (i % 2 == 0 ? 1e-5 : -1e-5));
+    }
+
+    const double value = sharpe(view(returns), Annualisation{});
+    REQUIRE(is_defined(value));
+    REQUIRE(std::fabs(value) > 0.0);
 }

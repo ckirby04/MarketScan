@@ -116,6 +116,13 @@ else()
     endif()
 endif()
 
+# Before any add_subdirectory: add_test() in a subdirectory only registers if
+# testing was enabled at the top level first, and a test that silently fails to
+# register is a test that silently stops running.
+if(MARKETSCAN_BUILD_TESTS)
+    enable_testing()
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # Defines marketscan::sdk and marketscan_add_theory(). The same file a theory
@@ -132,8 +139,11 @@ if(MARKETSCAN_BUILD_THEORIES)
     add_subdirectory(theories)
 endif()
 
+if(MARKETSCAN_BUILD_PYTHON)
+    add_subdirectory(bindings/python)
+endif()
+
 if(MARKETSCAN_BUILD_TESTS)
-    enable_testing()
     add_subdirectory(tests)
 endif()
 
