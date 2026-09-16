@@ -44,8 +44,16 @@ if(MARKETSCAN_BUILD_GUI)
     target_sources(marketscan PRIVATE
         app.cpp
         theme.cpp
+        panels/panels.cpp
         panels/format.cpp
+        panels/leaderboard.cpp
         panels/equity_curves.cpp
+        panels/charts.cpp
+        panels/tables.cpp
+        panels/theory_detail.cpp
+        panels/plugin_manager.cpp
+        panels/transport.cpp
+        panels/latency.cpp
         panels/log_console.cpp)
 
     target_link_libraries(marketscan PRIVATE

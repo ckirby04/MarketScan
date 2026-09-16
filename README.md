@@ -85,7 +85,7 @@ given. Run it once per command, as above.
 | M4 | Plugin ABI and loader | ✅ |
 | M5 | Metrics | ✅ |
 | M6 | GUI shell | ✅ |
-| M7 | Full GUI | ⬜ |
+| M7 | Full GUI | ✅ |
 | M8 | Python bindings | ⬜ |
 | M9 | Hardening and polish | ⬜ |
 

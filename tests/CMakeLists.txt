@@ -39,7 +39,8 @@ function(marketscan_add_test name)
     target_compile_definitions(${name} PRIVATE
         MARKETSCAN_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/data/samples"
         MARKETSCAN_THEORY_DIR="${MARKETSCAN_RUNTIME_DIR}/theories"
-        MARKETSCAN_TEST_PLUGIN_DIR="${MARKETSCAN_TEST_PLUGIN_DIR}")
+        MARKETSCAN_TEST_PLUGIN_DIR="${MARKETSCAN_TEST_PLUGIN_DIR}"
+        MARKETSCAN_TEMPLATE_DLL="${CMAKE_BINARY_DIR}/theory_template/my_theory.dll")
     set_target_properties(${name} PROPERTIES FOLDER "marketscan/tests")
     # The plugin tests load real DLLs, so those must exist before ctest runs.
     add_dependencies(${name}
@@ -49,6 +50,9 @@ function(marketscan_add_test name)
         test_plugin_no_exports)
     if(TARGET buy_and_hold)
         add_dependencies(${name} buy_and_hold)
+    endif()
+    if(TARGET my_theory)
+        add_dependencies(${name} my_theory)
     endif()
 
     catch_discover_tests(${name}

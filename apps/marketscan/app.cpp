@@ -219,8 +219,7 @@ void Application::draw_frame() {
 
     // --- Panels ---------------------------------------------------------
     panels::Context context{*session_, *snapshot, ui_};
-    panels::equity_curves(context);
-    panels::log_console(context);
+    panels::draw_all(context);
 
     if (ui_.request_quit) {
         running_ = false;
@@ -262,7 +261,19 @@ void Application::draw_menu_bar() {
     }
 
     if (ImGui::BeginMenu("View")) {
+        ImGui::MenuItem("Leaderboard", nullptr, &ui_.show_leaderboard);
         ImGui::MenuItem("Equity Curves", nullptr, &ui_.show_equity);
+        ImGui::MenuItem("Drawdown", nullptr, &ui_.show_drawdown);
+        ImGui::MenuItem("Relative Strength", nullptr, &ui_.show_relative);
+        ImGui::MenuItem("Correlation", nullptr, &ui_.show_correlation);
+        ImGui::Separator();
+        ImGui::MenuItem("Theory Detail", nullptr, &ui_.show_detail);
+        ImGui::MenuItem("Positions & P&L", nullptr, &ui_.show_positions);
+        ImGui::MenuItem("Blotter", nullptr, &ui_.show_blotter);
+        ImGui::Separator();
+        ImGui::MenuItem("Plugin Manager", nullptr, &ui_.show_plugins);
+        ImGui::MenuItem("Transport", nullptr, &ui_.show_transport);
+        ImGui::MenuItem("Latency", nullptr, &ui_.show_latency);
         ImGui::MenuItem("Log", nullptr, &ui_.show_log);
         ImGui::Separator();
         if (ImGui::MenuItem("Reset Layout")) {
@@ -409,13 +420,43 @@ void Application::build_default_layout(unsigned int dockspace_id) {
     ImGui::DockBuilderAddNode(id, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(id, ImGui::GetMainViewport()->WorkSize);
 
-    // Charts get the centre and the height; the log sits underneath where it
-    // can be read without covering anything.
+    // The arrangement a person would build for themselves, and the one Reset
+    // Layout restores:
+    //
+    //   left     leaderboard over plugin manager -- what is loaded, and how
+    //            each one is doing
+    //   centre   the charts, tabbed
+    //   right    detail and positions for whichever theory is selected
+    //   bottom   transport, blotter, latency and log, tabbed
+    //
+    // The charts are tabbed rather than tiled on purpose: four plots at a
+    // quarter size each are four plots nobody can read.
     ImGuiID centre = id;
+    const ImGuiID left =
+        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.22F, nullptr, &centre);
+    const ImGuiID right =
+        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.27F, nullptr, &centre);
     const ImGuiID bottom =
-        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.28F, nullptr, &centre);
+        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.34F, nullptr, &centre);
+    const ImGuiID left_bottom =
+        ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.45F, nullptr, nullptr);
+    const ImGuiID right_bottom =
+        ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45F, nullptr, nullptr);
+
+    ImGui::DockBuilderDockWindow("Leaderboard", left);
+    ImGui::DockBuilderDockWindow("Plugin Manager", left_bottom);
 
     ImGui::DockBuilderDockWindow("Equity Curves", centre);
+    ImGui::DockBuilderDockWindow("Drawdown", centre);
+    ImGui::DockBuilderDockWindow("Relative Strength", centre);
+    ImGui::DockBuilderDockWindow("Correlation", centre);
+
+    ImGui::DockBuilderDockWindow("Theory Detail", right);
+    ImGui::DockBuilderDockWindow("Positions & P&L", right_bottom);
+
+    ImGui::DockBuilderDockWindow("Transport", bottom);
+    ImGui::DockBuilderDockWindow("Blotter", bottom);
+    ImGui::DockBuilderDockWindow("Latency", bottom);
     ImGui::DockBuilderDockWindow("Log", bottom);
 
     ImGui::DockBuilderFinish(id);

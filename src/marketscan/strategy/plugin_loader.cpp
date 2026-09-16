@@ -232,8 +232,8 @@ bool guarded_create(MS_PluginCreateFn fn, MS_StrategyVTable* vtable, void** out)
     // SetThreadErrorMode rather than SetErrorMode: the process-wide version
     // would race with any other thread doing file work.
     DWORD previous_mode = 0;
-    const BOOL changed = ::SetThreadErrorMode(
-        SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX, &previous_mode);
+    const BOOL changed =
+        ::SetThreadErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX, &previous_mode);
 
     // LOAD_WITH_ALTERED_SEARCH_PATH makes the DLL's own directory the first
     // place its dependencies are looked for. A theory with sibling DLLs of its

@@ -326,3 +326,91 @@ TEST_CASE("a session destroyed while running shuts down cleanly", "[session]") {
     }
     SUCCEED("session destroyed mid-replay without hanging or crashing");
 }
+
+// --------------------------------------------------------------------------
+// The USB port
+// --------------------------------------------------------------------------
+
+// The headline claim, tested rather than asserted: a compiled strategy the
+// host has never seen, dropped into the folder and picked up on demand, with
+// no recompile of the host and no change to host code.
+//
+// The DLL used is the one built from theories/_template -- a theory the
+// application does not normally load, and which names nothing in the host.
+TEST_CASE("a new theory dropped into the folder appears on rescan",
+          "[session][plugin][hotreload]") {
+    const std::filesystem::path template_dll{MARKETSCAN_TEMPLATE_DLL};
+    if (!std::filesystem::exists(template_dll)) {
+        SKIP("the template theory was not built; nothing to drop in");
+    }
+
+    // A folder of its own, so this cannot disturb another test's theories.
+    const std::filesystem::path root =
+        std::filesystem::temp_directory_path() /
+        ("marketscan_usb_" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() & 0xFFFFFF));
+    std::filesystem::create_directories(root);
+
+    std::error_code ec;
+    std::filesystem::copy_file(theory_dir() / "buy_and_hold.dll",
+                               root / "buy_and_hold.dll",
+                               std::filesystem::copy_options::overwrite_existing,
+                               ec);
+    REQUIRE_FALSE(ec);
+
+    SessionConfig config = small_config();
+    config.theory_roots = {root};
+
+    {
+        Session session(config);
+
+        const auto before = wait_for(session, has_strategies);
+        REQUIRE(before->strategies.size() == 1);
+        REQUIRE(before->strategies.front().id == "buy_and_hold");
+
+        // The moment that matters: a DLL the running process has never heard
+        // of arrives on disk.
+        std::filesystem::copy_file(template_dll,
+                                   root / "my_theory.dll",
+                                   std::filesystem::copy_options::overwrite_existing,
+                                   ec);
+        REQUIRE_FALSE(ec);
+
+        // The loader notices without being told, and raises the badge the
+        // plugin manager shows. It does not act on it: reloading a strategy
+        // out from under a running replay would invalidate everything on
+        // screen without saying so.
+        REQUIRE(session.theories_changed_on_disk());
+
+        session.rescan_theories();
+        const auto after =
+            wait_for(session, [](const SessionSnapshot& s) { return s.strategies.size() == 2; });
+
+        REQUIRE(after->strategies.size() == 2);
+
+        bool found = false;
+        for (const StrategySnapshot& row : after->strategies) {
+            if (row.id == "my_theory") {
+                found = true;
+                REQUIRE(row.display_name == "My Theory");
+                // Its parameters came across the boundary too, which is what
+                // lets the GUI build controls for a theory it knows nothing
+                // about.
+                REQUIRE(row.params.size() == 3);
+                REQUIRE(row.params[0].name == "lookback");
+            }
+        }
+        REQUIRE(found);
+
+        // And it runs, through the same engine as everything else.
+        session.play();
+        const auto done = wait_for(session, finished);
+        REQUIRE(done->state == TransportState::Finished);
+        REQUIRE(done->strategies.size() == 2);
+        for (const StrategySnapshot& row : done->strategies) {
+            REQUIRE(row.equity_curve.size() > 1);
+        }
+    }
+
+    std::filesystem::remove_all(root, ec);
+}
