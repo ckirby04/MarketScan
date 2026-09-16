@@ -83,7 +83,7 @@ given. Run it once per command, as above.
 | M2 | Data feeds | ✅ |
 | M3 | Ledger and fill models | ✅ |
 | M4 | Plugin ABI and loader | ✅ |
-| M5 | Metrics | ⬜ |
+| M5 | Metrics | ✅ |
 | M6 | GUI shell | ⬜ |
 | M7 | Full GUI | ⬜ |
 | M8 | Python bindings | ⬜ |

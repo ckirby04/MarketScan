@@ -12,6 +12,7 @@
 #include "marketscan/core/engine.hpp"
 #include "marketscan/data/csv_feed.hpp"
 #include "marketscan/data/synthetic_feed.hpp"
+#include "marketscan/metrics/performance.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
 #include "marketscan/strategy/strategy_instance.hpp"
 #include "marketscan/util/logging.hpp"
@@ -145,7 +146,24 @@ struct RunResult {
     Money commission;
     Money slippage;
     bool invariant_held = true;
+
+    std::vector<EquityPoint> equity_curve;
+    metrics::PerformanceSummary summary;
 };
+
+/// Formats a statistic, or a dash when it is undefined.
+///
+/// Every metric returns NaN rather than zero when it cannot be computed, and
+/// printing that as "0.00" would put a number in a column that nobody could
+/// tell apart from a result.
+[[nodiscard]] std::string format_metric(double value, int precision = 2) {
+    if (!metrics::is_defined(value)) {
+        return "--";
+    }
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(precision) << value;
+    return out.str();
+}
 
 /// One complete replay with one fill model. Returns a row per theory.
 [[nodiscard]] std::vector<RunResult>
@@ -210,7 +228,28 @@ replay(const HeadlessOptions& options, PluginLoader& loader, const IFillModel& f
         for (const TradeRecord& record : ledger.blotter()) {
             row.slippage += record.slippage;
         }
+        row.equity_curve = ledger.equity_curve();
         results.push_back(std::move(row));
+    }
+
+    // The benchmark is whichever theory declares itself one, and buy_and_hold
+    // is it by convention rather than by anything in the host. Measuring the
+    // others against it is only fair because it went through this same engine,
+    // paid this same spread and was charged this same commission.
+    const std::vector<EquityPoint>* benchmark = nullptr;
+    for (const RunResult& row : results) {
+        if (row.id == "buy_and_hold" && row.equity_curve.size() >= 2) {
+            benchmark = &row.equity_curve;
+            break;
+        }
+    }
+
+    metrics::Annualisation annualisation;
+    annualisation.periods_per_year = 0.0;  // infer it from the curve's spacing
+    for (RunResult& row : results) {
+        row.summary = benchmark != nullptr
+                          ? metrics::summarise(row.equity_curve, *benchmark, annualisation)
+                          : metrics::summarise(row.equity_curve, annualisation);
     }
     return results;
 }
@@ -218,25 +257,30 @@ replay(const HeadlessOptions& options, PluginLoader& loader, const IFillModel& f
 void print_results(const std::vector<RunResult>& results, std::string_view heading) {
     std::cout << heading << "\n";
     std::cout << std::string(heading.size(), '-') << "\n";
-    std::cout << "  " << std::left << std::setw(22) << "theory" << std::right << std::setw(14)
-              << "equity" << std::setw(10) << "return" << std::setw(8) << "trades" << std::setw(10)
-              << "rejected" << std::setw(12) << "commission" << std::setw(12) << "slippage" << "\n";
+    std::cout << "  " << std::left << std::setw(20) << "theory" << std::right << std::setw(13)
+              << "equity" << std::setw(9) << "return" << std::setw(9) << "sharpe" << std::setw(9)
+              << "sortino" << std::setw(9) << "max dd" << std::setw(8) << "IR" << std::setw(8)
+              << "trades" << std::setw(11) << "slippage" << "\n";
 
     for (const RunResult& row : results) {
         const double total_return =
             row.starting_cash.is_zero()
                 ? 0.0
                 : (row.final_equity.to_double() / row.starting_cash.to_double()) - 1.0;
-        std::cout << "  " << std::left << std::setw(22) << row.display_name << std::right
-                  << std::setw(14) << format_money(row.final_equity) << std::setw(10)
-                  << format_percent(total_return) << std::setw(8) << row.trades << std::setw(10)
-                  << row.rejected << std::setw(12) << format_money(row.commission) << std::setw(12)
-                  << format_money(row.slippage) << "\n";
+        std::cout << "  " << std::left << std::setw(20) << row.display_name << std::right
+                  << std::setw(13) << format_money(row.final_equity) << std::setw(9)
+                  << format_percent(total_return) << std::setw(9)
+                  << format_metric(row.summary.sharpe) << std::setw(9)
+                  << format_metric(row.summary.sortino) << std::setw(9)
+                  << format_metric(row.summary.max_drawdown * 100.0) << std::setw(8)
+                  << format_metric(row.summary.information_ratio) << std::setw(8) << row.trades
+                  << std::setw(11) << format_money(row.slippage) << "\n";
         if (!row.invariant_held) {
             std::cout << "    *** LEDGER INVARIANT VIOLATED -- this is a bug ***\n";
         }
     }
-    std::cout << "\n";
+    std::cout << "\n  max dd is a percentage. A dash means the statistic is not "
+                 "defined for this run.\n\n";
 }
 
 }  // namespace

@@ -32,6 +32,9 @@ add_library(marketscan_core STATIC
     marketscan/exec/broker.cpp
     marketscan/exec/fill_model.cpp
     marketscan/exec/ledger.cpp
+    marketscan/metrics/correlation.cpp
+    marketscan/metrics/performance.cpp
+    marketscan/metrics/rolling.cpp
     marketscan/strategy/host_context.cpp
     marketscan/strategy/plugin_loader.cpp
     marketscan/strategy/registry.cpp
