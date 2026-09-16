@@ -24,6 +24,12 @@ marketscan_add_theory(test_plugin_no_exports
     SOURCES plugins/no_exports.cpp
     OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
 
+# Not a broken plugin: the one that exercises the host's random stream, which
+# neither reference theory touches.
+marketscan_add_theory(test_plugin_dice_roller
+    SOURCES plugins/dice_roller.cpp
+    OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
+
 
 # Every test binary is registered with ctest through catch_discover_tests so a
 # failing assertion names the exact test case rather than just the executable.
@@ -47,7 +53,8 @@ function(marketscan_add_test name)
         test_plugin_bad_abi
         test_plugin_null_create
         test_plugin_empty_id
-        test_plugin_no_exports)
+        test_plugin_no_exports
+        test_plugin_dice_roller)
     if(TARGET buy_and_hold)
         add_dependencies(${name} buy_and_hold)
     endif()
@@ -72,3 +79,4 @@ marketscan_add_test(test_ledger      test_ledger.cpp)
 marketscan_add_test(test_plugin_loader test_plugin_loader.cpp)
 marketscan_add_test(test_metrics     test_metrics.cpp)
 marketscan_add_test(test_session     test_session.cpp)
+marketscan_add_test(test_hot_path    test_hot_path.cpp)

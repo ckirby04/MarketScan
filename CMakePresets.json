@@ -58,7 +58,7 @@
     {
       "name": "full",
       "displayName": "Release (GUI + Python)",
-      "description": "Everything, including the pybind11 module.",
+      "description": "Everything, including the pybind11 module. Runs one test more than every other preset -- python_bindings, which imports the built module and runs examples/smoke_test.py against it. That test cannot exist where the module is not built.",
       "inherits": "release",
       "cacheVariables": {
         "VCPKG_MANIFEST_FEATURES": "gui;python",

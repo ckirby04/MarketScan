@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -471,4 +472,69 @@ TEST_CASE("an error names the file and line", "[feed][csv]") {
 
     SymbolTable symbols;
     REQUIRE_THROWS_WITH(CsvFeed(file.path(), symbols), Catch::Matchers::ContainsSubstring(":3:"));
+}
+
+// --------------------------------------------------------------------------
+// The committed sample and the script that made it
+// --------------------------------------------------------------------------
+//
+// data/samples/synthetic_spy_1min.csv is checked in, and scripts/
+// make_sample_data.py claims to reproduce it byte for byte by reimplementing
+// the same generator in Python. That claim was true when it was written and
+// nothing was defending it: the script is not run by the build, so a change to
+// SyntheticFeed would leave the two silently disagreeing, and the committed
+// file -- which several tests read -- would become a fossil of a generator
+// that no longer exists.
+//
+// This test closes that gap from the C++ side, which is the side that matters
+// and the side that needs no Python on the machine. It regenerates the sample
+// with the configuration the script documents and compares bar for bar
+// against the committed file. If it fails, either the generator changed or
+// the script and the feed have drifted apart, and both are worth knowing.
+
+TEST_CASE("the committed sample is what the generator produces", "[feed][determinism]") {
+    // Exactly the configuration in scripts/make_sample_data.py. Kept in sync
+    // by this test failing if it ever is not.
+    SyntheticFeedConfig config;
+    config.instruments = {SyntheticInstrument{"SPY", 510.00, 0.08, 0.15, 90'000.0}};
+    REQUIRE(time::from_iso8601("2024-03-18T13:30:00Z", config.start));
+    config.bars_per_session = 390;
+    config.sessions = 2;
+    config.seed = 0xC0FF'EE00'1234'5678ULL;
+    config.emit_quotes = false;
+
+    SymbolTable generated_symbols;
+    SyntheticFeed generated(config, generated_symbols);
+
+    SymbolTable committed_symbols;
+    CsvFeed committed(std::filesystem::path(MARKETSCAN_TEST_DATA_DIR) / "synthetic_spy_1min.csv",
+                      committed_symbols);
+
+    std::size_t compared = 0;
+    MarketEvent from_generator;
+    MarketEvent from_file;
+
+    while (committed.next(from_file)) {
+        if (from_file.type != EventType::Bar) {
+            continue;
+        }
+        REQUIRE(generated.next(from_generator));
+        REQUIRE(from_generator.type == EventType::Bar);
+
+        INFO("bar " << compared);
+        REQUIRE(from_generator.bar.ts == from_file.bar.ts);
+
+        // The committed file carries two decimal places, so the comparison is
+        // to the precision the file has rather than to the precision the
+        // generator has. A drift large enough to matter moves the cent.
+        REQUIRE(from_generator.bar.open == Catch::Approx(from_file.bar.open).margin(0.005));
+        REQUIRE(from_generator.bar.high == Catch::Approx(from_file.bar.high).margin(0.005));
+        REQUIRE(from_generator.bar.low == Catch::Approx(from_file.bar.low).margin(0.005));
+        REQUIRE(from_generator.bar.close == Catch::Approx(from_file.bar.close).margin(0.005));
+        REQUIRE(from_generator.bar.volume == Catch::Approx(from_file.bar.volume).margin(0.5));
+        ++compared;
+    }
+
+    REQUIRE(compared == 780);
+    REQUIRE_FALSE(generated.next(from_generator));
 }

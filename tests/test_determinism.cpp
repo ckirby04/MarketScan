@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -19,7 +20,9 @@
 #include "marketscan/core/engine.hpp"
 #include "marketscan/core/random.hpp"
 #include "marketscan/data/synthetic_feed.hpp"
+#include "marketscan/exec/fill_model.hpp"
 #include "marketscan/run/backtest.hpp"
+#include "marketscan/strategy/strategy_instance.hpp"
 #include "marketscan/util/digest.hpp"
 
 using namespace marketscan;
@@ -539,4 +542,133 @@ TEST_CASE("a theory gets the same result alone as it does in company", "[determi
     REQUIRE(in_company->trades > 0);
 
     REQUIRE(digest_theory(alone.theories.front()) == digest_theory(*in_company));
+}
+
+// --------------------------------------------------------------------------
+// The per-strategy random stream
+// --------------------------------------------------------------------------
+//
+// A strategy is forbidden to seed its own generator; it draws from the host,
+// which gives each theory a stream derived from the run seed and the theory's
+// id. Through Spec 1 that machinery was plumbed, documented and never once
+// exercised, because neither reference theory draws a number. The dice_roller
+// fixture exists to exercise it.
+//
+// Two properties, and the second is the one that costs something to get
+// right. Replaying must reproduce a theory's draws exactly -- that is what
+// derive_seed being a pure function of (seed, id) buys. And running a second
+// theory alongside must not shift the first one's stream by so much as one
+// draw, which is what a single shared generator would fail: every run would
+// still be reproducible, and every result would depend on what else was
+// loaded.
+
+namespace {
+
+/// Everything the dice roller published, in first-published order.
+[[nodiscard]] std::vector<std::pair<std::string, double>> draws_of(const StrategyInstance& theory) {
+    std::vector<std::pair<std::string, double>> out;
+    out.reserve(theory.metrics().size());
+    for (const PublishedMetric& metric : theory.metrics()) {
+        out.emplace_back(metric.name, metric.value);
+    }
+    return out;
+}
+
+/// One short replay through however many dice rollers are named, returning
+/// what each of them drew.
+///
+/// The engine, the feed and the symbol table are rebuilt every call, so two
+/// calls share nothing but the seed -- which is the point.
+[[nodiscard]] std::vector<std::vector<std::pair<std::string, double>>>
+roll(const std::vector<std::string>& ids, std::uint64_t run_seed) {
+    SymbolTable symbols;
+    Engine engine;
+
+    SyntheticFeedConfig feed_config;
+    feed_config.instruments = {SyntheticInstrument{"SPY", 500.0, 0.05, 0.15, 100'000.0}};
+    feed_config.bars_per_session = 40;
+    feed_config.sessions = 1;
+    feed_config.seed = 99;
+    engine.add_source(std::make_unique<SyntheticFeed>(feed_config, symbols));
+
+    PluginLoader loader({std::filesystem::path(MARKETSCAN_TEST_PLUGIN_DIR)});
+    loader.rescan();
+
+    const SpreadCrossingFillModel fill_model;
+
+    // unique_ptr because StrategyInstance is neither copyable nor movable, and
+    // the engine holds raw pointers to these for the length of the run.
+    std::vector<std::unique_ptr<StrategyInstance>> theories;
+    for (const std::string& id : ids) {
+        StrategyRuntimeConfig config;
+        config.run_seed = run_seed;
+        config.starting_cash = Money::from_dollars(100'000);
+
+        theories.push_back(std::make_unique<StrategyInstance>(id,
+                                                              id,
+                                                              loader.create("dice_roller"),
+                                                              std::vector<std::string>{},
+                                                              config,
+                                                              &fill_model,
+                                                              &engine.market(),
+                                                              &symbols,
+                                                              &engine.clock()));
+        engine.add_sink(theories.back().get());
+    }
+
+    for (const std::unique_ptr<StrategyInstance>& theory : theories) {
+        theory->start();
+    }
+    engine.run();
+    for (const std::unique_ptr<StrategyInstance>& theory : theories) {
+        theory->stop();
+    }
+
+    std::vector<std::vector<std::pair<std::string, double>>> out;
+    out.reserve(theories.size());
+    for (const std::unique_ptr<StrategyInstance>& theory : theories) {
+        out.push_back(draws_of(*theory));
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("a theory's random draws replay exactly", "[determinism][rng][plugin]") {
+    const auto first = roll({"dice_roller"}, 0xA11CE);
+    const auto second = roll({"dice_roller"}, 0xA11CE);
+
+    REQUIRE(first.size() == 1);
+
+    // Not vacuous: it has to have drawn something, and the draws have to be
+    // spread out rather than all landing on one value.
+    INFO("published: " << first.front().size());
+    REQUIRE(first.front().size() >= 10);
+
+    REQUIRE(first == second);
+}
+
+TEST_CASE("a different run seed gives a different stream", "[determinism][rng][plugin]") {
+    const auto a = roll({"dice_roller"}, 0xA11CE);
+    const auto b = roll({"dice_roller"}, 0xB0B);
+
+    REQUIRE_FALSE(a.front().empty());
+    REQUIRE(a.front() != b.front());
+}
+
+TEST_CASE("two theories drawing at once do not perturb each other", "[determinism][rng][plugin]") {
+    const auto alone = roll({"alice"}, 0xA11CE);
+    const auto together = roll({"alice", "bob"}, 0xA11CE);
+
+    REQUIRE(alone.size() == 1);
+    REQUIRE(together.size() == 2);
+
+    // The guard against a vacuous pass: the two streams must actually differ,
+    // or "alice was unaffected by bob" would hold trivially because both drew
+    // the same numbers anyway.
+    REQUIRE(together[0] != together[1]);
+
+    // The property. Alice drew the same numbers whether or not Bob was in the
+    // room, interleaved with him on every bar.
+    REQUIRE(alone[0] == together[0]);
 }

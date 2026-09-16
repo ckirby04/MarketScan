@@ -1,0 +1,228 @@
+# Chassis audit
+
+Spec 2, M0. Every check the specification asks for, with its result and the
+evidence behind it. Findings are recorded whether or not they are flattering;
+a clean audit that was produced by not looking is worth nothing.
+
+Audited at `2535ca2` (the tip of Spec 1). Host: Windows 11, MSVC 19.43, x64.
+
+**Summary: 10 checks, 8 pass, 2 pass with findings. 4 gaps closed with new
+tests, 2 findings escalated to the reader rather than fixed.**
+
+---
+
+## 1. The plugin ABI contains no C++ types — **PASS**
+
+`include/marketscan/abi/plugin_abi.h` includes `<stdint.h>` and `abi/export.h`
+and nothing else. Grepping for `std::`, `class`, `template` and `throw`
+returns exactly one hit, and it is in a comment explaining why none of them
+are there. Everything between `extern "C" {` and `}` is C.
+
+One observation, not a failure. The layout guards at the foot of the file are
+C++ `static_assert`s inside `#ifdef __cplusplus`, so a consumer compiling the
+header as C gets no guard at all. C11 has `_Static_assert` and the guards
+could be written to use it. Nothing today compiles this header as C, so this
+is noted rather than changed.
+
+## 2. Cash and realized P&L are `int64` micro-dollars — **PASS**
+
+`Money` wraps a single `std::int64_t` of micro-dollars. `Ledger` holds
+`starting_cash_`, `cash_`, `realized_pnl_` and `commission_paid_` as `Money`,
+and `Position::cost_basis` is `Money` rather than a floating average cost.
+
+`double` appears in the ledger in exactly two roles, both permitted by the
+specification: prices and quantities, and the `to_double()` / `average_cost()`
+conversions that exist for display. No accumulator is a `double`.
+
+## 3. The default fill model crosses the spread — **PASS**
+
+Traced through construction rather than read off a comment. There are two
+places a fill model is built:
+
+| Site | Default |
+|---|---|
+| `run/backtest.cpp:88` | `optimistic_fills` defaults `false` → `SpreadCrossingFillModel` |
+| `apps/marketscan/session.cpp:380` | `SessionConfig::optimistic_fills` defaults `false` → same |
+
+`Broker` takes the model as a borrowed pointer with no default argument, so
+there is no third path that could quietly construct the optimistic one.
+
+## 4. No hash-container iteration on an order-emitting path — **PASS**
+
+One `std::unordered_map` exists in the whole engine, in `csv_feed.cpp`: a
+header-alias table consulted with `.find()` and never iterated, with a comment
+at the call site saying so. `SymbolTable` uses `std::map` deliberately, and
+says why in its header.
+
+## 5. No second code path for backtest versus live — **PASS, with a finding**
+
+The literal check passes. There is no `is_backtest`, no mode flag, no
+`#ifdef` that changes engine behaviour; the engine cannot tell.
+
+The finding is that the seam is currently a claim rather than a socket.
+`Engine` holds a `SimulatedClock` **by value**, not an `IClock&`:
+
+```cpp
+SimulatedClock clock_;   // engine.hpp:200
+```
+
+`SystemClock` exists and is used only by the logger. So "only the clock swaps"
+cannot be demonstrated today, because there is nothing to swap it with and no
+place to put it.
+
+This is **not** being changed here, and the reasoning matters. Swapping
+`SimulatedClock` for `IClock&` adds a virtual call to the per-event path in
+exchange for a capability nothing uses, and there is no live transport either
+— the second half of the seam is equally absent. Note also that a live run
+would advance `SimulatedClock` from arriving event timestamps perfectly well;
+the difference only appears for a strategy that asks `now()` *between* events.
+The honest statement is that the divergence has been prevented, not that the
+alternative has been built. Escalated to the reader rather than papered over.
+
+## 6. No allocation, lock or syscall in the per-event hot path — **PASS, measured**
+
+This was the check that could not be settled by reading, so it is now
+measured. `tests/test_hot_path.cpp` replaces the global `operator new` and
+counts allocations inside an armed region. Two calibration tests prove the
+counter itself works before anything is claimed with it.
+
+Measured over 4,679 dispatched events, built with the `ci` preset (optimised;
+the debug allocator adds bookkeeping allocations of its own and would measure
+the compiler rather than the code):
+
+| Path | Allocations | Per event |
+|---|---|---|
+| Engine dispatch with a counting sink | **0** | 0 |
+| Full strategy path, 117 trades, broker + fill model + ledger | **46** | 0.0098 |
+
+The engine's dispatch path — select the next source, advance the clock, apply
+to the book, hand to every sink — allocates **exactly zero times**, asserted.
+
+The strategy path allocates 46 times across 4,679 events. Those are the
+geometric growth steps of the containers that have to keep what outlives the
+event: the order list, the blotter, the equity curve. That is not asserted to
+be zero, because a blotter recording a fill has to put it somewhere and a test
+claiming otherwise would be a test that lies. What is asserted is that the
+cost is amortised — a second pass over the identical events allocates strictly
+fewer times than the first, because by then nothing needs to grow.
+
+No mutex is taken and no syscall is made on the event path. The GUI's
+`Session` locks, but it does so around building and tearing down a run, not
+around dispatch.
+
+## 7. The per-strategy RNG was never exercised — **FIXED**
+
+Confirmed: neither `buy_and_hold` nor `sma_crossover` calls `random_uniform()`,
+so through all of Spec 1 the derived-stream machinery was plumbed, documented,
+and never once run.
+
+Closed with `tests/plugins/dice_roller.cpp`, a fixture plugin that draws from
+the host stream and publishes a position-sensitive digest of what it got, plus
+three tests:
+
+- **a theory's random draws replay exactly** — same seed, same draws.
+- **a different run seed gives a different stream** — the guard against a
+  generator that ignores its seed.
+- **two theories drawing at once do not perturb each other** — the one that
+  costs something. Alice draws the same numbers whether or not Bob is in the
+  room drawing on every bar. The test first asserts Alice and Bob get
+  *different* streams, so the property cannot pass trivially.
+
+A single shared generator would satisfy the first two and fail the third,
+which is exactly the failure worth catching: every run still reproducible,
+every result silently dependent on what else was loaded.
+
+## 8. `MARKETSCAN_WERROR` was off — **FIXED, zero warnings found**
+
+It was off for M0–M8 of Spec 1 and was turned on for the two `ci` presets at
+`4828dee`. For this audit every preset was configured with `-DMARKETSCAN_WERROR=ON`
+and built from scratch:
+
+| Preset | Warnings at `/W4 /WX` |
+|---|---|
+| `ci` | 0 |
+| `ci-debug` | 0 |
+| `release` (GUI: ImGui, ImPlot, GLFW) | 0 |
+| `full` (GUI + pybind11) | 0 |
+
+**Accumulated warning count: zero.** Nothing needed fixing.
+
+The desktop presets are still left permissive on purpose: a developer halfway
+through a change should be able to build with an unused variable in the file
+they are editing. What they should not be able to do is merge it, and CI now
+stops that. Since the count is zero, enabling it everywhere is a one-line
+change if that trade is ever judged the wrong way round.
+
+## 9. `full` runs one test more than every other preset — **EXPLAINED**
+
+Diffed the two test sets from `ctest --show-only=json-v1`. The difference is
+one test:
+
+```
+python_bindings
+```
+
+It imports the built `.pyd` and runs `bindings/python/examples/smoke_test.py`
+against it. It cannot exist in a preset that does not build the module, so
+this is correct and not a registration bug. Written into the `full` preset's
+description so the next person does not have to diff it again.
+
+## 10. Milestone commit messages versus what the tests assert — **PASS, with one finding**
+
+Every quantitative claim in the M0–M9 commit messages was checked against the
+test that is supposed to back it.
+
+| Claim | Where | Verdict |
+|---|---|---|
+| "test_money proves a double accumulator drifts" | M1 | True — the test asserts `naive != 10'000.0` as well as the fixed-point result |
+| "Tie-breaking is registration order… both are tested" | M1 | True — two named tests |
+| "rejects an out-of-order event" | M1 | True — `an out-of-order source is rejected` |
+| "reset asks every source before rewinding any" | M1 | True — tested, including the refusal case |
+| "rejects impossible bars and crossed quotes" | M2 | True — both are sections of `malformed input is refused` |
+| "CsvFeed sorts stably" | M2 | True — `rows are sorted by timestamp, stably` |
+| "tested across 2000 random sizes per side" | M3 | True — 2,000 iterations, each testing a buy and a sell |
+| "across 20000 randomised fills" | M3 | True — the loop and the blotter assertion both say 20,000 |
+| "the script reproduces the file byte for byte" | M2 | **True but undefended — see below** |
+| "a second theory must not move the first one's numbers" | M9 | Already known false when written; the test was added afterwards at `fe279d3` |
+
+**The finding.** M2 claims `scripts/make_sample_data.py` reproduces
+`data/samples/synthetic_spy_1min.csv` byte for byte. It does — verified by
+regenerating and comparing SHA-256, which matched at
+`a2a94eee755a59f9…`, 52,724 bytes. But nothing defended the claim. The script
+is not run by the build, so a change to `SyntheticFeed` would leave the
+generator and the committed file silently disagreeing, and that file is an
+input to several tests: it would have become a fossil of a generator that no
+longer exists.
+
+Closed from the C++ side, which needs no Python on the machine: **the
+committed sample is what the generator produces** regenerates the sample with
+the configuration the script documents and compares all 780 bars against the
+committed file — 6,243 assertions.
+
+---
+
+## Findings not covered by a numbered check
+
+**`BUILD_SPEC.md` is not in the repository.** Spec 2 names it as prerequisite
+reading for its Section 2 and Section 4. It has never been committed; Spec 1
+was delivered as a message and only its conclusions reached disk, in code
+comments, in `README.md` and in the commit messages. The constraints are being
+honoured, but a reader cannot check them against the source, and neither can a
+future session. Reconstructing it from memory would produce a document that
+looks authoritative and is not, so it has not been attempted. Flagged for the
+author to commit the original.
+
+---
+
+## What changed as a result
+
+| | |
+|---|---|
+| `tests/test_hot_path.cpp` | New. Counts allocations on the event path; check 6 |
+| `tests/plugins/dice_roller.cpp` | New fixture plugin; check 7 |
+| `tests/test_determinism.cpp` | Three RNG stream tests; check 7 |
+| `tests/test_feeds.cpp` | Generator-versus-committed-sample test; check 10 |
+| `CMakePresets.json` | `full` preset description explains the extra test; check 9 |
+
+Tests: 214 → 223. Green on `debug`, `release`, `ci` and `ci-debug`; 224 on
+`full`, for the reason in check 9.
