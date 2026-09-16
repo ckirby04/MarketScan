@@ -9,7 +9,11 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Deliberately not cancel-in-progress. Every commit on main is a milestone
+  # whose definition of done includes "CI is green", and a run cancelled by the
+  # next push leaves that unverified -- which is how the 26-minute hang below
+  # went unnoticed for two commits.
+  cancel-in-progress: false
 
 env:
   # Must match "builtin-baseline" in vcpkg.json. The hosted runner ships its own

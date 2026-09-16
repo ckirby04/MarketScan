@@ -219,11 +219,32 @@ bool guarded_create(MS_PluginCreateFn fn, MS_StrategyVTable* vtable, void** out)
 
 [[nodiscard]] void* open_library(const std::filesystem::path& path) {
 #if defined(_WIN32)
+    // Suppress the hard-error dialog first.
+    //
+    // Handed a file that is not a valid PE image -- a text file someone
+    // renamed, a truncated build, a 32-bit DLL -- LoadLibrary does not simply
+    // fail. It raises a critical error, and Windows puts up a modal "bad
+    // image" message box. There is nobody to dismiss it on a build machine or
+    // behind a render loop, so the process stops there permanently. This
+    // turned a CI run into a 26-minute hang, and it would have done the same
+    // to a user with one corrupt file in theories/.
+    //
+    // SetThreadErrorMode rather than SetErrorMode: the process-wide version
+    // would race with any other thread doing file work.
+    DWORD previous_mode = 0;
+    const BOOL changed = ::SetThreadErrorMode(
+        SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX, &previous_mode);
+
     // LOAD_WITH_ALTERED_SEARCH_PATH makes the DLL's own directory the first
     // place its dependencies are looked for. A theory with sibling DLLs of its
     // own is not supported here, because only the DLL itself is shadow copied;
     // such a theory should place its dependencies beside the executable.
-    return ::LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    void* handle = ::LoadLibraryExW(path.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+
+    if (changed != FALSE) {
+        ::SetThreadErrorMode(previous_mode, nullptr);
+    }
+    return handle;
 #else
     (void)path;
     return nullptr;

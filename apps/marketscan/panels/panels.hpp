@@ -22,13 +22,22 @@ struct Context {
 
 // Each of these draws one dockable window, including its own Begin/End, and
 // does nothing if its UiState flag is false.
-//
-// The rest of the twelve arrive in M7. They are not declared here until they
-// exist: a declaration with no definition is a link error waiting to happen,
-// and an empty panel that draws nothing is worse -- it looks like a feature.
 
+void leaderboard(Context& context);
 void equity_curves(Context& context);
+void drawdown(Context& context);
+void relative_strength(Context& context);
+void correlation_matrix(Context& context);
+void trade_blotter(Context& context);
+void positions(Context& context);
+void theory_detail(Context& context);
+void plugin_manager(Context& context);
+void transport(Context& context);
+void latency(Context& context);
 void log_console(Context& context);
+
+/// Draws every panel, in a fixed order.
+void draw_all(Context& context);
 
 // --- Shared formatting ---------------------------------------------------
 //
