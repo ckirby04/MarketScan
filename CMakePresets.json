@@ -76,7 +76,7 @@
         "MARKETSCAN_BUILD_GUI": "OFF",
         "MARKETSCAN_BUILD_TESTS": "ON",
         "MARKETSCAN_BUILD_THEORIES": "ON",
-        "MARKETSCAN_WERROR": "OFF"
+        "MARKETSCAN_WERROR": "ON"
       }
     },
     {
@@ -90,7 +90,7 @@
         "MARKETSCAN_BUILD_GUI": "OFF",
         "MARKETSCAN_BUILD_TESTS": "ON",
         "MARKETSCAN_BUILD_THEORIES": "ON",
-        "MARKETSCAN_WERROR": "OFF"
+        "MARKETSCAN_WERROR": "ON"
       }
     }
   ],

@@ -117,6 +117,9 @@ Run it once per command, as in the quickstart above.
 | `ci` | Headless engine, theories and tests — no GUI dependency stack |
 | `ci-debug` | `ci` with assertions on |
 
+The two `ci` presets compile with warnings as errors (`/W4 /WX`). The desktop presets do not, so a
+warning you introduce while working does not stop you building — it stops you merging.
+
 > ⚠️ A theory plugin **must** be built with the same preset as the host that loads it. Mixing
 > Debug and Release binaries across the plugin boundary is undefined behaviour on MSVC. The loader
 > checks the ABI version and refuses a mismatch, but it cannot detect a CRT mismatch — so the
