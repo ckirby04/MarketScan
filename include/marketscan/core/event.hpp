@@ -115,6 +115,36 @@ struct MarketEvent {
         e.trade = t;
         return e;
     }
+
+    /// Compares the active member field by field.
+    ///
+    /// Deliberately not a memcmp. The union is sized for the largest payload,
+    /// so a quote leaves bytes past its end that belong to no field, and the
+    /// struct has alignment padding after `type`. Those bytes are not part of
+    /// the event's value, and comparing them makes equality depend on whatever
+    /// was previously in that memory.
+    [[nodiscard]] friend constexpr bool operator==(const MarketEvent& a,
+                                                   const MarketEvent& b) noexcept {
+        if (a.type != b.type) {
+            return false;
+        }
+        switch (a.type) {
+            case EventType::Bar:
+                return a.bar.ts == b.bar.ts && a.bar.symbol == b.bar.symbol &&
+                       a.bar.open == b.bar.open && a.bar.high == b.bar.high &&
+                       a.bar.low == b.bar.low && a.bar.close == b.bar.close &&
+                       a.bar.volume == b.bar.volume;
+            case EventType::Quote:
+                return a.quote.ts == b.quote.ts && a.quote.symbol == b.quote.symbol &&
+                       a.quote.bid_px == b.quote.bid_px && a.quote.ask_px == b.quote.ask_px &&
+                       a.quote.bid_sz == b.quote.bid_sz && a.quote.ask_sz == b.quote.ask_sz;
+            case EventType::Trade:
+                return a.trade.ts == b.trade.ts && a.trade.symbol == b.trade.symbol &&
+                       a.trade.price == b.trade.price && a.trade.size == b.trade.size &&
+                       a.trade.aggressor == b.trade.aggressor;
+        }
+        return false;
+    }
 };
 
 static_assert(std::is_trivially_copyable_v<MarketEvent>,
