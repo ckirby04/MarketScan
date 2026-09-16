@@ -6,7 +6,8 @@
 # pulling in the desktop dependency stack. There is one engine behind both.
 # ---------------------------------------------------------------------------
 add_executable(marketscan
-    main.cpp)
+    main.cpp
+    headless.cpp)
 
 target_link_libraries(marketscan PRIVATE marketscan::core marketscan::flags)
 

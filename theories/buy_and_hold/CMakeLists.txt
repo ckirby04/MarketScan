@@ -1,0 +1,1 @@
+marketscan_add_theory(buy_and_hold SOURCES buy_and_hold.cpp)

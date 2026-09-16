@@ -1,16 +1,17 @@
-#include <cstdio>
+#include "headless.hpp"
 
-#include "marketscan/util/version.hpp"
+int main(int argc, char** argv) {
+    marketscan::app::HeadlessOptions options;
+    int exit_code = 0;
+    if (!marketscan::app::parse_arguments(argc, argv, options, exit_code)) {
+        return exit_code;
+    }
 
-int main() {
-    std::printf("MarketScan %s  (%s, %s)\n",
-                marketscan::version::kString,
-                marketscan::version::kCompiler,
-                marketscan::version::kBuildType);
 #if MARKETSCAN_HAS_GUI
-    std::printf("gui: enabled\n");
+    // The desktop dashboard arrives at M6. Until then the same binary runs the
+    // engine headlessly, which is also what a GUI-less CI build does.
+    return marketscan::app::run_headless(options, marketscan::app::executable_directory());
 #else
-    std::printf("gui: disabled (headless build)\n");
+    return marketscan::app::run_headless(options, marketscan::app::executable_directory());
 #endif
-    return 0;
 }

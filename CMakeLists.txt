@@ -118,11 +118,19 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# Defines marketscan::sdk and marketscan_add_theory(). The same file a theory
+# built outside this tree includes.
+include(MarketScanTheory)
+
 # ---------------------------------------------------------------------------
 # Subprojects
 # ---------------------------------------------------------------------------
 add_subdirectory(src)
 add_subdirectory(apps/marketscan)
+
+if(MARKETSCAN_BUILD_THEORIES)
+    add_subdirectory(theories)
+endif()
 
 if(MARKETSCAN_BUILD_TESTS)
     enable_testing()

@@ -79,10 +79,10 @@ given. Run it once per command, as above.
 | | Milestone | State |
 |---|---|---|
 | M0 | Repo skeleton, CMake + vcpkg + CI | ✅ |
-| M1 | Core types and engine loop | ⬜ |
-| M2 | Data feeds | ⬜ |
-| M3 | Ledger and fill models | ⬜ |
-| M4 | Plugin ABI and loader | ⬜ |
+| M1 | Core types and engine loop | ✅ |
+| M2 | Data feeds | ✅ |
+| M3 | Ledger and fill models | ✅ |
+| M4 | Plugin ABI and loader | ✅ |
 | M5 | Metrics | ⬜ |
 | M6 | GUI shell | ⬜ |
 | M7 | Full GUI | ⬜ |

@@ -32,7 +32,12 @@ add_library(marketscan_core STATIC
     marketscan/exec/broker.cpp
     marketscan/exec/fill_model.cpp
     marketscan/exec/ledger.cpp
+    marketscan/strategy/host_context.cpp
+    marketscan/strategy/plugin_loader.cpp
+    marketscan/strategy/registry.cpp
+    marketscan/strategy/strategy_instance.cpp
     marketscan/util/digest.cpp
+    marketscan/util/logging.cpp
     marketscan/util/version.cpp)
 add_library(marketscan::core ALIAS marketscan_core)
 

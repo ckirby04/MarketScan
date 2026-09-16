@@ -24,8 +24,22 @@
  *     clock or calls rand() is not replayable, and an unreproducible backtest
  *     is not evidence.
  *
- * This ABI is FROZEN. Additive changes require a MS_ABI_VERSION bump and a
- * loader that can refuse the old version cleanly.
+ * ---------------------------------------------------------------------------
+ * THIS FILE IS FROZEN AS OF MILESTONE M4.
+ *
+ * Every theory ever built against it -- including ones this repository will
+ * never see -- assumes these layouts. Changing a struct, reordering a field or
+ * altering a signature does not produce a compile error in those plugins; it
+ * produces a plugin that reads the wrong bytes at runtime.
+ *
+ * Any change, including adding a field, requires:
+ *   1. bumping MS_ABI_VERSION,
+ *   2. updating the static_asserts at the bottom of this file, and
+ *   3. a deliberate decision that breaking every existing theory is worth it.
+ *
+ * The loader already refuses a version mismatch with a clear message, so the
+ * failure mode of a bump is "rebuild your theory", not silent corruption.
+ * ---------------------------------------------------------------------------
  */
 #ifndef MARKETSCAN_PLUGIN_ABI_H
 #define MARKETSCAN_PLUGIN_ABI_H
