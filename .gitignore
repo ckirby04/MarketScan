@@ -1,0 +1,55 @@
+# --- Build output ---
+build/
+out/
+cmake-build-*/
+install/
+_deps/
+
+# --- vcpkg ---
+vcpkg_installed/
+.vcpkg-root
+
+# --- Visual Studio / MSVC ---
+.vs/
+*.user
+*.suo
+*.vcxproj*
+*.sln
+*.pdb
+*.ilk
+*.idb
+*.exp
+*.obj
+
+# --- Runtime / local state ---
+imgui.ini
+*.log
+logs/
+
+# --- Secrets: never commit ---
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+credentials.json
+
+# --- Market data: never commit anything but the curated samples ---
+data/*
+!data/samples/
+data/samples/*
+!data/samples/*.csv
+!data/samples/README.md
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+*.egg-info/
+.venv/
+venv/
+
+# --- OS ---
+Thumbs.db
+desktop.ini
+.DS_Store

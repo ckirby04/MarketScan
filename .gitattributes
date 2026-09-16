@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.sln    text eol=crlf
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+*.ttf    binary
+*.otf    binary
+*.png    binary
+*.ipynb  text eol=lf

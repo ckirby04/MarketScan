@@ -1,0 +1,107 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "VCPKG_HOST_TRIPLET": "x64-windows"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "vendor": {
+        "microsoft.com/VisualStudioSettings/CMake/1.0": {
+          "hostOS": [
+            "Windows"
+          ]
+        }
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (GUI)",
+      "description": "Full desktop build with assertions. Plugins MUST be built with this same preset.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_MANIFEST_FEATURES": "gui",
+        "MARKETSCAN_BUILD_GUI": "ON",
+        "MARKETSCAN_BUILD_TESTS": "ON",
+        "MARKETSCAN_BUILD_THEORIES": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (GUI)",
+      "description": "Optimised desktop build. Plugins MUST be built with this same preset.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_MANIFEST_FEATURES": "gui",
+        "MARKETSCAN_BUILD_GUI": "ON",
+        "MARKETSCAN_BUILD_TESTS": "ON",
+        "MARKETSCAN_BUILD_THEORIES": "ON"
+      }
+    },
+    {
+      "name": "full",
+      "displayName": "Release (GUI + Python)",
+      "description": "Everything, including the pybind11 module.",
+      "inherits": "release",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "gui;python",
+        "MARKETSCAN_BUILD_PYTHON": "ON"
+      }
+    },
+    {
+      "name": "ci",
+      "displayName": "CI (headless core)",
+      "description": "Engine, theories and tests without the GUI dependency stack.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_MANIFEST_FEATURES": "",
+        "MARKETSCAN_BUILD_GUI": "OFF",
+        "MARKETSCAN_BUILD_TESTS": "ON",
+        "MARKETSCAN_BUILD_THEORIES": "ON",
+        "MARKETSCAN_WERROR": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug",   "configurePreset": "debug" },
+    { "name": "release", "configurePreset": "release" },
+    { "name": "full",    "configurePreset": "full" },
+    { "name": "ci",      "configurePreset": "ci" }
+  ],
+  "testPresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "output": {
+        "outputOnFailure": true,
+        "verbosity": "default"
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    { "name": "debug",   "inherits": "base", "configurePreset": "debug" },
+    { "name": "release", "inherits": "base", "configurePreset": "release" },
+    { "name": "full",    "inherits": "base", "configurePreset": "full" },
+    { "name": "ci",      "inherits": "base", "configurePreset": "ci" }
+  ]
+}

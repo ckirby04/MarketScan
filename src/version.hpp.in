@@ -1,0 +1,23 @@
+// Generated from src/version.hpp.in by CMake. Do not edit the generated copy.
+#ifndef MARKETSCAN_UTIL_VERSION_HPP
+#define MARKETSCAN_UTIL_VERSION_HPP
+
+namespace marketscan::version {
+
+inline constexpr int kMajor = @PROJECT_VERSION_MAJOR@;
+inline constexpr int kMinor = @PROJECT_VERSION_MINOR@;
+inline constexpr int kPatch = @PROJECT_VERSION_PATCH@;
+
+inline constexpr const char* kString = "@PROJECT_VERSION@";
+
+/// Compiler identity the host was built with. A plugin built by a different
+/// toolchain or configuration cannot safely share C++ objects with the host,
+/// which is exactly why the plugin boundary in marketscan/abi is pure C.
+inline constexpr const char* kCompiler = "@CMAKE_CXX_COMPILER_ID@ @CMAKE_CXX_COMPILER_VERSION@";
+
+/// Build configuration, e.g. "Debug" or "Release".
+inline constexpr const char* kBuildType = "@CMAKE_BUILD_TYPE@";
+
+}  // namespace marketscan::version
+
+#endif  // MARKETSCAN_UTIL_VERSION_HPP
