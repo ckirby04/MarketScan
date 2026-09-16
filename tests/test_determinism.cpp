@@ -433,3 +433,110 @@ TEST_CASE("optimistic fills flatter every theory, most where it trades most",
         REQUIRE(biggest_gap > gap);
     }
 }
+
+// --------------------------------------------------------------------------
+// One theory must not be able to hear another
+// --------------------------------------------------------------------------
+//
+// Every theory in a run shares the engine, the clock, the feed, the symbol
+// table and the fill model. None of that is supposed to be a channel between
+// them -- each theory has its own ledger, its own order flow and its own
+// random stream -- but "supposed to" is not a test. So: a theory's results
+// must be identical whether it ran alone or alongside something else.
+//
+// The failure mode this guards against is quiet. Shared state between
+// theories does not crash and does not make a run irreproducible; every
+// number still comes back the same on a rerun. It just makes every result
+// depend on which other DLLs happened to be in the folder, which turns a
+// comparison between two theories into a comparison of nothing.
+//
+// Neither reference theory draws random numbers, so the per-strategy RNG
+// stream is not what this exercises -- [determinism][rng] covers that, and
+// derive_seed is the reason a theory that did draw would pass here too.
+
+namespace {
+
+/// A directory holding exactly the theories a test wants to run.
+class SoloTheoryDir {
+public:
+    explicit SoloTheoryDir(const std::string& dll_name) {
+        static int counter = 0;
+        path_ = std::filesystem::temp_directory_path() /
+                ("marketscan_solo_" + std::to_string(++counter) + "_" + dll_name);
+        std::filesystem::create_directories(path_);
+        std::filesystem::copy_file(std::filesystem::path(MARKETSCAN_THEORY_DIR) / dll_name,
+                                   path_ / dll_name,
+                                   std::filesystem::copy_options::overwrite_existing);
+    }
+
+    SoloTheoryDir(const SoloTheoryDir&) = delete;
+    SoloTheoryDir& operator=(const SoloTheoryDir&) = delete;
+
+    ~SoloTheoryDir() {
+        std::error_code ec;
+        std::filesystem::remove_all(path_, ec);
+    }
+
+    [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }
+
+private:
+    std::filesystem::path path_;
+};
+
+/// Everything about one theory's trading that must not depend on its company.
+///
+/// Benchmark-relative statistics are deliberately left out: information ratio
+/// and beta are measured against buy_and_hold, so a run without it genuinely
+/// has no answer for them. What must not move is what the theory did.
+[[nodiscard]] std::string digest_theory(const run::TheoryResult& theory) {
+    Digest digest;
+    digest.absorb_bytes(theory.id);
+    digest.absorb_money(theory.final_equity);
+    digest.absorb_money(theory.cash);
+    digest.absorb_money(theory.realized_pnl);
+    digest.absorb_money(theory.unrealized_pnl);
+    digest.absorb_money(theory.commission);
+    digest.absorb_money(theory.slippage);
+    digest.absorb_u64(theory.trades);
+    digest.absorb_u64(theory.rejected);
+
+    for (const TradeRecord& trade : theory.blotter) {
+        digest.absorb_i64(trade.ts);
+        digest.absorb_u32(trade.symbol);
+        digest.absorb_u32(static_cast<std::uint32_t>(trade.side));
+        digest.absorb_double(trade.quantity);
+        digest.absorb_double(trade.fill_price);
+        digest.absorb_money(trade.realized_pnl);
+    }
+
+    for (const double level : theory.equity_curve) {
+        digest.absorb_double(level);
+    }
+    return digest.to_hex();
+}
+
+}  // namespace
+
+TEST_CASE("a theory gets the same result alone as it does in company", "[determinism]") {
+    const run::BacktestResult together = run::run_backtest(backtest_config());
+    REQUIRE(together.ok());
+    REQUIRE(together.theories.size() >= 2);
+
+    const SoloTheoryDir solo("sma_crossover.dll");
+    run::BacktestConfig alone_config = backtest_config();
+    alone_config.theory_roots = {solo.path()};
+    const run::BacktestResult alone = run::run_backtest(alone_config);
+
+    REQUIRE(alone.ok());
+    REQUIRE(alone.theories.size() == 1);
+
+    const run::TheoryResult* in_company = together.find("sma_crossover");
+    REQUIRE(in_company != nullptr);
+
+    // Not a vacuous pass: it has to have traded for there to be anything to
+    // disagree about.
+    INFO("trades: " << in_company->trades);
+    REQUIRE(in_company->trades > 0);
+
+    REQUIRE(digest_theory(alone.theories.front()) == digest_theory(*in_company));
+}

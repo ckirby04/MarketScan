@@ -27,7 +27,7 @@ cd MarketScan
 
 ./scripts/dev-env.ps1 cmake --preset release
 ./scripts/dev-env.ps1 cmake --build --preset release
-./scripts/dev-env.ps1 ctest --preset release          # 213 tests
+./scripts/dev-env.ps1 ctest --preset release          # 214 tests
 
 ./out/build/release/bin/marketscan.exe --data data/samples/synthetic_spy_1min.csv
 ```
