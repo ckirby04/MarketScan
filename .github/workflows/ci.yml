@@ -27,6 +27,13 @@ jobs:
   windows:
     name: windows / msvc / ${{ matrix.preset }}
     runs-on: windows-latest
+    # A hung job holds the concurrency group, and because cancel-in-progress is
+    # off, every later push then queues behind it and each new one cancels the
+    # previously queued run. One test that never returns therefore stops CI
+    # running at all -- which is how three milestones in a row ended up with a
+    # cancelled run and nobody the wiser. GitHub's default would let that sit
+    # for six hours. A build with a warm binary cache takes about ten minutes.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -79,7 +86,11 @@ jobs:
         shell: pwsh
         run: ./scripts/dev-env.ps1 cmake --build --preset ${{ matrix.preset }}
 
+      # The preset carries a per-test timeout; this is the belt to its braces,
+      # so a test that wedges the whole ctest driver still fails the step
+      # rather than the job.
       - name: Test
+        timeout-minutes: 20
         shell: pwsh
         run: ./scripts/dev-env.ps1 ctest --preset ${{ matrix.preset }}
 
@@ -97,6 +108,7 @@ jobs:
   format:
     name: clang-format
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
