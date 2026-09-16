@@ -11,6 +11,7 @@
 #include "marketscan/exec/broker.hpp"
 #include "marketscan/strategy/host_context.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
+#include "marketscan/util/latency_histogram.hpp"
 
 namespace marketscan {
 
@@ -132,6 +133,14 @@ public:
 
     [[nodiscard]] bool started() const noexcept { return started_; }
 
+    /// Time from an event arriving at this strategy to its callback
+    /// returning, which is the event-in to order-out path: any order the
+    /// strategy submits is priced and booked inside that callback.
+    ///
+    /// In replay this measures the machine, not the market. It is here from
+    /// the start so the path is already instrumented when it means something.
+    [[nodiscard]] const LatencyHistogram& latency() const noexcept { return latency_; }
+
     /// Resolves the required tickers against the symbol table. Called again
     /// after a feed interns new symbols; a required ticker the data never
     /// mentions is logged once rather than being silently ignored.
@@ -156,6 +165,7 @@ private:
     DeterministicRng rng_;
 
     std::vector<PublishedMetric> metrics_;
+    LatencyHistogram latency_;
 
     bool started_ = false;
     bool stopped_ = false;

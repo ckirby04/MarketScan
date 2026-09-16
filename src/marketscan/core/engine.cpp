@@ -137,6 +137,9 @@ bool Engine::step() {
     }
     stats_.last_event_ts = event.ts();
     ++stats_.events_dispatched;
+    if (event.type == EventType::Bar) {
+        ++stats_.bars_dispatched;
+    }
 
     dispatch(event);
 
@@ -145,6 +148,23 @@ bool Engine::step() {
     // stale lookahead for an extra event.
     refill(sources_[index]);
     return true;
+}
+
+bool Engine::has_pending_event() {
+    if (!primed_) {
+        for (SourceSlot& slot : sources_) {
+            refill(slot);
+        }
+        primed_ = true;
+    }
+    return select_next() != kNoSource;
+}
+
+Timestamp Engine::next_event_ts() {
+    if (!has_pending_event()) {
+        return kForever;
+    }
+    return sources_[select_next()].pending.ts();
 }
 
 std::uint64_t Engine::run(std::uint64_t max_events) {

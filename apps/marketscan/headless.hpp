@@ -1,6 +1,7 @@
 #ifndef MARKETSCAN_APP_HEADLESS_HPP
 #define MARKETSCAN_APP_HEADLESS_HPP
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>

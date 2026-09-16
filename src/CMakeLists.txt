@@ -40,6 +40,7 @@ add_library(marketscan_core STATIC
     marketscan/strategy/registry.cpp
     marketscan/strategy/strategy_instance.cpp
     marketscan/util/digest.cpp
+    marketscan/util/latency_histogram.cpp
     marketscan/util/logging.cpp
     marketscan/util/version.cpp)
 add_library(marketscan::core ALIAS marketscan_core)

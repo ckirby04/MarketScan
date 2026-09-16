@@ -96,18 +96,30 @@ void StrategyInstance::stop() {
 
 void StrategyInstance::on_bar(const MS_Bar& bar) {
     if (started_ && !stopped_ && wants(bar.symbol)) {
+        // Measured around the callback, which is where an order is submitted,
+        // priced and booked -- so this is event-in to order-out, not just
+        // dispatch overhead.
+        const ScopedLatency timer(latency_);
         plugin_.bar(bar);
     }
 }
 
 void StrategyInstance::on_quote(const MS_Quote& quote) {
     if (started_ && !stopped_ && wants(quote.symbol)) {
+        // Measured around the callback, which is where an order is submitted,
+        // priced and booked -- so this is event-in to order-out, not just
+        // dispatch overhead.
+        const ScopedLatency timer(latency_);
         plugin_.quote(quote);
     }
 }
 
 void StrategyInstance::on_trade(const MS_Trade& trade) {
     if (started_ && !stopped_ && wants(trade.symbol)) {
+        // Measured around the callback, which is where an order is submitted,
+        // priced and booked -- so this is event-in to order-out, not just
+        // dispatch overhead.
+        const ScopedLatency timer(latency_);
         plugin_.trade(trade);
     }
 }

@@ -31,6 +31,7 @@ function(marketscan_add_test name)
     add_executable(${name} ${ARGN})
     target_link_libraries(${name} PRIVATE
         marketscan::core
+        marketscan::app
         marketscan::flags
         Catch2::Catch2WithMain)
     # Absolute paths, rather than depending on the working directory ctest
@@ -66,3 +67,4 @@ marketscan_add_test(test_fill_model  test_fill_model.cpp)
 marketscan_add_test(test_ledger      test_ledger.cpp)
 marketscan_add_test(test_plugin_loader test_plugin_loader.cpp)
 marketscan_add_test(test_metrics     test_metrics.cpp)
+marketscan_add_test(test_session     test_session.cpp)

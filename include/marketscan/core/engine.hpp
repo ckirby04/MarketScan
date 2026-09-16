@@ -82,6 +82,12 @@ struct EngineConfig {
 
 struct EngineStats {
     std::uint64_t events_dispatched = 0;
+
+    /// Bars specifically. The transport's "step one bar" needs this: quotes
+    /// outnumber bars, so stepping events would stop somewhere a user did not
+    /// ask for.
+    std::uint64_t bars_dispatched = 0;
+
     Timestamp first_event_ts = 0;
     Timestamp last_event_ts = 0;
     bool started = false;
@@ -125,6 +131,18 @@ public:
     /// Dispatch until the clock passes `ts`, or the sources drain. The event
     /// exactly at `ts` is included. Returns the number dispatched.
     std::uint64_t run_until(Timestamp ts);
+
+    /// Whether any source still has an event waiting.
+    ///
+    /// Not const: answering it requires the one-event lookahead to be primed,
+    /// and priming reads from the sources. A throttled replay needs this to
+    /// tell "nothing is due yet" apart from "there is nothing left", which
+    /// otherwise look identical from the outside -- both are simply zero
+    /// events dispatched.
+    [[nodiscard]] bool has_pending_event();
+
+    /// Timestamp of the next event, or kForever when the sources are drained.
+    [[nodiscard]] Timestamp next_event_ts();
 
     /// Rewind every source and clear the clock, so a run can be repeated from
     /// the beginning. Returns false -- and changes nothing -- if any source

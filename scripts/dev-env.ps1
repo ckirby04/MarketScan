@@ -61,6 +61,17 @@ if (-not (Test-Path -LiteralPath $vcvars)) {
 # Remember an explicitly chosen vcpkg so the vcvars override can be undone.
 $savedVcpkgRoot = $env:VCPKG_ROOT
 
+# Environment variables are process-wide in PowerShell: a script that sets them
+# changes its *caller's* environment, not a copy. Without restoring them, every
+# invocation from one session appends the toolchain again -- and after a
+# handful of calls PATH is long enough that vcvars64.bat fails outright with
+# exit code 255. The child process inherits the environment at launch, so
+# restoring it afterwards costs nothing.
+$savedEnvironment = @{}
+foreach ($entry in Get-ChildItem Env:) {
+    $savedEnvironment[$entry.Name] = $entry.Value
+}
+
 # Import the developer environment. Running `set` after the batch file and
 # parsing the result is the only reliable way to lift its variables into this
 # process; vcvars64.bat cannot export into a PowerShell session directly.
@@ -97,5 +108,19 @@ foreach ($tool in @('cmake', 'ninja', 'cl')) {
     }
 }
 
-& $Command @Arguments
-exit $LASTEXITCODE
+try {
+    & $Command @Arguments
+    $commandExitCode = $LASTEXITCODE
+} finally {
+    # Put the caller's environment back exactly as it was.
+    foreach ($entry in Get-ChildItem Env:) {
+        if (-not $savedEnvironment.ContainsKey($entry.Name)) {
+            Remove-Item -LiteralPath "Env:$($entry.Name)" -ErrorAction SilentlyContinue
+        }
+    }
+    foreach ($name in $savedEnvironment.Keys) {
+        Set-Item -LiteralPath "Env:$name" -Value $savedEnvironment[$name]
+    }
+}
+
+exit $commandExitCode
