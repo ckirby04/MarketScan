@@ -35,11 +35,8 @@ public:
     static constexpr int kMaxPeriod = 400;
 
     static constexpr MS_ParamDesc kParams[] = {
-        marketscan::param_int("fast",
-                              "Length of the fast moving average, in bars.",
-                              2.0,
-                              200.0,
-                              10.0),
+        marketscan::param_int(
+            "fast", "Length of the fast moving average, in bars.", 2.0, 200.0, 10.0),
         marketscan::param_int("slow",
                               "Length of the slow moving average, in bars. "
                               "Must exceed the fast length; if it does not, "
@@ -213,9 +210,8 @@ private:
     }
 
     [[nodiscard]] double reserve_fraction() const noexcept {
-        const double pct = cash_reserve_pct_ < 0.0 ? 0.0
-                                                   : (cash_reserve_pct_ > 90.0 ? 90.0
-                                                                               : cash_reserve_pct_);
+        const double pct =
+            cash_reserve_pct_ < 0.0 ? 0.0 : (cash_reserve_pct_ > 90.0 ? 90.0 : cash_reserve_pct_);
         return pct / 100.0;
     }
 
