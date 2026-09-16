@@ -21,6 +21,10 @@ find_package(nlohmann_json CONFIG REQUIRED)
 # headless test suite link exactly the code the desktop app runs.
 # ---------------------------------------------------------------------------
 add_library(marketscan_core STATIC
+    marketscan/core/clock.cpp
+    marketscan/core/engine.cpp
+    marketscan/core/money.cpp
+    marketscan/core/types.cpp
     marketscan/util/version.cpp)
 add_library(marketscan::core ALIAS marketscan_core)
 

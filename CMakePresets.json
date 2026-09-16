@@ -78,13 +78,43 @@
         "MARKETSCAN_BUILD_THEORIES": "ON",
         "MARKETSCAN_WERROR": "OFF"
       }
+    },
+    {
+      "name": "ci-debug",
+      "displayName": "CI (headless core, Debug)",
+      "description": "Same as ci, with assertions and checked iterators live.",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_MANIFEST_FEATURES": "",
+        "MARKETSCAN_BUILD_GUI": "OFF",
+        "MARKETSCAN_BUILD_TESTS": "ON",
+        "MARKETSCAN_BUILD_THEORIES": "ON",
+        "MARKETSCAN_WERROR": "OFF"
+      }
     }
   ],
   "buildPresets": [
-    { "name": "debug",   "configurePreset": "debug" },
-    { "name": "release", "configurePreset": "release" },
-    { "name": "full",    "configurePreset": "full" },
-    { "name": "ci",      "configurePreset": "ci" }
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "full",
+      "configurePreset": "full"
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci"
+    },
+    {
+      "name": "ci-debug",
+      "configurePreset": "ci-debug"
+    }
   ],
   "testPresets": [
     {
@@ -99,9 +129,30 @@
         "stopOnFailure": false
       }
     },
-    { "name": "debug",   "inherits": "base", "configurePreset": "debug" },
-    { "name": "release", "inherits": "base", "configurePreset": "release" },
-    { "name": "full",    "inherits": "base", "configurePreset": "full" },
-    { "name": "ci",      "inherits": "base", "configurePreset": "ci" }
+    {
+      "name": "debug",
+      "inherits": "base",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "inherits": "base",
+      "configurePreset": "release"
+    },
+    {
+      "name": "full",
+      "inherits": "base",
+      "configurePreset": "full"
+    },
+    {
+      "name": "ci",
+      "inherits": "base",
+      "configurePreset": "ci"
+    },
+    {
+      "name": "ci-debug",
+      "inherits": "base",
+      "configurePreset": "ci-debug"
+    }
   ]
 }
