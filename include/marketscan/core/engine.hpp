@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "marketscan/book/order_book.hpp"
 #include "marketscan/core/clock.hpp"
 #include "marketscan/core/event.hpp"
 #include "marketscan/core/types.hpp"
@@ -139,6 +140,15 @@ public:
 
     [[nodiscard]] SimulatedClock& clock() noexcept { return clock_; }
 
+    /// Every instrument's book, as of the event currently being dispatched.
+    ///
+    /// Updated before any sink sees the event, so a strategy asking about the
+    /// market inside a callback is told the state as of that event -- and the
+    /// fill model prices its order against that same state. That is what makes
+    /// "the quote in effect at the signal timestamp" a guarantee rather than a
+    /// comment.
+    [[nodiscard]] const MarketView& market() const noexcept { return market_; }
+
     [[nodiscard]] const EngineConfig& config() const noexcept { return config_; }
 
     [[nodiscard]] const EngineStats& stats() const noexcept { return stats_; }
@@ -170,6 +180,7 @@ private:
 
     EngineConfig config_;
     SimulatedClock clock_;
+    MarketView market_;
     std::vector<SourceSlot> sources_;
     std::vector<IEventSink*> sinks_;
     EngineStats stats_;

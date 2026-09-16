@@ -66,6 +66,17 @@ inline constexpr Duration kDay = 24 * kHour;
 /// silently misparsed timestamp reorders an entire replay.
 [[nodiscard]] bool from_iso8601(std::string_view text, Timestamp& out);
 
+/// Days since 1970-01-01 UTC, flooring so that pre-epoch timestamps do not
+/// round toward zero onto the wrong day.
+///
+/// This is what decides when a DAY order expires. A UTC calendar date is a
+/// crude stand-in for an exchange session, and it is used here only because
+/// this build has no exchange calendar and inventing one would be worse.
+[[nodiscard]] constexpr std::int64_t day_number(Timestamp ts) noexcept {
+    const std::int64_t q = ts / kDay;
+    return (ts % kDay != 0 && ts < 0) ? q - 1 : q;
+}
+
 }  // namespace time
 
 [[nodiscard]] constexpr Side opposite(Side s) noexcept {

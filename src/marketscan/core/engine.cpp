@@ -127,6 +127,10 @@ bool Engine::step() {
     // the previous one.
     clock_.advance_to(event.ts());
 
+    // The book moves before anything is told about the event, so that a
+    // strategy and the fill model pricing its order see the same market.
+    market_.apply(event);
+
     if (!stats_.started) {
         stats_.first_event_ts = event.ts();
         stats_.started = true;
@@ -191,6 +195,7 @@ bool Engine::reset() {
     }
 
     clock_.reset(0);
+    market_.clear();
     stats_ = EngineStats{};
     primed_ = false;
     return true;

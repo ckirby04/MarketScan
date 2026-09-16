@@ -76,6 +76,11 @@ typedef struct {
     MS_Nanos ts;
     MS_SymbolId symbol;
     uint64_t order_id;
+    /* The strategy's own id from the originating MS_OrderRequest, echoed back
+       so a strategy can match a fill to its intent without keeping a map from
+       engine order ids. Added before the ABI froze; MS_OrderRequest always
+       promised this would come back and there was nowhere for it to arrive. */
+    uint64_t client_order_id;
     MS_Side side;
     double price, quantity;
     MS_Money commission;
@@ -201,7 +206,7 @@ typedef void* (*MS_PluginCreateFn)(MS_StrategyVTable*);
 static_assert(sizeof(MS_Bar) == 56, "MS_Bar layout changed; bump MS_ABI_VERSION");
 static_assert(sizeof(MS_Quote) == 48, "MS_Quote layout changed; bump MS_ABI_VERSION");
 static_assert(sizeof(MS_Trade) == 40, "MS_Trade layout changed; bump MS_ABI_VERSION");
-static_assert(sizeof(MS_Fill) == 56, "MS_Fill layout changed; bump MS_ABI_VERSION");
+static_assert(sizeof(MS_Fill) == 64, "MS_Fill layout changed; bump MS_ABI_VERSION");
 static_assert(sizeof(MS_OrderRequest) == 40, "MS_OrderRequest layout changed; bump MS_ABI_VERSION");
 static_assert(sizeof(MS_Nanos) == 8, "MS_Nanos must be 64-bit");
 static_assert(sizeof(MS_Money) == 8, "MS_Money must be 64-bit");

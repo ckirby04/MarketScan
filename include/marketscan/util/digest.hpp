@@ -111,6 +111,7 @@ public:
         absorb_i64(fill.ts);
         absorb_u32(fill.symbol);
         absorb_u64(fill.order_id);
+        absorb_u64(fill.client_order_id);
         absorb_u32(static_cast<std::uint32_t>(fill.side));
         absorb_double(fill.price);
         absorb_double(fill.quantity);
