@@ -36,6 +36,10 @@ replays market data through all of them at once, and prints what happened.
   --compare-fills       Also run against the optimistic fill model and print
                         the difference. That difference is what a backtest
                         built on naive fills awards itself for free.
+  --autoplay            Start replaying as soon as the window opens (GUI only).
+  --speed <n>           Replay speed multiplier for the GUI. 0 is unthrottled.
+  --headless            Print the results to the terminal instead of opening
+                        the dashboard. Implied by builds without the GUI.
   --list                List the theories found, then stop.
   --verbose             Debug-level logging.
   -h, --help            This.
@@ -185,6 +189,18 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
             out.verbose = true;
         } else if (argument == "--compare-fills") {
             out.compare_fill_models = true;
+        } else if (argument == "--autoplay") {
+            out.autoplay = true;
+        } else if (argument == "--speed") {
+            const char* value = need_value(i, "--speed");
+            if (value == nullptr) {
+                return false;
+            }
+            if (!parse_double(value, out.speed)) {
+                std::cerr << "marketscan: '" << value << "' is not a number\n";
+                exit_code = 2;
+                return false;
+            }
         } else if (argument == "--data") {
             const char* value = need_value(i, "--data");
             if (value == nullptr) {

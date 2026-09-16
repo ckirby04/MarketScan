@@ -40,6 +40,11 @@ struct UiState {
     bool equity_normalised = true;
     bool equity_show_benchmark = true;
 
+    /// Keep the chart fitted to the data. On by default: a normalised curve
+    /// sits close to 1.0, and an axis starting at zero flattens every theory
+    /// into one line.
+    bool equity_autofit = true;
+
     /// Series the legend has switched off, by theory id.
     std::vector<std::string> hidden_series;
 

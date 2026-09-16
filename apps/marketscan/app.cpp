@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
+#include <iterator>
 
 #include <imgui.h>
 #include <imgui_internal.h>  // DockBuilder, for the default layout
@@ -32,6 +34,26 @@ void glfw_error_callback(int code, const char* description) {
 struct SpeedPreset {
     const char* label;
     double multiplier;
+};
+
+/// Every dockable panel, by window title.
+///
+/// Used both to lay the default arrangement out and to notice a saved layout
+/// that predates one of them. Kept next to the layout builder so the two
+/// cannot drift apart.
+constexpr const char* kPanelTitles[] = {
+    "Leaderboard",
+    "Plugin Manager",
+    "Equity Curves",
+    "Drawdown",
+    "Relative Strength",
+    "Correlation",
+    "Theory Detail",
+    "Positions & P&L",
+    "Transport",
+    "Blotter",
+    "Latency",
+    "Log",
 };
 
 constexpr SpeedPreset kSpeeds[] = {
@@ -66,12 +88,44 @@ bool Application::initialise() {
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
+    // Never larger than the display. A window taller than the screen puts its
+    // status bar under the taskbar, where the one line saying what went wrong
+    // is exactly what cannot be read.
+    int width = options_.width;
+    int height = options_.height;
+    int place_x = -1;
+    int place_y = -1;
+    if (GLFWmonitor* monitor = glfwGetPrimaryMonitor(); monitor != nullptr) {
+        int work_x = 0;
+        int work_y = 0;
+        int work_width = 0;
+        int work_height = 0;
+        glfwGetMonitorWorkarea(monitor, &work_x, &work_y, &work_width, &work_height);
+        if (work_width > 0 && work_height > 0) {
+            // The work area already excludes the taskbar. The margins are for
+            // the title bar and frame, which GLFW draws outside the client
+            // area sized here: without them the window is placed by the
+            // window manager wherever it likes and the status bar -- the one
+            // line saying what went wrong -- ends up under the taskbar.
+            constexpr int kFrameWidth = 16;
+            constexpr int kTitleHeight = 48;
+            width = std::min(width, work_width - 2 * kFrameWidth);
+            height = std::min(height, work_height - kTitleHeight - kFrameWidth);
+            place_x = work_x + (work_width - width) / 2;
+            place_y = work_y + kTitleHeight;
+        }
+    }
+
     const std::string title = "MarketScan " + std::string(version::kString);
-    window_ = glfwCreateWindow(options_.width, options_.height, title.c_str(), nullptr, nullptr);
+    window_ = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
     if (window_ == nullptr) {
         init_error_ = "could not create a window (no OpenGL 3.2 context available)";
         glfwTerminate();
         return false;
+    }
+
+    if (place_x >= 0 && place_y >= 0) {
+        glfwSetWindowPos(window_, place_x, place_y);
     }
 
     glfwMakeContextCurrent(window_);
@@ -107,11 +161,45 @@ bool Application::initialise() {
 
     // Built before the window is shown, so the first visible frame is already
     // laid out rather than flashing through a default arrangement.
-    layout_built_ = std::filesystem::exists(options_.layout_file);
+    //
+    // A saved layout is only kept if it knows about every panel. ImGui floats
+    // any window it has no entry for, so a layout written by a build with
+    // fewer panels leaves the new ones scattered loose over the docked ones --
+    // which looks like the application is broken rather than like it gained a
+    // feature. Rebuilding is the lesser loss.
+    layout_built_ = layout_file_covers_all_panels();
 
     session_ = std::make_unique<Session>(options_.session);
+    session_->set_speed(options_.speed);
+    if (options_.autoplay) {
+        session_->play();
+    }
 
     glfwShowWindow(window_);
+    return true;
+}
+
+bool Application::layout_file_covers_all_panels() const {
+    std::error_code ec;
+    if (!std::filesystem::exists(options_.layout_file, ec)) {
+        return false;
+    }
+
+    std::ifstream file(options_.layout_file);
+    if (!file) {
+        return false;
+    }
+    const std::string contents((std::istreambuf_iterator<char>(file)),
+                               std::istreambuf_iterator<char>());
+
+    for (const char* title : kPanelTitles) {
+        if (contents.find(std::string("[Window][") + title + "]") == std::string::npos) {
+            log::info("app",
+                      std::string("saved layout predates the '") + title +
+                          "' panel; rebuilding the default arrangement");
+            return false;
+        }
+    }
     return true;
 }
 
@@ -210,8 +298,12 @@ void Application::draw_frame() {
         layout_built_ = true;
         ui_.request_reset_layout = false;
     }
-    // Leave room for the status bar at the bottom.
-    const float status_height = ImGui::GetFrameHeight();
+    // Leave room for the status bar at the bottom. That bar is a separator and
+    // a line of text, so the reservation has to cover the spacing either side
+    // of the separator as well -- reserving the text height alone clips the
+    // status line in half against the bottom of the window.
+    const float status_height =
+        ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2.0F;
     ImGui::DockSpace(dockspace_id, ImVec2(0.0F, -status_height), ImGuiDockNodeFlags_None);
 
     draw_status_bar();
@@ -220,6 +312,26 @@ void Application::draw_frame() {
     // --- Panels ---------------------------------------------------------
     panels::Context context{*session_, *snapshot, ui_};
     panels::draw_all(context);
+
+    // Bring the default tabs to the front, now that the panels exist.
+    //
+    // ImGui hands a dock node's tab selection to whichever of that node's
+    // windows holds the keyboard focus, and on the frame the panels first
+    // appear that is the last one drawn -- the log. So the selection written
+    // in build_default_layout survives in every node except the one the log
+    // is in, and that node has to be claimed by focusing into it instead.
+    //
+    // Two frames apart, and in this order: focusing the leaderboard hands the
+    // bottom node back, and focusing the equity chart afterwards moves the
+    // focus out of that node without disturbing the selection it just made.
+    if (default_focus_stage_ > 0) {
+        --default_focus_stage_;
+        if (default_focus_stage_ == 2) {
+            ImGui::SetWindowFocus("Leaderboard");
+        } else if (default_focus_stage_ == 0) {
+            ImGui::SetWindowFocus("Equity Curves");
+        }
+    }
 
     if (ui_.request_quit) {
         running_ = false;
@@ -423,43 +535,66 @@ void Application::build_default_layout(unsigned int dockspace_id) {
     // The arrangement a person would build for themselves, and the one Reset
     // Layout restores:
     //
-    //   left     leaderboard over plugin manager -- what is loaded, and how
-    //            each one is doing
+    //   left     the plugin manager -- what is loaded, and why anything is not
     //   centre   the charts, tabbed
     //   right    detail and positions for whichever theory is selected
-    //   bottom   transport, blotter, latency and log, tabbed
+    //   bottom   leaderboard, blotter, transport, latency and log, tabbed
     //
-    // The charts are tabbed rather than tiled on purpose: four plots at a
-    // quarter size each are four plots nobody can read.
+    // Two things this gets right that the obvious arrangement does not. The
+    // charts are tabbed rather than tiled: four plots at a quarter size each
+    // are four plots nobody can read. And the leaderboard runs along the
+    // bottom rather than down the side, because it is a wide table -- eight
+    // columns in a sidebar truncates every one of them to an ellipsis.
     ImGuiID centre = id;
     const ImGuiID left =
-        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.22F, nullptr, &centre);
+        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.20F, nullptr, &centre);
     const ImGuiID right =
-        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.27F, nullptr, &centre);
+        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26F, nullptr, &centre);
     const ImGuiID bottom =
-        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.34F, nullptr, &centre);
-    const ImGuiID left_bottom =
-        ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.45F, nullptr, nullptr);
-    const ImGuiID right_bottom =
-        ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45F, nullptr, nullptr);
+        ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.36F, nullptr, &centre);
 
-    ImGui::DockBuilderDockWindow("Leaderboard", left);
-    ImGui::DockBuilderDockWindow("Plugin Manager", left_bottom);
+    // The remaining half of the split has to be captured. Splitting a node
+    // turns it into a parent, and DockBuilderDockWindow only accepts leaves --
+    // so docking into `right` after splitting it silently does nothing, and
+    // the window ends up floating over the layout instead.
+    ImGuiID right_top = 0;
+    const ImGuiID right_bottom =
+        ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45F, nullptr, &right_top);
+
+    ImGui::DockBuilderDockWindow("Plugin Manager", left);
 
     ImGui::DockBuilderDockWindow("Equity Curves", centre);
     ImGui::DockBuilderDockWindow("Drawdown", centre);
     ImGui::DockBuilderDockWindow("Relative Strength", centre);
     ImGui::DockBuilderDockWindow("Correlation", centre);
 
-    ImGui::DockBuilderDockWindow("Theory Detail", right);
+    ImGui::DockBuilderDockWindow("Theory Detail", right_top);
     ImGui::DockBuilderDockWindow("Positions & P&L", right_bottom);
 
-    ImGui::DockBuilderDockWindow("Transport", bottom);
+    ImGui::DockBuilderDockWindow("Leaderboard", bottom);
     ImGui::DockBuilderDockWindow("Blotter", bottom);
+    ImGui::DockBuilderDockWindow("Transport", bottom);
     ImGui::DockBuilderDockWindow("Latency", bottom);
     ImGui::DockBuilderDockWindow("Log", bottom);
 
     ImGui::DockBuilderFinish(id);
+
+    // Choose which tab each tabbed node opens on, or the application starts up
+    // looking at the log instead of at the results. A docked window's tab id
+    // is its window id, which is the hash of its name.
+    //
+    // This is not the whole story -- see draw_frame, which finishes the job
+    // for whichever node holds the keyboard focus -- but it is what stops the
+    // other nodes flickering through a tab nobody asked for on the way.
+    const auto open_on = [](ImGuiID node_id, const char* window_name) {
+        if (ImGuiDockNode* node = ImGui::DockBuilderGetNode(node_id); node != nullptr) {
+            node->SelectedTabId = ImHashStr(window_name);
+        }
+    };
+    open_on(centre, "Equity Curves");
+    open_on(bottom, "Leaderboard");
+
+    default_focus_stage_ = 3;
 }
 
 }  // namespace marketscan::app

@@ -73,7 +73,9 @@ void drawdown(Context& context) {
                 "people stop before that.");
 
     if (ImPlot::BeginPlot("##drawdown", ImVec2(-1, -1))) {
-        ImPlot::SetupAxes("Time", "Below peak", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
+        // Fitted for the same reason as the equity chart: a shallow drawdown
+        // against a zero-anchored axis is invisible.
+        ImPlot::SetupAxes("Time", "Below peak", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
         ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
         ImPlot::SetupAxisFormat(ImAxis_Y1, "%.1f%%");
         ImPlot::SetupLegend(ImPlotLocation_SouthWest, ImPlotLegendFlags_None);
@@ -160,7 +162,7 @@ void relative_strength(Context& context) {
                 "hides completely -- two lines both going up look like two successes.");
 
     if (ImPlot::BeginPlot("##relative", ImVec2(-1, -1))) {
-        ImPlot::SetupAxes("Time", "Ratio", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
+        ImPlot::SetupAxes("Time", "Ratio", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
         ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
         ImPlot::SetupLegend(ImPlotLocation_NorthWest, ImPlotLegendFlags_None);
 

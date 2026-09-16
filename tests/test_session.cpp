@@ -277,23 +277,38 @@ TEST_CASE("rescanning reloads the theories and rebuilds the run", "[session]") {
 // first.
 TEST_CASE("a theory can be unloaded and loaded again", "[session][plugin]") {
     Session session(small_config());
-    wait_for(session, has_strategies);
+    const auto before = wait_for(session, has_strategies);
+    const std::size_t started_with = before->strategies.size();
+    REQUIRE(started_with >= 1);
 
+    // Deliberately not written as "unload the only theory": the folder gains
+    // theories over time, and a test that assumes it holds exactly one breaks
+    // the moment somebody adds the second.
     session.unload_plugin("buy_and_hold");
-    const auto unloaded =
-        wait_for(session, [](const SessionSnapshot& s) { return s.strategies.empty(); });
-    REQUIRE(unloaded->strategies.empty());
+    const auto unloaded = wait_for(session, [started_with](const SessionSnapshot& s) {
+        return s.strategies.size() == started_with - 1;
+    });
+    REQUIRE(unloaded->strategies.size() == started_with - 1);
 
+    for (const StrategySnapshot& row : unloaded->strategies) {
+        REQUIRE(row.id != "buy_and_hold");
+    }
+
+    bool saw_it = false;
     for (const PluginInfo& info : session.plugins()) {
         if (info.id == "buy_and_hold") {
+            saw_it = true;
             REQUIRE(info.state == PluginState::Discovered);
             REQUIRE(info.live_instances == 0);
         }
     }
+    REQUIRE(saw_it);
 
     session.rescan_theories();
-    const auto reloaded = wait_for(session, has_strategies);
-    REQUIRE_FALSE(reloaded->strategies.empty());
+    const auto reloaded = wait_for(session, [started_with](const SessionSnapshot& s) {
+        return s.strategies.size() == started_with;
+    });
+    REQUIRE(reloaded->strategies.size() == started_with);
 }
 
 TEST_CASE("a parameter can be changed while the session is live", "[session][plugin]") {

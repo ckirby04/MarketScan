@@ -1,0 +1,1 @@
+marketscan_add_theory(sma_crossover SOURCES sma_crossover.cpp)

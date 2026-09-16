@@ -9,6 +9,7 @@
 // exist it becomes the order log as well.
 
 #include <cmath>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -18,6 +19,7 @@
 #include "marketscan/core/engine.hpp"
 #include "marketscan/core/random.hpp"
 #include "marketscan/data/synthetic_feed.hpp"
+#include "marketscan/run/backtest.hpp"
 #include "marketscan/util/digest.hpp"
 
 using namespace marketscan;
@@ -284,4 +286,150 @@ TEST_CASE("event count is stable across runs", "[determinism]") {
     // 3 sessions * 120 bars * 2 instruments * (quote + bar)
     REQUIRE(sink.count() == 3 * 120 * 2 * 2);
     REQUIRE(engine.stats().events_dispatched == sink.count());
+}
+
+// --------------------------------------------------------------------------
+// The order log
+// --------------------------------------------------------------------------
+//
+// The contract as the specification states it: run the same replay twice, hash
+// the serialized order stream, assert equality. Until M4 there were no orders
+// to hash; now two theories trade, one of them twenty times, so this covers the
+// whole path -- feed, engine, strategy, fill model, ledger.
+
+namespace {
+
+/// Hashes every fill of every theory, in order, field by field.
+///
+/// Field by field rather than by hashing raw bytes: a struct carries alignment
+/// padding that belongs to no field, and folding it in would make the digest
+/// depend on whatever was previously in that memory.
+[[nodiscard]] std::string digest_orders(const run::BacktestResult& result) {
+    Digest digest;
+    digest.absorb_u64(result.events);
+
+    for (const run::TheoryResult& theory : result.theories) {
+        digest.absorb_bytes(theory.id);
+        digest.absorb_money(theory.final_equity);
+        digest.absorb_money(theory.cash);
+        digest.absorb_money(theory.realized_pnl);
+        digest.absorb_money(theory.commission);
+        digest.absorb_u64(theory.trades);
+        digest.absorb_u64(theory.rejected);
+
+        for (const TradeRecord& trade : theory.blotter) {
+            digest.absorb_i64(trade.ts);
+            digest.absorb_u64(trade.order_id);
+            digest.absorb_u64(trade.client_order_id);
+            digest.absorb_u32(trade.symbol);
+            digest.absorb_u32(static_cast<std::uint32_t>(trade.side));
+            digest.absorb_double(trade.quantity);
+            digest.absorb_double(trade.reference_price);
+            digest.absorb_double(trade.fill_price);
+            digest.absorb_money(trade.slippage);
+            digest.absorb_money(trade.commission);
+            digest.absorb_money(trade.cash_delta);
+            digest.absorb_money(trade.realized_pnl);
+        }
+    }
+    return digest.to_hex();
+}
+
+[[nodiscard]] run::BacktestConfig backtest_config(std::uint64_t seed = 0xC0FF'EE00'1234'5678ULL) {
+    run::BacktestConfig config;
+    config.data_file = std::filesystem::path(MARKETSCAN_TEST_DATA_DIR) / "synthetic_spy_1min.csv";
+    config.theory_roots = {std::filesystem::path(MARKETSCAN_THEORY_DIR)};
+    config.seed = seed;
+    config.starting_cash = Money::from_dollars(100'000);
+    return config;
+}
+
+}  // namespace
+
+TEST_CASE("the same replay produces the same order log twice", "[determinism]") {
+    const run::BacktestResult first = run::run_backtest(backtest_config());
+    const run::BacktestResult second = run::run_backtest(backtest_config());
+
+    REQUIRE(first.ok());
+    REQUIRE_FALSE(first.theories.empty());
+
+    // Not a vacuous pass: something actually traded.
+    std::size_t total_trades = 0;
+    for (const run::TheoryResult& theory : first.theories) {
+        total_trades += theory.trades;
+    }
+    INFO("theories: " << first.theories.size() << ", trades: " << total_trades);
+    REQUIRE(total_trades > 0);
+
+    REQUIRE(digest_orders(first) == digest_orders(second));
+}
+
+TEST_CASE("a third and fourth run agree with the first", "[determinism]") {
+    // Three more, because a bug that only shows up sometimes is the one worth
+    // catching, and two runs agreeing can be luck.
+    const std::string expected = digest_orders(run::run_backtest(backtest_config()));
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        INFO("attempt " << attempt);
+        REQUIRE(digest_orders(run::run_backtest(backtest_config())) == expected);
+    }
+}
+
+TEST_CASE("every theory's ledger balances after a full replay", "[determinism][ledger]") {
+    const run::BacktestResult result = run::run_backtest(backtest_config());
+    REQUIRE(result.ok());
+
+    for (const run::TheoryResult& theory : result.theories) {
+        INFO("theory " << theory.id);
+        REQUIRE(theory.invariant_held);
+        // A cash account never goes negative.
+        REQUIRE(theory.cash >= Money{});
+    }
+}
+
+// The calibration claim, asserted rather than left in a README: the optimistic
+// model must produce a *better* result than the realistic one, and the gap must
+// grow with how often a theory trades. If these ever fail, the fill simulator
+// has stopped charging for the spread.
+TEST_CASE("optimistic fills flatter every theory, most where it trades most",
+          "[determinism][fills]") {
+    run::BacktestConfig optimistic = backtest_config();
+    optimistic.optimistic_fills = true;
+
+    const run::BacktestResult honest = run::run_backtest(backtest_config());
+    const run::BacktestResult wishful = run::run_backtest(optimistic);
+
+    REQUIRE(honest.ok());
+    REQUIRE(wishful.ok());
+
+    Money biggest_gap;
+    std::size_t busiest_trades = 0;
+    std::string busiest;
+
+    for (const run::TheoryResult& theory : honest.theories) {
+        const run::TheoryResult* other = wishful.find(theory.id);
+        REQUIRE(other != nullptr);
+        INFO("theory " << theory.id);
+
+        // Same decisions, cheaper fills: never worse off.
+        REQUIRE(other->final_equity >= theory.final_equity);
+        REQUIRE(other->slippage < theory.slippage);
+
+        const Money gap = other->final_equity - theory.final_equity;
+        if (theory.trades > busiest_trades) {
+            busiest_trades = theory.trades;
+            busiest = theory.id;
+            biggest_gap = gap;
+        }
+    }
+
+    // The theory that trades most is the one the assumption flatters most.
+    for (const run::TheoryResult& theory : honest.theories) {
+        if (theory.id == busiest) {
+            continue;
+        }
+        const Money gap = wishful.find(theory.id)->final_equity - theory.final_equity;
+        INFO(busiest << " (" << busiest_trades << " trades) vs " << theory.id << " ("
+                     << theory.trades << " trades)");
+        REQUIRE(biggest_gap > gap);
+    }
 }

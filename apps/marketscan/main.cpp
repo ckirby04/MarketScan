@@ -63,6 +63,8 @@ int main(int argc, char** argv) {
         app_options.session.seed = options.seed;
         app_options.session.starting_cash = marketscan::Money::from_double(options.starting_cash);
         app_options.session.theory_roots = marketscan::PluginLoader::default_roots(executable_dir);
+        app_options.autoplay = options.autoplay;
+        app_options.speed = options.speed;
         app_options.assets_dir = executable_dir / "assets";
         app_options.layout_file = executable_dir / "imgui.ini";
 

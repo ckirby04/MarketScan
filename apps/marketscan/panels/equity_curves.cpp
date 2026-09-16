@@ -44,6 +44,11 @@ void equity_curves(Context& context) {
     ImGui::SameLine();
     ImGui::Checkbox("Benchmark", &ui.equity_show_benchmark);
 
+    ImGui::SameLine();
+    ImGui::Checkbox("Fit", &ui.equity_autofit);
+    help_marker("Keep both axes fitted to the data. Turn it off to zoom and pan: a "
+                "fitted axis re-fits every frame and undoes the drag.");
+
     if (!snapshot.fill_model_realistic) {
         ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Text, theme::colors().warning);
@@ -55,7 +60,17 @@ void equity_curves(Context& context) {
     const char* y_label = ui.equity_normalised ? "Growth of 1" : "Equity";
 
     if (ImPlot::BeginPlot("##equity", ImVec2(-1, -1))) {
-        ImPlot::SetupAxes("Time", y_label, ImPlotAxisFlags_None, ImPlotAxisFlags_None);
+        // Fitting to the data matters more here than anywhere else in the
+        // application. A normalised curve sits a percent or two either side of
+        // 1.0, and an axis that starts at zero renders every theory as one
+        // flat line across the top -- which is not a chart, it is a claim that
+        // nothing happened.
+        //
+        // It is a control rather than a rule because a fitted axis cannot be
+        // zoomed: ImPlot re-fits every frame and undoes the drag.
+        const ImPlotAxisFlags fit =
+            ui.equity_autofit ? ImPlotAxisFlags_AutoFit : ImPlotAxisFlags_None;
+        ImPlot::SetupAxes("Time", y_label, fit, fit);
         // The x axis is seconds since the Unix epoch, which is exactly what
         // ImPlot's time formatter expects, so the ticks read as clock times
         // rather than as a count of seconds.
@@ -116,12 +131,15 @@ void equity_curves(Context& context) {
             ImPlotSpec marker;
             marker.LineColor = ImGui::ColorConvertU32ToFloat4(theme::colors().accent_dim);
             marker.LineWeight = 1.0F;
-            marker.Flags = ImPlotItemFlags_NoLegend;
+            // NoLegend keeps it out of the key; NoFit is the important one.
+            // Drawn as a segment spanning the current limits it would be
+            // counted towards the fit, and the fit would then reproduce those
+            // same limits on the next frame -- so the axis would stay stuck at
+            // whatever range the plot happened to open with, forever.
+            marker.Flags = ImPlotItemFlags_NoLegend | ImPlotItemFlags_NoFit;
 
-            double xs[2] = {now, now};
-            const ImPlotRect limits = ImPlot::GetPlotLimits();
-            double ys[2] = {limits.Y.Min, limits.Y.Max};
-            ImPlot::PlotLine("##now", xs, ys, 2, marker);
+            double xs[1] = {now};
+            ImPlot::PlotInfLines("##now", xs, 1, marker);
         }
 
         if (!drew_anything) {

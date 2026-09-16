@@ -26,6 +26,12 @@ struct AppOptions {
 
     int width = 1680;
     int height = 980;
+
+    /// Begin replaying as soon as the window is up.
+    bool autoplay = false;
+
+    /// Initial replay speed. Zero is unthrottled.
+    double speed = 0.0;
 };
 
 /// The desktop application.
@@ -60,6 +66,9 @@ private:
     /// Arranges the panels the first time, and whenever Reset Layout is used.
     void build_default_layout(unsigned int dockspace_id);
 
+    /// Whether the saved layout knows about every panel this build has.
+    [[nodiscard]] bool layout_file_covers_all_panels() const;
+
     AppOptions options_;
     std::unique_ptr<Session> session_;
     UiState ui_;
@@ -70,6 +79,10 @@ private:
     std::string layout_path_;
 
     bool layout_built_ = false;
+
+    /// Frames left in the sequence that brings the default tabs to the front
+    /// after the layout is built. Zero means nothing is pending.
+    int default_focus_stage_ = 0;
     bool running_ = true;
     std::string init_error_;
 };

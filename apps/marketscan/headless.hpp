@@ -32,6 +32,14 @@ struct HeadlessOptions {
     bool compare_fill_models = false;
 
     bool verbose = false;
+
+    /// Start the replay as soon as the window opens, instead of waiting for
+    /// the play button. For demonstrations and for capturing screenshots of a
+    /// dashboard that has something on it.
+    bool autoplay = false;
+
+    /// Replay speed multiplier for the GUI. Zero means as fast as possible.
+    double speed = 0.0;
 };
 
 /// Parses argv. Returns false when the program should stop -- either because
