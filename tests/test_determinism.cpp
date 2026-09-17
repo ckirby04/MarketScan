@@ -672,3 +672,65 @@ TEST_CASE("two theories drawing at once do not perturb each other", "[determinis
     // room, interleaved with him on every bar.
     REQUIRE(alone[0] == together[0]);
 }
+
+// --------------------------------------------------------------------------
+// The reference theories have not moved
+// --------------------------------------------------------------------------
+//
+// buy_and_hold and sma_crossover were built, run and documented under Spec 1.
+// Their numbers are quoted in the README, in the notebook and in a commit
+// message, and the sma_crossover calibration -- $1,082 of imaginary profit on
+// optimistic fills -- is the single number this project points at to justify
+// its fill model.
+//
+// Every milestone after them is therefore working underneath a published
+// result. This test pins that result to the micro-dollar. It is deliberately
+// not a digest: when it fails, the person reading the failure needs to see
+// which number moved and by how much, not that sixteen hex characters differ.
+//
+// If it fails and the change was intended, the right response is to update
+// these numbers AND every place the old ones are quoted, in the same commit.
+
+TEST_CASE("the reference theories return exactly what they did at Spec 1",
+          "[determinism][golden]") {
+    const run::BacktestResult result = run::run_backtest(backtest_config());
+    REQUIRE(result.ok());
+    REQUIRE(result.theories.size() == 2);
+
+    struct Golden {
+        const char* id;
+        std::int64_t equity_micros;
+        std::int64_t cash_micros;
+        std::int64_t realized_micros;
+        std::int64_t commission_micros;
+        std::int64_t slippage_micros;
+        std::size_t trades;
+    };
+
+    static constexpr Golden kExpected[] = {
+        {"buy_and_hold", 97'936'383'577, 1'074'608'577, 0, 970'000, 56'337'223, 1},
+        {"sma_crossover",
+         98'647'111'406,
+         98'647'111'406,
+         -1'333'738'594,
+         19'150'000,
+         1'084'257'794,
+         20},
+    };
+
+    for (const Golden& expected : kExpected) {
+        const run::TheoryResult* actual = result.find(expected.id);
+        REQUIRE(actual != nullptr);
+        INFO(expected.id << " equity=" << actual->final_equity.micros() << " cash="
+                         << actual->cash.micros() << " realized=" << actual->realized_pnl.micros()
+                         << " commission=" << actual->commission.micros() << " slippage="
+                         << actual->slippage.micros() << " trades=" << actual->trades);
+        REQUIRE(actual->trades == expected.trades);
+        REQUIRE(actual->final_equity.micros() == expected.equity_micros);
+        REQUIRE(actual->cash.micros() == expected.cash_micros);
+        REQUIRE(actual->realized_pnl.micros() == expected.realized_micros);
+        REQUIRE(actual->commission.micros() == expected.commission_micros);
+        REQUIRE(actual->slippage.micros() == expected.slippage_micros);
+        REQUIRE(actual->invariant_held);
+    }
+}

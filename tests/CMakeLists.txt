@@ -30,6 +30,15 @@ marketscan_add_theory(test_plugin_dice_roller
     SOURCES plugins/dice_roller.cpp
     OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
 
+# Session boundaries are detected inside the plugin's own shim layer, so the
+# only honest way to test them is across a real DLL boundary.
+marketscan_add_theory(test_plugin_session_watcher
+    SOURCES plugins/session_watcher.cpp
+    OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
+marketscan_add_theory(test_plugin_cross_section
+    SOURCES plugins/cross_section_probe.cpp
+    OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
+
 
 # Every test binary is registered with ctest through catch_discover_tests so a
 # failing assertion names the exact test case rather than just the executable.
@@ -54,7 +63,9 @@ function(marketscan_add_test name)
         test_plugin_null_create
         test_plugin_empty_id
         test_plugin_no_exports
-        test_plugin_dice_roller)
+        test_plugin_dice_roller
+        test_plugin_session_watcher
+        test_plugin_cross_section)
     if(TARGET buy_and_hold)
         add_dependencies(${name} buy_and_hold)
     endif()
@@ -70,6 +81,7 @@ endfunction()
 marketscan_add_test(test_smoke       test_smoke.cpp)
 marketscan_add_test(test_money       test_money.cpp)
 marketscan_add_test(test_time        test_time.cpp)
+marketscan_add_test(test_session_calendar test_session_calendar.cpp)
 marketscan_add_test(test_ring_buffer test_ring_buffer.cpp)
 marketscan_add_test(test_engine      test_engine.cpp)
 marketscan_add_test(test_feeds       test_feeds.cpp)
@@ -79,4 +91,5 @@ marketscan_add_test(test_ledger      test_ledger.cpp)
 marketscan_add_test(test_plugin_loader test_plugin_loader.cpp)
 marketscan_add_test(test_metrics     test_metrics.cpp)
 marketscan_add_test(test_session     test_session.cpp)
+marketscan_add_test(test_sessions    test_sessions.cpp)
 marketscan_add_test(test_hot_path    test_hot_path.cpp)
