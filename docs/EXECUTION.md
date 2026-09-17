@@ -173,8 +173,30 @@ Turning latency on changes the results, and not always for the worse. On the
 committed sample `sma_crossover` reports a *smaller* loss with 250ms of latency
 than without it, and its slippage column goes negative.
 
-That is not an argument for latency. It is one synthetic price path, and
-slippage measured against the decision price is two-sided once orders take time
-to arrive: sometimes the market moves your way while the order is in the air.
-On one path, with twenty decisions, that is noise. Reading it as anything else
-is the same mistake as reading an optimistic-fill backtest as a result.
+That is not a finding. It is one synthetic price path.
+
+**Why it happens here.** The sample is geometric Brownian motion. Price drift
+over a flight window of a few hundred milliseconds is zero-mean by
+construction, so latency makes slippage measured against the decision price
+*two-sided* — sometimes the market moves your way while the order is in the
+air, sometimes against — with unchanged expectation and added variance. Over
+twenty decisions a favourable draw is unremarkable.
+
+That is not a claim about the simulator, so it was measured rather than
+asserted. `scripts/latency_sweep.py` runs the comparison across 200 seeds and
+reports the distribution; the result is in
+[`LATENCY_DISTRIBUTION.md`](LATENCY_DISTRIBUTION.md). A distribution centred
+away from zero would have meant the simulator was doing something systematic
+and would have been a bug worth finding.
+
+**Why it does not generalise.** On real data latency acquires a sign, and the
+sign is a property of the strategy rather than of the engine. A signal that
+fires *on* a move gets systematically worse fills during flight in a market
+with short-horizon continuation, and systematically better ones in a
+mean-reverting market. Synthetic GBM has neither, which is precisely why it
+shows neither.
+
+So the sign and the magnitude of the latency effect on real data are an
+empirical property of the strategy and its horizon. **Deferred, not
+concluded.** Nothing in this repository is entitled to an opinion about it
+yet, and the free data stack is not the thing that will settle it.
