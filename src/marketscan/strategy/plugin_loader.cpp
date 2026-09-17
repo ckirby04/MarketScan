@@ -1,5 +1,7 @@
 #include "marketscan/strategy/plugin_loader.hpp"
 
+#include "marketscan/abi/abi_compat.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -597,10 +599,22 @@ bool PluginLoader::load_file(const std::filesystem::path& path) {
         return fail_and_close("ms_plugin_abi_version faulted");
     }
     info.abi_version = plugin_abi;
-    if (plugin_abi != MS_ABI_VERSION) {
-        return fail_and_close("ABI version mismatch: plugin reports " + std::to_string(plugin_abi) +
-                              ", this host speaks " + std::to_string(MS_ABI_VERSION) +
-                              ". Rebuild the theory.");
+
+    // Older is loadable; newer is not, and the asymmetry is not politeness.
+    // ms_plugin_create has the plugin write into a struct the host declared,
+    // so a plugin built against a larger vtable writes past the end of it --
+    // silently, before any callback runs. That has to be refused here, on the
+    // declared version, because after create there is nothing left to save.
+    if (!abi::is_supported(plugin_abi)) {
+        if (plugin_abi > MS_ABI_VERSION) {
+            return fail_and_close(
+                "plugin was built against a newer ABI, v" + std::to_string(plugin_abi) +
+                " and this host speaks v" + std::to_string(MS_ABI_VERSION) +
+                ". Refusing to load it: its vtable is larger than this host's and "
+                "letting it write one would corrupt memory. Update MarketScan.");
+        }
+        return fail_and_close("plugin reports ABI v" + std::to_string(plugin_abi) +
+                              ", which this host does not recognise. Rebuild the theory.");
     }
 
     // --- Describe -------------------------------------------------------
@@ -616,9 +630,13 @@ bool PluginLoader::load_file(const std::filesystem::path& path) {
     if (!guarded_snapshot(desc, snapshot.get())) {
         return fail_and_close("ms_plugin_describe returned an unreadable descriptor");
     }
-    if (snapshot->abi_version != MS_ABI_VERSION) {
+    if (snapshot->abi_version != plugin_abi) {
+        // The exported function and the descriptor disagree about what the
+        // plugin is. One of them is wrong and there is no way to tell which,
+        // so neither is trusted.
         return fail_and_close("descriptor ABI version is " + std::to_string(snapshot->abi_version) +
-                              ", expected " + std::to_string(MS_ABI_VERSION));
+                              " but ms_plugin_abi_version reported " + std::to_string(plugin_abi) +
+                              "; the plugin disagrees with itself");
     }
     if (snapshot->id[0] == '\0') {
         return fail_and_close("descriptor has an empty id");
@@ -790,6 +808,8 @@ PluginInstance PluginLoader::create(std::string_view id) {
         return instance;
     }
 
+    // Zeroed before the plugin sees it, so every slot an older plugin does
+    // not know about stays null rather than holding whatever was on the stack.
     MS_StrategyVTable vtable{};
     void* self = nullptr;
     if (!guarded_create(create_fn, &vtable, &self)) {
@@ -802,6 +822,10 @@ PluginInstance PluginLoader::create(std::string_view id) {
         info->error = "ms_plugin_create returned null; the theory's constructor refused";
         return instance;
     }
+
+    // Nothing past what this plugin's declared version defines is callable,
+    // whatever it wrote there.
+    abi::trim_to_version(vtable, info->abi_version);
     if (vtable.destroy == nullptr) {
         // Without destroy there is no way to free the instance. Leaking it is
         // the lesser evil compared to guessing at how to delete it.

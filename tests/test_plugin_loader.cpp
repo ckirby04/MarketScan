@@ -144,8 +144,10 @@ TEST_CASE("an instance can be created and its parameters read back", "[plugin]")
 // --------------------------------------------------------------------------
 
 // The dangerous failure: every export resolves, so without the version check
-// the host would read a descriptor whose fields are at the wrong offsets.
-TEST_CASE("a plugin built against another ABI is refused", "[plugin]") {
+// the host would read a descriptor whose fields are at the wrong offsets --
+// and, worse, would hand ms_plugin_create a vtable smaller than the one the
+// plugin is about to write into it.
+TEST_CASE("a plugin built against a newer ABI is refused", "[plugin][abi]") {
     const ScratchDir dir;
     dir.put("test_plugin_bad_abi.dll", "test_plugin_bad_abi.dll");
 
@@ -155,8 +157,12 @@ TEST_CASE("a plugin built against another ABI is refused", "[plugin]") {
     const PluginInfo* info = entry_for(loader, "test_plugin_bad_abi.dll");
     REQUIRE(info != nullptr);
     REQUIRE(info->state == PluginState::Failed);
-    REQUIRE_THAT(info->error, ContainsSubstring("ABI version mismatch"));
-    REQUIRE_THAT(info->error, ContainsSubstring("Rebuild the theory"));
+
+    // The message has to say which way round it is. "Version mismatch" sends
+    // the reader off to rebuild a theory that is already newer than the host.
+    REQUIRE_THAT(info->error, ContainsSubstring("newer"));
+    REQUIRE_THAT(info->error, ContainsSubstring("corrupt memory"));
+    REQUIRE_THAT(info->error, ContainsSubstring("Update MarketScan"));
 }
 
 TEST_CASE("a DLL that is not a theory is refused", "[plugin]") {

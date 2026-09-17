@@ -39,6 +39,12 @@ marketscan_add_theory(test_plugin_cross_section
     SOURCES plugins/cross_section_probe.cpp
     OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
 
+# A strategy that has to cope with an order that has not filled yet, which is
+# unreachable against a simulator that answers instantly.
+marketscan_add_theory(test_plugin_order_lifecycle
+    SOURCES plugins/order_lifecycle.cpp
+    OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
+
 
 # Every test binary is registered with ctest through catch_discover_tests so a
 # failing assertion names the exact test case rather than just the executable.
@@ -65,7 +71,8 @@ function(marketscan_add_test name)
         test_plugin_no_exports
         test_plugin_dice_roller
         test_plugin_session_watcher
-        test_plugin_cross_section)
+        test_plugin_cross_section
+        test_plugin_order_lifecycle)
     if(TARGET buy_and_hold)
         add_dependencies(${name} buy_and_hold)
     endif()
@@ -88,6 +95,7 @@ marketscan_add_test(test_feeds       test_feeds.cpp)
 marketscan_add_test(test_determinism test_determinism.cpp)
 marketscan_add_test(test_fill_model  test_fill_model.cpp)
 marketscan_add_test(test_ledger      test_ledger.cpp)
+marketscan_add_test(test_execution   test_execution.cpp)
 marketscan_add_test(test_plugin_loader test_plugin_loader.cpp)
 marketscan_add_test(test_metrics     test_metrics.cpp)
 marketscan_add_test(test_session     test_session.cpp)

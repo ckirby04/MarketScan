@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "marketscan/exec/fill_model.hpp"
 #include "marketscan/exec/ledger.hpp"
 #include "marketscan/metrics/correlation.hpp"
 #include "marketscan/metrics/performance.hpp"
@@ -57,6 +58,15 @@ struct BacktestConfig {
     bool synthesize_quotes_for_bars = true;
 
     double spread_bps = 2.0;
+
+    /// Execution realism: submit-to-fill latency, jitter, participation caps.
+    ///
+    /// Default-constructed, which is an instant simulator filling in full --
+    /// the configuration every result this project has published was produced
+    /// under, and the one the golden test pins. Turning latency on is a
+    /// deliberate act, per run, and it is meant to be: a strategy that only
+    /// works when its orders arrive instantly should find that out here.
+    FillModelConfig fills;
 };
 
 /// What one theory did.

@@ -36,6 +36,15 @@ replays market data through all of them at once, and prints what happened.
   --compare-fills       Also run against the optimistic fill model and print
                         the difference. That difference is what a backtest
                         built on naive fills awards itself for free.
+  --latency <ms>        Simulated delay between sending an order and its first
+                        chance to fill. Default 0. An order in flight is still
+                        exposed: it fills at the price when it arrives, not the
+                        price when it was sent.
+  --latency-jitter <ms> Uniform jitter added to that delay, drawn from the run
+                        seed. Deterministic; a replay reproduces it exactly.
+  --participation <f>   Largest fraction of the size shown at the touch that one
+                        event may fill, e.g. 0.25. Default 0, meaning no cap.
+                        With a cap, a large order arrives as several fills.
   --autoplay            Start replaying as soon as the window opens (GUI only).
   --speed <n>           Replay speed multiplier for the GUI. 0 is unthrottled.
   --headless            Print the results to the terminal instead of opening
@@ -231,6 +240,25 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
             } else {
                 out.seed = parsed;
             }
+        } else if (argument == "--latency" || argument == "--latency-jitter" ||
+                   argument == "--participation") {
+            const char* value = need_value(i, argv[i]);
+            if (value == nullptr) {
+                return false;
+            }
+            double parsed = 0.0;
+            if (!parse_double(value, parsed) || parsed < 0.0) {
+                std::cerr << "marketscan: '" << value << "' is not a non-negative number\n";
+                exit_code = 2;
+                return false;
+            }
+            if (argument == "--latency") {
+                out.latency_ms = parsed;
+            } else if (argument == "--latency-jitter") {
+                out.latency_jitter_ms = parsed;
+            } else {
+                out.participation = parsed;
+            }
         } else if (argument == "--cash") {
             const char* value = need_value(i, "--cash");
             if (value == nullptr) {
@@ -267,6 +295,11 @@ int run_headless(const HeadlessOptions& options, const std::filesystem::path& ex
     config.seed = options.seed;
     config.starting_cash = Money::from_double(options.starting_cash);
     config.theory_roots = PluginLoader::default_roots(executable_dir);
+    config.fills.submit_latency =
+        static_cast<Duration>(options.latency_ms * static_cast<double>(time::kMillisecond));
+    config.fills.latency_jitter =
+        static_cast<Duration>(options.latency_jitter_ms * static_cast<double>(time::kMillisecond));
+    config.fills.max_participation = options.participation;
 
     if (options.list_only) {
         PluginLoader loader(config.theory_roots);
@@ -285,6 +318,25 @@ int run_headless(const HeadlessOptions& options, const std::filesystem::path& ex
     if (honest.theories.empty()) {
         std::cout << "Nothing to run.\n";
         return 0;
+    }
+
+    if (config.fills.models_latency() || config.fills.models_partial_fills()) {
+        // Said out loud, because these numbers are not comparable with the
+        // ones in the README and nothing else on the page would say so.
+        std::cout << "Execution: ";
+        if (config.fills.models_latency()) {
+            std::cout << options.latency_ms << "ms latency";
+            if (options.latency_jitter_ms > 0.0) {
+                std::cout << " +/- " << options.latency_jitter_ms << "ms jitter";
+            }
+        }
+        if (config.fills.models_partial_fills()) {
+            if (config.fills.models_latency()) {
+                std::cout << ", ";
+            }
+            std::cout << options.participation << " participation cap";
+        }
+        std::cout << "\n\n";
     }
 
     print_results(honest, "Results (spread-crossing fills)");

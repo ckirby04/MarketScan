@@ -10,11 +10,14 @@ constexpr std::size_t kNoSource = static_cast<std::size_t>(-1);
 
 }  // namespace
 
-Engine::Engine(EngineConfig config) : config_(config) {}
+template<typename Clock>
+EngineT<Clock>::EngineT(EngineConfig config) : config_(config) {}
 
-Engine::~Engine() = default;
+template<typename Clock>
+EngineT<Clock>::~EngineT() = default;
 
-void Engine::add_source(std::unique_ptr<IEventSource> source) {
+template<typename Clock>
+void EngineT<Clock>::add_source(std::unique_ptr<IEventSource> source) {
     if (!source) {
         throw std::invalid_argument("Engine::add_source: null source");
     }
@@ -26,14 +29,16 @@ void Engine::add_source(std::unique_ptr<IEventSource> source) {
     sources_.push_back(std::move(slot));
 }
 
-void Engine::add_sink(IEventSink* sink) {
+template<typename Clock>
+void EngineT<Clock>::add_sink(IEventSink* sink) {
     if (sink == nullptr) {
         throw std::invalid_argument("Engine::add_sink: null sink");
     }
     sinks_.push_back(sink);
 }
 
-void Engine::refill(SourceSlot& slot) {
+template<typename Clock>
+void EngineT<Clock>::refill(SourceSlot& slot) {
     if (slot.exhausted) {
         return;
     }
@@ -62,7 +67,8 @@ void Engine::refill(SourceSlot& slot) {
     slot.has_pending = true;
 }
 
-std::size_t Engine::select_next() const noexcept {
+template<typename Clock>
+std::size_t EngineT<Clock>::select_next() const noexcept {
     // Linear scan. There is normally one source and rarely more than a
     // handful, so a heap would cost more in bookkeeping than it saves -- and
     // this way the tie-break is obviously registration order, which is what
@@ -83,7 +89,8 @@ std::size_t Engine::select_next() const noexcept {
     return best;
 }
 
-void Engine::dispatch(const MarketEvent& event) {
+template<typename Clock>
+void EngineT<Clock>::dispatch(const MarketEvent& event) {
     switch (event.type) {
         case EventType::Bar:
             for (IEventSink* sink : sinks_) {
@@ -107,7 +114,8 @@ void Engine::dispatch(const MarketEvent& event) {
     }
 }
 
-bool Engine::step() {
+template<typename Clock>
+bool EngineT<Clock>::step() {
     if (!primed_) {
         for (SourceSlot& slot : sources_) {
             refill(slot);
@@ -150,7 +158,8 @@ bool Engine::step() {
     return true;
 }
 
-bool Engine::has_pending_event() {
+template<typename Clock>
+bool EngineT<Clock>::has_pending_event() {
     if (!primed_) {
         for (SourceSlot& slot : sources_) {
             refill(slot);
@@ -160,14 +169,16 @@ bool Engine::has_pending_event() {
     return select_next() != kNoSource;
 }
 
-Timestamp Engine::next_event_ts() {
+template<typename Clock>
+Timestamp EngineT<Clock>::next_event_ts() {
     if (!has_pending_event()) {
         return kForever;
     }
     return sources_[select_next()].pending.ts();
 }
 
-std::uint64_t Engine::run(std::uint64_t max_events) {
+template<typename Clock>
+std::uint64_t EngineT<Clock>::run(std::uint64_t max_events) {
     std::uint64_t dispatched = 0;
     while (dispatched < max_events && step()) {
         ++dispatched;
@@ -175,7 +186,8 @@ std::uint64_t Engine::run(std::uint64_t max_events) {
     return dispatched;
 }
 
-std::uint64_t Engine::run_until(Timestamp ts) {
+template<typename Clock>
+std::uint64_t EngineT<Clock>::run_until(Timestamp ts) {
     if (!primed_) {
         for (SourceSlot& slot : sources_) {
             refill(slot);
@@ -197,7 +209,8 @@ std::uint64_t Engine::run_until(Timestamp ts) {
     return dispatched;
 }
 
-bool Engine::reset() {
+template<typename Clock>
+bool EngineT<Clock>::reset() {
     // Ask every source before rewinding any of them, so that one source
     // refusing leaves the engine exactly as it was rather than half rewound.
     for (const SourceSlot& slot : sources_) {
@@ -220,5 +233,14 @@ bool Engine::reset() {
     primed_ = false;
     return true;
 }
+
+// Both clocks, compiled on every build.
+//
+// The second one is what makes "a strategy cannot tell whether it is being
+// backtested or trading live" checkable rather than asserted: if the event
+// loop ever grows something that only a rewindable clock can do, this line
+// stops compiling, here, rather than in six months against a live venue.
+template class EngineT<SimulatedClock>;
+template class EngineT<SystemClock>;
 
 }  // namespace marketscan

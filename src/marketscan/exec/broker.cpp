@@ -36,7 +36,8 @@ OrderId Broker::submit(const MS_OrderRequest& request, Timestamp now) {
     order.request = request;
     order.submitted_ts = now;
     order.last_update_ts = now;
-    order.submitted_day = time::day_number(now);
+    order.eligible_ts = now;
+    order.submitted_day = session_day(zone_, now);
     order.status = OrderStatus::Working;
 
     const auto reject = [&](RejectReason reason) {
@@ -69,14 +70,27 @@ OrderId Broker::submit(const MS_OrderRequest& request, Timestamp now) {
     // slippage against this.
     order.reference_price = book.mid();
 
+    // Everything above is validation, and validation is instantaneous even
+    // live: a venue refuses a malformed order without the market hearing about
+    // it. Flight time is charged from here, once the order is real.
+    order.eligible_ts = now + flight_time();
+
     orders_.push_back(order);
     Order& stored = orders_.back();
 
-    const RejectReason outcome = try_fill(stored, now);
+    if (stored.eligible_ts > now) {
+        // In flight. Nothing is priced and the book has not been asked;
+        // whatever the market does between here and arrival happens to this
+        // order too. A market order waits like anything else.
+        working_.push_back(orders_.size() - 1);
+        return stored.id;
+    }
 
-    if (stored.request.type == MS_ORD_MARKET || stored.request.tif == MS_TIF_IOC) {
+    const RejectReason outcome = try_fill(stored, now);
+    if (resolves_on_arrival(stored)) {
         finalise_immediate(stored, now, outcome);
-    } else if (stored.is_working()) {
+    }
+    if (stored.is_working()) {
         working_.push_back(orders_.size() - 1);
     }
 
@@ -85,6 +99,32 @@ OrderId Broker::submit(const MS_OrderRequest& request, Timestamp now) {
         return kInvalidOrderId;
     }
     return stored.id;
+}
+
+Duration Broker::flight_time() {
+    const FillModelConfig& config = fill_model_->config();
+    if (!config.models_latency()) {
+        return 0;
+    }
+    Duration total = config.submit_latency;
+    if (config.latency_jitter > 0 && jitter_ != nullptr) {
+        // Uniform on [0, jitter), from the run's seeded stream, so a replay
+        // draws the same numbers in the same order and lands on the same
+        // fills. Jitter taken from the machine would make the result depend on
+        // how busy the machine was, which is the one thing a backtest must
+        // never do.
+        const double scale = static_cast<double>(config.latency_jitter);
+        total += static_cast<Duration>(jitter_->uniform() * scale);
+    }
+    return total;
+}
+
+std::size_t Broker::in_flight_count(Timestamp now) const noexcept {
+    std::size_t count = 0;
+    for (const std::size_t index : working_) {
+        count += orders_[index].is_in_flight(now) ? 1 : 0;
+    }
+    return count;
 }
 
 RejectReason Broker::try_fill(Order& order, Timestamp now) {
@@ -162,17 +202,24 @@ void Broker::finalise_immediate(Order& order, Timestamp now, RejectReason model_
     }
     order.last_update_ts = now;
     if (order.filled_quantity <= 0.0) {
-        // Nothing filled and no second chance: a market order does not rest,
-        // and an IOC is cancel-the-rest by definition.
+        // Nothing filled and no second chance: a market order does not rest
+        // waiting for a price, and an IOC is cancel-the-rest by definition.
         order.status = OrderStatus::Rejected;
         order.reject_reason =
             model_reason != RejectReason::None ? model_reason : RejectReason::NotMarketable;
-    } else {
-        // Part filled with no way to finish. Only reachable with the impact
-        // model disabled, which is a test configuration rather than a
-        // realistic one.
-        order.status = OrderStatus::Cancelled;
+        return;
     }
+    if (order.request.type == MS_ORD_MARKET && fill_model_->config().models_partial_fills()) {
+        // Part filled because the touch was not deep enough, not because the
+        // price was wrong. A real market order does not give up here: it keeps
+        // working through the book across the next prints, so the remainder
+        // stays alive and is offered the next event for this symbol.
+        return;
+    }
+    // Part filled with no way to finish: an IOC, by definition, or a market
+    // order in a configuration modelling neither impact nor participation,
+    // which is a test setup rather than a realistic one.
+    order.status = OrderStatus::Cancelled;
 }
 
 bool Broker::cancel(OrderId id, Timestamp now) {
@@ -184,20 +231,32 @@ bool Broker::cancel(OrderId id, Timestamp now) {
         if (!order.is_working()) {
             return false;
         }
+        // Whatever has already filled stands. A cancel reaches the remainder
+        // and nothing else: a fill is a trade that happened, and no
+        // instruction sent afterwards makes it not have happened.
         order.status = OrderStatus::Cancelled;
         order.last_update_ts = now;
         drop_from_working(id);
         return true;
+    }
+
+    // Not working. Either the id was never issued, or -- the case worth
+    // counting -- the order finished before the cancel reached it. Live that
+    // is a race with a real winner, and a strategy whose cancels are routinely
+    // too late is one whose logic assumes a speed it does not have.
+    const Order* known = find_order(id);
+    if (known != nullptr && known->is_terminal()) {
+        ++late_cancels_;
     }
     return false;
 }
 
 void Broker::on_market_event(SymbolId symbol, Timestamp now) {
     if (!seen_any_event_) {
-        last_day_ = time::day_number(now);
+        last_day_ = session_day(zone_, now);
         seen_any_event_ = true;
     } else {
-        const std::int64_t today = time::day_number(now);
+        const std::int64_t today = session_day(zone_, now);
         if (today != last_day_) {
             last_day_ = today;
             expire_day_orders(now);
@@ -222,7 +281,17 @@ void Broker::on_market_event(SymbolId symbol, Timestamp now) {
         if (!order.is_working()) {
             continue;
         }
-        (void)try_fill(order, now);
+        if (now < order.eligible_ts) {
+            continue;  // still crossing the wire
+        }
+        const RejectReason outcome = try_fill(order, now);
+        if (resolves_on_arrival(order)) {
+            // An order with one chance takes it on the event it arrives, and
+            // that event is this one. Reaching here at all means it was in
+            // flight until now, because a zero-latency one resolved in
+            // submit().
+            finalise_immediate(order, now, outcome);
+        }
     }
 
     // Retire anything that finished.
@@ -237,7 +306,7 @@ void Broker::expire_day_orders(Timestamp now) {
     for (const std::size_t index : working_) {
         Order& order = orders_[index];
         if (order.is_working() && order.request.tif == MS_TIF_DAY &&
-            order.submitted_day != time::day_number(now)) {
+            order.submitted_day != session_day(zone_, now)) {
             order.status = OrderStatus::Expired;
             order.last_update_ts = now;
         }
@@ -281,6 +350,7 @@ void Broker::reset() {
     candidates_.clear();
     next_sequence_ = 1;
     rejected_count_ = 0;
+    late_cancels_ = 0;
     last_day_ = 0;
     seen_any_event_ = false;
 }

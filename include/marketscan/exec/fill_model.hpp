@@ -44,10 +44,49 @@ struct FillModelConfig {
     /// not a claim about any real market.
     double impact_coefficient_bps = 10.0;
 
+    /// Simulated delay between an order being accepted and its first chance
+    /// to fill, in engine nanoseconds.
+    ///
+    /// Zero by default, which is what every result committed before M1b was
+    /// produced under, and what keeps them reproducible. A non-zero value is
+    /// the difference between a backtest and a thing that could happen: live,
+    /// an order crosses a network, and the market does not wait for it. An
+    /// order in flight is still exposed -- it fills at the price when it
+    /// arrives, not the price when it was sent.
+    ///
+    /// This is simulated time, never wall-clock time. A latency measured from
+    /// the machine would make a replay depend on how busy the machine was.
+    Duration submit_latency = 0;
+
+    /// Upper bound on a uniform addition to that delay.
+    ///
+    /// Drawn from the run's seeded generator, so a replay reproduces the same
+    /// jitter. Zero by default: fixed latency is already the larger effect,
+    /// and an unnecessary source of variance makes a difference between two
+    /// runs harder to attribute.
+    Duration latency_jitter = 0;
+
+    /// The largest fraction of the size displayed at the touch that a single
+    /// event may fill.
+    ///
+    /// Zero -- the default -- means no limit, and an order clears in one fill
+    /// at whatever the impact curve charges. A value like 0.25 means an order
+    /// four times the displayed size arrives as several fills across several
+    /// events, which is what large orders actually do. Each piece is its own
+    /// fill callback with its own price; nothing averages them behind the
+    /// strategy's back.
+    double max_participation = 0.0;
+
     /// Setting this to zero disables the impact term entirely, which makes an
     /// order of any size fill at the touch. Useful for isolating a test; not a
     /// realistic configuration.
     [[nodiscard]] bool models_impact() const noexcept { return impact_coefficient_bps > 0.0; }
+
+    [[nodiscard]] bool models_latency() const noexcept {
+        return submit_latency > 0 || latency_jitter > 0;
+    }
+
+    [[nodiscard]] bool models_partial_fills() const noexcept { return max_participation > 0.0; }
 };
 
 /// What the model is being asked to price.

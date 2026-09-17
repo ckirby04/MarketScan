@@ -9,6 +9,10 @@ Audited at `2535ca2` (the tip of Spec 1). Host: Windows 11, MSVC 19.43, x64.
 **Summary: 10 checks, 8 pass, 2 pass with findings. 4 gaps closed with new
 tests, 2 findings escalated to the reader rather than fixed.**
 
+> **Updated at M1b.** Escalation 2 — the backtest/live seam — is resolved; see
+> check 5. Escalation 1 — `BUILD_SPEC.md` is not in the repository — still
+> stands.
+
 ---
 
 ## 1. The plugin ABI contains no C++ types — **PASS**
@@ -54,30 +58,42 @@ header-alias table consulted with `.find()` and never iterated, with a comment
 at the call site saying so. `SymbolTable` uses `std::map` deliberately, and
 says why in its header.
 
-## 5. No second code path for backtest versus live — **PASS, with a finding**
+## 5. No second code path for backtest versus live — **PASS; finding since RESOLVED**
 
-The literal check passes. There is no `is_backtest`, no mode flag, no
+The literal check passed at M0. There is no `is_backtest`, no mode flag, no
 `#ifdef` that changes engine behaviour; the engine cannot tell.
 
-The finding is that the seam is currently a claim rather than a socket.
-`Engine` holds a `SimulatedClock` **by value**, not an `IClock&`:
+**The finding, as recorded at M0.** The seam was a claim rather than a socket.
+`Engine` held a `SimulatedClock` **by value**, not an `IClock&`, and
+`SystemClock` existed but was used only by the logger. "Only the clock swaps"
+could not be demonstrated, because there was nothing to swap it with and
+nowhere to put it. The judgment at the time was not to add a virtual call to
+the per-event path for a capability nothing used.
+
+**Resolved at M1b**, and by a route the M0 audit did not consider. The engine
+is now a template on its clock:
 
 ```cpp
-SimulatedClock clock_;   // engine.hpp:200
+template<typename Clock> class EngineT { ... };
+using Engine     = EngineT<SimulatedClock>;
+using LiveEngine = EngineT<SystemClock>;
 ```
 
-`SystemClock` exists and is used only by the logger. So "only the clock swaps"
-cannot be demonstrated today, because there is nothing to swap it with and no
-place to put it.
+Both are explicitly instantiated in `engine.cpp`, so both are compiled on every
+build. There is no virtual call on the event path and no runtime cost at all;
+the price is an explicit instantiation per clock type, which is one line.
+`SystemClock` gained `advance_to` and `reset` as documented no-ops — real time
+does not take instruction — and that is what makes one event loop compile
+against both.
 
-This is **not** being changed here, and the reasoning matters. Swapping
-`SimulatedClock` for `IClock&` adds a virtual call to the per-event path in
-exchange for a capability nothing uses, and there is no live transport either
-— the second half of the seam is equally absent. Note also that a live run
-would advance `SimulatedClock` from arriving event timestamps perfectly well;
-the difference only appears for a strategy that asks `now()` *between* events.
-The honest statement is that the divergence has been prevented, not that the
-alternative has been built. Escalated to the reader rather than papered over.
+It is also *run*, not merely instantiated: `the same engine runs on a wall
+clock` drives a `LiveEngine` over a canned source and asserts the loop behaves
+identically while the clock genuinely differs — a `SimulatedClock` would be
+sitting on the last event's timestamp, and this one is in this century.
+
+The M0 escalation went further than the clock, and correctly. The larger half
+of that seam was the **order lifecycle**, and it is what M1b was really about;
+see `docs/EXECUTION.md`.
 
 ## 6. No allocation, lock or syscall in the per-event hot path — **PASS, measured**
 
@@ -203,7 +219,7 @@ committed file — 6,243 assertions.
 
 ## Findings not covered by a numbered check
 
-**`BUILD_SPEC.md` is not in the repository.** Spec 2 names it as prerequisite
+**`BUILD_SPEC.md` is not in the repository.** *(Still open.)* Spec 2 names it as prerequisite
 reading for its Section 2 and Section 4. It has never been committed; Spec 1
 was delivered as a message and only its conclusions reached disk, in code
 comments, in `README.md` and in the commit messages. The constraints are being

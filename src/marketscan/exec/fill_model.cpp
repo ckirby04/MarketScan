@@ -66,7 +66,23 @@ FillResult SpreadCrossingFillModel::evaluate(const FillRequest& request) const {
         return result;
     }
 
+    // --- Participation cap ----------------------------------------------
+    //
+    // A real order for four times the displayed size does not clear in one
+    // print. Capping what one event may take is what turns a single fill into
+    // a sequence of them: the remainder stays working and is offered the next
+    // event, at whatever the book says then.
+    //
+    // Measured against the size at the touch rather than the whole book,
+    // because the touch is what is actually available to an aggressor now.
     Quantity remaining = wanted;
+    if (config_.models_partial_fills()) {
+        const Quantity slice = config_.max_participation * levels.front().size;
+        if (slice > 0.0 && slice < remaining) {
+            remaining = slice;
+        }
+    }
+
     Quantity filled = 0.0;
     double gross = 0.0;  // running sum of price * quantity
     Quantity displayed = 0.0;

@@ -97,6 +97,16 @@ struct Order {
     Timestamp submitted_ts = 0;
     Timestamp last_update_ts = 0;
 
+    /// The first instant at which this order may fill.
+    ///
+    /// Equal to submitted_ts when the fill model models no latency, which is
+    /// every configuration that existed before M1b. When it is later, the
+    /// order is *in flight*: accepted, alive, and not yet fillable. It is
+    /// still exposed to the market the whole time -- the price it eventually
+    /// gets is the price when it arrives, not the price when it was sent,
+    /// which is the entire point.
+    Timestamp eligible_ts = 0;
+
     OrderStatus status = OrderStatus::Working;
     RejectReason reject_reason = RejectReason::None;
 
@@ -124,6 +134,17 @@ struct Order {
 
     [[nodiscard]] bool is_working() const noexcept {
         return status == OrderStatus::Working || status == OrderStatus::PartiallyFilled;
+    }
+
+    /// Accepted, not yet fillable, and not yet in the market's hands.
+    [[nodiscard]] bool is_in_flight(Timestamp now) const noexcept {
+        return is_working() && now < eligible_ts;
+    }
+
+    /// How long this order has been alive. What a strategy asks when deciding
+    /// whether to give up on it.
+    [[nodiscard]] Duration age(Timestamp now) const noexcept {
+        return now > submitted_ts ? now - submitted_ts : 0;
     }
 };
 

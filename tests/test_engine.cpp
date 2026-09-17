@@ -354,3 +354,63 @@ TEST_CASE("null sources and sinks are rejected", "[engine]") {
     REQUIRE_THROWS_AS(engine.add_source(nullptr), std::invalid_argument);
     REQUIRE_THROWS_AS(engine.add_sink(nullptr), std::invalid_argument);
 }
+
+// --------------------------------------------------------------------------
+// The backtest/live seam
+// --------------------------------------------------------------------------
+//
+// "A strategy cannot tell whether it is being backtested or trading live"
+// rested for nine milestones on there being no code that branched on it. True,
+// and unfalsifiable: with one clock type hard-wired into the engine there was
+// nothing to swap and nowhere to put it, so the property could not be shown
+// either way.
+//
+// Engine is now EngineT<SimulatedClock> and LiveEngine is EngineT<SystemClock>,
+// both instantiated in engine.cpp. The event loop is one body of code compiled
+// against both, and this is where the second one is driven -- with a canned
+// source, because a live transport does not exist yet and inventing one to
+// test the clock would be testing the invention.
+
+TEST_CASE("the same engine runs on a wall clock", "[engine][seam]") {
+    const SymbolId spy = 1;
+    std::vector<MarketEvent> events;
+    for (int i = 0; i < 20; ++i) {
+        events.push_back(make_bar(1'000 + i * 100, spy, 100.0 + i));
+    }
+
+    LiveEngine engine;
+    engine.add_source(std::make_unique<VectorSource>("canned", events));
+
+    RecordingSink sink("live");
+    engine.add_sink(&sink);
+
+    const std::uint64_t dispatched = engine.run();
+
+    // The loop behaves identically: every event, in order, once.
+    REQUIRE(dispatched == 20);
+    REQUIRE(sink.seen.size() == 20);
+    REQUIRE(sink.seen.front().ts == 1'000);
+    REQUIRE(sink.seen.back().ts == 1'000 + 19 * 100);
+
+    // And the clock is genuinely a different one. A simulated clock would be
+    // sitting on the last event's timestamp, which is 2,900 nanoseconds after
+    // the Unix epoch; a wall clock is somewhere in this century.
+    REQUIRE(engine.now() > 1'600'000'000LL * 1'000'000'000LL);
+    REQUIRE(engine.now() != sink.seen.back().ts);
+}
+
+TEST_CASE("a wall-clock engine refuses to rewind a source that cannot", "[engine][seam]") {
+    // The reset path is the one place the two clocks behave differently --
+    // there is no beginning for a wall clock to go back to -- so it is worth
+    // knowing the rest of reset() still does what it says.
+    LiveEngine engine;
+    std::vector<MarketEvent> one{make_bar(1'000, 1)};
+    engine.add_source(std::make_unique<VectorSource>("live", one, /*replayable=*/false));
+
+    RecordingSink sink("live");
+    engine.add_sink(&sink);
+    REQUIRE(engine.run() == 1);
+
+    REQUIRE_FALSE(engine.reset());
+    REQUIRE(engine.stats().events_dispatched == 1);
+}

@@ -87,9 +87,9 @@ BacktestResult run_backtest(const BacktestConfig& config) {
 
     std::unique_ptr<IFillModel> fill_model;
     if (config.optimistic_fills) {
-        fill_model = std::make_unique<OptimisticFillModel>();
+        fill_model = std::make_unique<OptimisticFillModel>(config.fills);
     } else {
-        fill_model = std::make_unique<SpreadCrossingFillModel>();
+        fill_model = std::make_unique<SpreadCrossingFillModel>(config.fills);
     }
     result.fill_model = std::string(fill_model->name());
     result.fill_model_realistic = fill_model->is_realistic();

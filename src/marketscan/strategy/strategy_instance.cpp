@@ -30,6 +30,12 @@ StrategyInstance::StrategyInstance(std::string id,
       // one theory draws do not depend on which other theories are loaded.
       rng_(derive_seed(config.run_seed, id_)) {
     broker_.set_fill_listener(this);
+    // The strategy's own stream, not one of the broker's. Latency jitter is a
+    // draw like any other and belongs in the same reproducible sequence; a
+    // broker with a private generator would be a second source of randomness
+    // that nobody chose a seed for.
+    broker_.set_jitter_source(&rng_);
+    broker_.set_exchange_zone(config.exchange_zone);
     broker_.ledger().set_equity_sample_interval(config_.equity_sample_interval);
     resolve_subscriptions();
 }

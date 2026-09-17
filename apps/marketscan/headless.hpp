@@ -31,6 +31,16 @@ struct HeadlessOptions {
     /// quietly awarding itself.
     bool compare_fill_models = false;
 
+    /// Simulated submit-to-fill latency, in milliseconds. Zero is an instant
+    /// simulator, which is the default and what every published result used.
+    double latency_ms = 0.0;
+
+    /// Uniform jitter added to it, in milliseconds. Drawn from the run's seed.
+    double latency_jitter_ms = 0.0;
+
+    /// Fraction of the displayed size one event may fill. Zero is no cap.
+    double participation = 0.0;
+
     bool verbose = false;
 
     /// Start the replay as soon as the window opens, instead of waiting for

@@ -103,15 +103,31 @@ struct EngineStats {
 /// Events from several sources are merged into one non-decreasing timestamp
 /// order. Ties break by source registration order, which is stable across
 /// runs; nothing here iterates a hash container, for the same reason.
-class Engine {
+///
+/// Templated on the clock, and that is the whole of the backtest/live seam.
+/// `Engine` is EngineT<SimulatedClock>; a live one would be
+/// EngineT<SystemClock>, and both are instantiated in engine.cpp so that both
+/// are compiled on every build whether or not anything runs the second.
+///
+/// A template rather than an IClock& because this is the per-event path: the
+/// clock is read and written once per event, and a virtual call there would be
+/// a permanent cost paid to express something that is fixed for the lifetime
+/// of a run. The cost of the template is that engine.cpp ends with an explicit
+/// instantiation for each clock, and a new clock type means adding a line
+/// there. That is the trade, and it is a better one than an architecture
+/// asserted in a comment.
+template<typename Clock>
+class EngineT {
 public:
-    explicit Engine(EngineConfig config = {});
-    ~Engine();
+    using clock_type = Clock;
 
-    Engine(const Engine&) = delete;
-    Engine& operator=(const Engine&) = delete;
-    Engine(Engine&&) = delete;
-    Engine& operator=(Engine&&) = delete;
+    explicit EngineT(EngineConfig config = {});
+    ~EngineT();
+
+    EngineT(const EngineT&) = delete;
+    EngineT& operator=(const EngineT&) = delete;
+    EngineT(EngineT&&) = delete;
+    EngineT& operator=(EngineT&&) = delete;
 
     /// Sources are merged in registration order, which is also the tie-break
     /// when two sources offer the same timestamp.
@@ -154,9 +170,9 @@ public:
 
     [[nodiscard]] Timestamp now() const noexcept { return clock_.now(); }
 
-    [[nodiscard]] const SimulatedClock& clock() const noexcept { return clock_; }
+    [[nodiscard]] const Clock& clock() const noexcept { return clock_; }
 
-    [[nodiscard]] SimulatedClock& clock() noexcept { return clock_; }
+    [[nodiscard]] Clock& clock() noexcept { return clock_; }
 
     /// Every instrument's book, as of the event currently being dispatched.
     ///
@@ -197,13 +213,24 @@ private:
     void dispatch(const MarketEvent& event);
 
     EngineConfig config_;
-    SimulatedClock clock_;
+    Clock clock_;
     MarketView market_;
     std::vector<SourceSlot> sources_;
     std::vector<IEventSink*> sinks_;
     EngineStats stats_;
     bool primed_ = false;
 };
+
+/// The replay engine. What every existing caller means by "Engine".
+using Engine = EngineT<SimulatedClock>;
+
+/// The same engine, driven by the wall clock.
+///
+/// Declared here and instantiated in engine.cpp so it is built on every build.
+/// Nothing runs it yet -- there is no live transport to feed it -- and that is
+/// exactly why it is worth compiling: the day one exists, the question is
+/// whether the event loop needed changing, and the answer is already known.
+using LiveEngine = EngineT<SystemClock>;
 
 }  // namespace marketscan
 

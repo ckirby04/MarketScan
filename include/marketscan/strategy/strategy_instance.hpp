@@ -7,6 +7,7 @@
 
 #include "marketscan/core/engine.hpp"
 #include "marketscan/core/random.hpp"
+#include "marketscan/core/session_calendar.hpp"
 #include "marketscan/core/symbol_table.hpp"
 #include "marketscan/exec/broker.hpp"
 #include "marketscan/strategy/host_context.hpp"
@@ -30,6 +31,14 @@ struct StrategyRuntimeConfig {
     /// Order ids start here. The engine gives each strategy a distinct range
     /// so a blotter merged across theories has no collisions.
     OrderId order_id_base = 0;
+
+    /// Which wall clock DAY orders expire against.
+    ///
+    /// Has to match the zone the strategy's own session clock uses, or the
+    /// host and the plugin disagree about what day it is -- the host expiring
+    /// an order on one boundary while the strategy believes it is still in the
+    /// session that placed it. Both default to US Eastern.
+    ExchangeZone exchange_zone = ExchangeZone::UsEastern;
 };
 
 /// A named scalar a strategy published. The GUI plots these without being told.

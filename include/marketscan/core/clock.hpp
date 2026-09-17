@@ -66,9 +66,24 @@ private:
 };
 
 /// Wall clock, for live trading. Reads the OS.
+///
+/// advance_to and reset exist and do nothing, on purpose. They are what let
+/// the engine be written once: the replay loop winds its clock to each event's
+/// timestamp, and a live loop makes the same call to a clock that is already
+/// where it is and cannot be told otherwise. Giving the wall clock the same
+/// shape is how "only the clock swaps" stops being a claim and becomes
+/// something the compiler checks -- see EngineT in engine.hpp.
 class SystemClock final : public IClock {
 public:
     [[nodiscard]] Timestamp now() const noexcept override;
+
+    /// Ignored. Real time does not take instruction.
+    void advance_to(Timestamp) noexcept {}
+
+    void advance_by(Duration) noexcept {}
+
+    /// Ignored. There is no beginning to rewind to.
+    void reset(Timestamp = 0) noexcept {}
 };
 
 }  // namespace marketscan

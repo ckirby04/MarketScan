@@ -55,6 +55,10 @@ struct SessionConfig {
     /// Swap the realistic fill model for the optimistic one. Off by default,
     /// and the UI says so loudly when it is on.
     bool optimistic_fills = false;
+
+    /// Execution realism. Default-constructed is an instant simulator; see
+    /// FillModelConfig.
+    FillModelConfig fills;
 };
 
 /// One theory's state, copied out of the engine for the GUI to draw.

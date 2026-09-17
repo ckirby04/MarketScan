@@ -155,6 +155,40 @@ public:
 
     void attach_host(const MS_HostContext* host) noexcept { host_ = host; }
 
+    /// Books a fill against the order it belongs to, before the strategy is
+    /// told about it.
+    ///
+    /// Called by the generated shims. Not for strategies to call.
+    void note_fill(const MS_Fill& fill) noexcept {
+        for (std::size_t i = 0; i < pending_.size(); ++i) {
+            if (pending_[i].id != fill.order_id) {
+                continue;
+            }
+            pending_[i].filled += fill.quantity;
+
+            // Floating quantities, so "fully filled" cannot be an equality
+            // test. The tolerance is far below any tradeable size and far
+            // above the rounding error of summing a few fills.
+            if (pending_[i].filled >= pending_[i].quantity - 1e-9) {
+                pending_.erase(pending_.begin() + static_cast<std::ptrdiff_t>(i));
+            }
+            return;
+        }
+        if (submitting_) {
+            // Delivered from inside submit_order, before the order it belongs
+            // to could be recorded. submit() applies it as soon as it has the
+            // id. Only the quantity is kept: there is exactly one order in
+            // flight at this point, the one being submitted.
+            reentrant_filled_ += fill.quantity;
+            return;
+        }
+
+        // A fill for an order this side is not tracking. Reachable after
+        // forget_order() or a timeout, and harmless: the ledger is the
+        // authority on what was traded, and this is only bookkeeping about
+        // what is still expected.
+    }
+
     /// Notes the timestamp of an event about to be delivered, and closes the
     /// previous session first if this one belongs to a new one.
     ///
@@ -275,16 +309,46 @@ protected:
 
     /// Returns the engine order id, or 0 if the order was refused. A refusal
     /// is not an exception and not a crash; check the id if you care.
-    uint64_t submit(const MS_OrderRequest& request) const noexcept {
-        return has_host() && host_->submit_order != nullptr
-                   ? host_->submit_order(host_->host, &request)
-                   : 0;
+    ///
+    /// The order is recorded here as outstanding, and stops being outstanding
+    /// when fills for it add up to its quantity. That bookkeeping is what
+    /// makes has_pending_order() answerable.
+    uint64_t submit(const MS_OrderRequest& request) noexcept {
+        if (!has_host() || host_->submit_order == nullptr) {
+            return 0;
+        }
+
+        // A fill can be delivered from inside submit_order, before it has
+        // returned an id. That is exactly what a zero-latency simulator does,
+        // and it is the whole reason this is not two lines: the fill arrives
+        // before there is anything here to book it against, so it is caught
+        // in flight and applied once the id is known.
+        //
+        // Live it never happens, which is precisely why it would be missed.
+        submitting_ = true;
+        reentrant_filled_ = 0.0;
+        const uint64_t id = host_->submit_order(host_->host, &request);
+        submitting_ = false;
+
+        if (id == 0) {
+            return 0;
+        }
+        if (reentrant_filled_ >= request.quantity - 1e-9) {
+            // Filled in full before it was ever outstanding. Recording it now
+            // would create an entry nothing will ever come along to retire.
+            return id;
+        }
+
+        expire_stale_orders();
+        pending_.push_back(PendingOrder{
+            id, request.symbol, request.side, request.quantity, reentrant_filled_, now(), false});
+        return id;
     }
 
     uint64_t submit_market(MS_SymbolId symbol,
                            MS_Side side,
                            double quantity,
-                           uint64_t client_order_id = 0) const noexcept {
+                           uint64_t client_order_id = 0) noexcept {
         MS_OrderRequest request{};
         request.symbol = symbol;
         request.side = side;
@@ -300,7 +364,7 @@ protected:
                           double quantity,
                           double limit_price,
                           MS_TimeInForce tif = MS_TIF_DAY,
-                          uint64_t client_order_id = 0) const noexcept {
+                          uint64_t client_order_id = 0) noexcept {
         MS_OrderRequest request{};
         request.symbol = symbol;
         request.side = side;
@@ -312,11 +376,136 @@ protected:
         return submit(request);
     }
 
-    void cancel(uint64_t order_id) const noexcept {
+    /// Asks for the remainder of an order to be cancelled.
+    ///
+    /// Fills already received stand; a cancel reaches what has not traded and
+    /// nothing else. The request may also simply lose: if the order fills
+    /// before the cancel arrives, the cancel does nothing at all.
+    ///
+    /// The order stays outstanding here afterwards, flagged, because there is
+    /// no way to find out which happened -- see "What this cannot know" below.
+    /// A strategy that is willing to assume the cancel won should call
+    /// forget_order().
+    void cancel(uint64_t order_id) noexcept {
+        for (PendingOrder& order : pending_) {
+            if (order.id == order_id) {
+                order.cancel_requested = true;
+            }
+        }
         if (has_host() && host_->cancel_order != nullptr) {
             host_->cancel_order(host_->host, order_id);
         }
     }
+
+    // --- Outstanding orders ---------------------------------------------
+    //
+    // Live, an order is not a function call. It is sent, acknowledged, and
+    // filled some time later -- or partly filled, or not filled at all. The
+    // ABI has always had that shape: submit returns an id and on_fill is a
+    // separate callback. But a fill simulator that answers instantly means no
+    // strategy written against this engine has ever *experienced* a pending
+    // order, and every one of them is silently relying on that.
+    //
+    // These answer the questions such a strategy needs to ask. They are
+    // maintained here, in the plugin, from the two things it already sees:
+    // what submit() returned, and what on_fill() delivered.
+    //
+    // WHAT THIS CANNOT KNOW. A cancellation, a rejection after acceptance, or
+    // a DAY expiry produces no fill, so nothing reaches this side of the
+    // boundary to say the order is dead. Until the ABI grows a terminal-status
+    // callback -- v2, deliberately not now -- an order that ends without
+    // filling stays outstanding here forever. Two ways out, both explicit:
+    // forget_order() when the strategy knows, and set_order_timeout() when it
+    // would rather assume after a while. The bias is deliberate: over-
+    // reporting a pending order makes a strategy too cautious, and under-
+    // reporting one makes it submit twice.
+
+    /// How many orders have been submitted and not yet fully filled.
+    [[nodiscard]] uint32_t outstanding_orders() const noexcept {
+        return static_cast<uint32_t>(pending_.size());
+    }
+
+    /// Whether anything is outstanding for one symbol.
+    ///
+    /// The guard against the most common live-trading bug there is: acting on
+    /// a signal, seeing no fill yet because the order is still in flight,
+    /// reading the position as unchanged, and sending the order again.
+    [[nodiscard]] bool has_pending_order(MS_SymbolId symbol) const noexcept {
+        for (const PendingOrder& order : pending_) {
+            if (order.symbol == symbol) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Signed quantity working for a symbol: positive to buy, negative to
+    /// sell. What a position *will* be if everything outstanding fills.
+    [[nodiscard]] double pending_quantity(MS_SymbolId symbol) const noexcept {
+        double total = 0.0;
+        for (const PendingOrder& order : pending_) {
+            if (order.symbol == symbol) {
+                const double left = order.quantity - order.filled;
+                total += (order.side == MS_SIDE_BUY ? 1.0 : -1.0) * (left > 0.0 ? left : 0.0);
+            }
+        }
+        return total;
+    }
+
+    /// How much of one order has filled so far. Zero for an unknown id.
+    [[nodiscard]] double filled_quantity(uint64_t order_id) const noexcept {
+        const PendingOrder* order = find_pending(order_id);
+        return order != nullptr ? order->filled : 0.0;
+    }
+
+    /// How much of one order has not filled. Zero for an unknown id, which is
+    /// also the right answer for an order that has finished.
+    [[nodiscard]] double remaining_quantity(uint64_t order_id) const noexcept {
+        const PendingOrder* order = find_pending(order_id);
+        if (order == nullptr) {
+            return 0.0;
+        }
+        const double left = order->quantity - order->filled;
+        return left > 0.0 ? left : 0.0;
+    }
+
+    /// Nanoseconds since the order was submitted. Zero for an unknown id.
+    [[nodiscard]] MS_Nanos order_age(uint64_t order_id) const noexcept {
+        const PendingOrder* order = find_pending(order_id);
+        if (order == nullptr) {
+            return 0;
+        }
+        const MS_Nanos elapsed = now() - order->submitted_ts;
+        return elapsed > 0 ? elapsed : 0;
+    }
+
+    /// Whether a cancel has been asked for and not yet resolved.
+    [[nodiscard]] bool cancel_pending(uint64_t order_id) const noexcept {
+        const PendingOrder* order = find_pending(order_id);
+        return order != nullptr && order->cancel_requested;
+    }
+
+    /// Stops tracking one order. For a strategy that has concluded from
+    /// something outside this bookkeeping -- a position that matches, a
+    /// cancel it is confident in -- that the order is done.
+    void forget_order(uint64_t order_id) noexcept {
+        for (std::size_t i = 0; i < pending_.size(); ++i) {
+            if (pending_[i].id == order_id) {
+                pending_.erase(pending_.begin() + static_cast<std::ptrdiff_t>(i));
+                return;
+            }
+        }
+    }
+
+    /// Stops tracking an order once it has been outstanding this long.
+    ///
+    /// Zero, the default, never gives up -- which is correct and useless in a
+    /// run where anything is ever cancelled. A timeout is an assumption, not a
+    /// fact, so it has to be asked for. abandoned_orders() counts how often
+    /// the assumption was made.
+    void set_order_timeout(MS_Nanos timeout) noexcept { order_timeout_ = timeout; }
+
+    [[nodiscard]] uint64_t abandoned_orders() const noexcept { return abandoned_; }
 
     // --- Parameter binding ----------------------------------------------
 
@@ -335,8 +524,55 @@ private:
 
     [[nodiscard]] const Binding* find_binding(const char* name) const noexcept;
 
+    /// One order submitted and not yet accounted for.
+    struct PendingOrder {
+        uint64_t id;
+        MS_SymbolId symbol;
+        MS_Side side;
+        double quantity;
+        double filled;
+        MS_Nanos submitted_ts;
+        bool cancel_requested;
+    };
+
+    [[nodiscard]] const PendingOrder* find_pending(uint64_t order_id) const noexcept {
+        for (const PendingOrder& order : pending_) {
+            if (order.id == order_id) {
+                return &order;
+            }
+        }
+        return nullptr;
+    }
+
+    /// Drops anything that has been outstanding longer than the timeout.
+    ///
+    /// Run on submission rather than on a timer, because a strategy that is
+    /// not trading is not accumulating orders either, and the per-event path
+    /// is not the place to walk a list looking for nothing.
+    void expire_stale_orders() noexcept {
+        if (order_timeout_ <= 0 || pending_.empty()) {
+            return;
+        }
+        const MS_Nanos cutoff = now() - order_timeout_;
+        for (std::size_t i = pending_.size(); i > 0; --i) {
+            if (pending_[i - 1].submitted_ts <= cutoff) {
+                pending_.erase(pending_.begin() + static_cast<std::ptrdiff_t>(i - 1));
+                ++abandoned_;
+            }
+        }
+    }
+
     const MS_HostContext* host_ = nullptr;
     std::vector<Binding> bindings_;
+
+    std::vector<PendingOrder> pending_;
+    MS_Nanos order_timeout_ = 0;
+    uint64_t abandoned_ = 0;
+
+    /// Set while submit_order is on the stack, so a fill delivered from
+    /// inside it can be recognised as belonging to an order with no id yet.
+    bool submitting_ = false;
+    double reentrant_filled_ = 0.0;
 
     ExchangeZone session_zone_ = ExchangeZone::UsEastern;
     std::int64_t session_day_ = 0;
@@ -670,6 +906,7 @@ void shim_on_fill(void* self, const MS_Fill* fill) noexcept {
     try {
         if (fill != nullptr) {
             instance->advance_session(fill->ts);
+            instance->note_fill(*fill);
             instance->on_fill(*fill);
         }
     } catch (...) {

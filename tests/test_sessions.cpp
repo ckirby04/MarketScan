@@ -24,6 +24,7 @@
 #include "marketscan/core/symbol_table.hpp"
 #include "marketscan/data/synthetic_feed.hpp"
 #include "marketscan/exec/fill_model.hpp"
+#include "marketscan/exec/order.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
 #include "marketscan/strategy/strategy_instance.hpp"
 
@@ -305,4 +306,180 @@ TEST_CASE("a theory that ignores sessions is unaffected", "[session][plugin][abi
         }
     }
     REQUIRE(loaded >= 2);
+}
+
+// --------------------------------------------------------------------------
+// A strategy that has to cope with a pending order
+// --------------------------------------------------------------------------
+//
+// Against an instant fill simulator these tests are unwritable: every order is
+// filled by the time submit returns, so "an order is outstanding" is a state
+// that never exists and the bug it causes cannot be reproduced. That is the
+// gap M1b closes, and this is where it is demonstrated from the strategy's
+// side of the boundary.
+
+namespace {
+
+/// One replay through order_lifecycle with a configurable fill model.
+[[nodiscard]] Published trade_replay(int mode,
+                                     const FillModelConfig& fill_config,
+                                     std::uint32_t bars_per_session = 40,
+                                     int size = 10) {
+    SymbolTable symbols;
+    Engine engine;
+
+    SyntheticFeedConfig feed;
+    feed.instruments = {SyntheticInstrument{"SPY", 100.0, 0.0, 0.10, 1'000.0}};
+    feed.bars_per_session = bars_per_session;
+    feed.sessions = 1;
+    feed.start = at("2024-03-18T13:30:00Z");
+    feed.seed = 31337;
+    feed.quote_size = 1'000.0;
+    engine.add_source(std::make_unique<SyntheticFeed>(feed, symbols));
+
+    PluginLoader loader({plugin_dir()});
+    loader.rescan();
+
+    const SpreadCrossingFillModel fill_model(fill_config);
+    StrategyRuntimeConfig config;
+    config.starting_cash = Money::from_dollars(10'000'000);
+
+    StrategyInstance theory("order_lifecycle",
+                            "Order Lifecycle",
+                            loader.create("order_lifecycle"),
+                            {},
+                            config,
+                            &fill_model,
+                            &engine.market(),
+                            &symbols,
+                            &engine.clock());
+    theory.set_parameter("mode", static_cast<double>(mode));
+    theory.set_parameter("size", static_cast<double>(size));
+
+    engine.add_sink(&theory);
+    theory.start();
+    engine.run();
+    theory.stop();
+
+    return Published(theory);
+}
+
+/// Latency long enough that an order is in flight across several bars.
+[[nodiscard]] FillModelConfig slow_fills() {
+    FillModelConfig config;
+    config.submit_latency = 5 * time::kMinute;  // bars are one minute apart
+    return config;
+}
+
+}  // namespace
+
+// The bug, reproduced. This is what it looks like when it is not guarded
+// against, and the test exists so the guarded case below is not measuring
+// nothing.
+TEST_CASE("an unguarded strategy submits again before its order fills", "[session][plugin][exec]") {
+    const Published run = trade_replay(1 /* unguarded */, slow_fills());
+
+    REQUIRE(run["bars"] == 40);
+
+    // One order per bar, and several alive at once the whole way through.
+    REQUIRE(run["submits"] == 40);
+    REQUIRE(run["peak_outstanding"] > 1);
+
+    // It ends up holding far more than one order's worth, having decided the
+    // same thing once and acted on it five times.
+    REQUIRE(run["position"] > 100);
+}
+
+TEST_CASE("a guarded strategy waits for the fill it is owed", "[session][plugin][exec]") {
+    const Published run = trade_replay(0 /* guarded */, slow_fills());
+
+    REQUIRE(run["bars"] == 40);
+
+    // Never more than one order alive, because has_pending_order() answered
+    // the question the position could not.
+    REQUIRE(run["peak_outstanding"] == 1);
+
+    // Still traded -- a strategy that simply stopped submitting would also
+    // have a peak of one.
+    REQUIRE(run["submits"] > 1);
+    REQUIRE(run["final_position"] == run["filled_quantity"]);
+
+    // Every order either filled or was still crossing the wire when the tape
+    // ran out. Nothing went missing in between, which is the accounting the
+    // wrapper-side tracking exists to make checkable at all.
+    REQUIRE(run["fills"] + run["final_outstanding"] == run["submits"]);
+
+    // And it submitted materially less often than the unguarded version, which
+    // is the entire difference between the two.
+    const Published unguarded = trade_replay(1, slow_fills());
+    REQUIRE(run["submits"] < unguarded["submits"]);
+}
+
+TEST_CASE("with no latency the guard costs nothing", "[session][plugin][exec]") {
+    // The compatibility statement, from the strategy's side: an instant
+    // simulator never leaves an order outstanding, so the guard never fires
+    // and a guarded strategy behaves exactly like an unguarded one.
+    const FillModelConfig instant;
+    const Published guarded = trade_replay(0, instant);
+    const Published unguarded = trade_replay(1, instant);
+
+    REQUIRE(guarded["submits"] == 40);
+    REQUIRE(guarded["submits"] == unguarded["submits"]);
+    REQUIRE(guarded["final_position"] == unguarded["final_position"]);
+    REQUIRE(guarded["peak_outstanding"] == 0);
+}
+
+TEST_CASE("a strategy can cancel an order that has not filled", "[session][plugin][exec]") {
+    const Published run = trade_replay(2 /* cancel in flight */, slow_fills());
+
+    REQUIRE(run["submits"] == 1);
+    REQUIRE(run["cancels"] == 1);
+
+    // It read a non-zero age off a live order, which is only possible if it
+    // genuinely observed one pending.
+    REQUIRE(run["saw_order_age"] == 1.0);
+
+    // The cancel beat the fill, so nothing traded.
+    REQUIRE(run["fills"] == -1.0);  // never published: on_fill never ran
+    REQUIRE(run["position"] == 0.0);
+}
+
+TEST_CASE("a strategy sees each partial as its own fill", "[session][plugin][exec]") {
+    FillModelConfig config;
+    config.max_participation = 0.02;  // 2% of the displayed size per event
+    config.impact_coefficient_bps = 0.0;
+
+    // One order far larger than the touch, so it has to arrive in pieces.
+    const Published run = trade_replay(0 /* guarded */, config, 40, 500);
+
+    REQUIRE(run["submits"] >= 1);
+
+    // Several fills against the very first order id. A model that emitted one
+    // fill and adjusted the quantity afterwards would report one.
+    REQUIRE(run["fills_on_first_order"] > 1);
+
+    // They add up to what was asked for, and the position matches.
+    REQUIRE(run["filled_quantity"] == run["final_position"]);
+}
+
+TEST_CASE("latency and partial fills replay exactly", "[session][plugin][exec][determinism]") {
+    FillModelConfig config;
+    config.submit_latency = 3 * time::kMinute;
+    config.latency_jitter = 4 * time::kMinute;
+    config.max_participation = 0.05;
+    config.impact_coefficient_bps = 0.0;
+
+    const Published first = trade_replay(0, config, 60, 200);
+    const Published second = trade_replay(0, config, 60, 200);
+
+    // Not vacuous: jitter was on, partials happened, and orders were in
+    // flight. A run where nothing traded would replay identically too.
+    REQUIRE(first["submits"] > 1);
+    REQUIRE(first["fills"] > first["submits"]);
+
+    for (const char* name :
+         {"bars", "submits", "fills", "filled_quantity", "final_position", "peak_outstanding"}) {
+        INFO(name);
+        REQUIRE(first[name] == second[name]);
+    }
 }

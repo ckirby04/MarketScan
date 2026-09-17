@@ -378,9 +378,9 @@ void Session::build_locked() {
     engine_ = std::make_unique<Engine>();
 
     if (config_.optimistic_fills) {
-        fill_model_ = std::make_unique<OptimisticFillModel>();
+        fill_model_ = std::make_unique<OptimisticFillModel>(config_.fills);
     } else {
-        fill_model_ = std::make_unique<SpreadCrossingFillModel>();
+        fill_model_ = std::make_unique<SpreadCrossingFillModel>(config_.fills);
     }
 
     try {
