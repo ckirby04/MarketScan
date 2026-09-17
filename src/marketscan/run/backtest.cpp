@@ -7,6 +7,7 @@
 
 #include "marketscan/core/engine.hpp"
 #include "marketscan/data/csv_feed.hpp"
+#include "marketscan/data/daily_feed.hpp"
 #include "marketscan/data/synthetic_feed.hpp"
 #include "marketscan/exec/fill_model.hpp"
 #include "marketscan/metrics/rolling.hpp"
@@ -24,6 +25,13 @@ constexpr std::size_t kNoIndex = static_cast<std::size_t>(-1);
 
 [[nodiscard]] std::unique_ptr<IMarketDataFeed> make_feed(const BacktestConfig& config,
                                                          SymbolTable& symbols) {
+    if (!config.daily_dir.empty()) {
+        DailyFeedOptions options;
+        options.synthesize_quotes = config.synthesize_quotes_for_bars;
+        options.spread_bps = config.spread_bps;
+        return std::make_unique<DailyBarFeed>(config.daily_dir, symbols, options);
+    }
+
     if (!config.data_file.empty()) {
         CsvFeedOptions options;
         options.default_symbol = config.symbol;

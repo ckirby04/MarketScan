@@ -41,6 +41,12 @@ struct HeadlessOptions {
     /// Fraction of the displayed size one event may fill. Zero is no cap.
     double participation = 0.0;
 
+    /// A directory of cached daily bars to replay instead of a CSV.
+    std::string daily_dir;
+
+    /// List what a daily cache holds, then stop.
+    bool inspect_cache = false;
+
     bool verbose = false;
 
     /// Start the replay as soon as the window opens, instead of waiting for

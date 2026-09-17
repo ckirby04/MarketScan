@@ -6,6 +6,7 @@
 #include <iostream>
 #include <sstream>
 
+#include "marketscan/data/bar_store.hpp"
 #include "marketscan/metrics/performance.hpp"
 #include "marketscan/run/backtest.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
@@ -27,6 +28,9 @@ Discovers every theory in the theories/ directory beside this executable,
 replays market data through all of them at once, and prints what happened.
 
   --data <file.csv>     Replay a CSV instead of generating synthetic data.
+  --daily <dir>         Replay a directory of cached daily bars (.msb). Populate
+                        one with: python scripts/fetch_stooq.py --symbols ...
+  --cache-info <dir>    Report what a daily cache holds, then stop.
   --symbol <TICKER>     Ticker to assume for a CSV with no symbol column.
                         Default: SPY
   --bars <n>            Synthetic bars per session. Default: 390
@@ -132,6 +136,50 @@ void print_plugin_table(const std::vector<PluginInfo>& plugins,
     std::cout << "\n";
 }
 
+/// What a daily cache holds, without replaying it.
+///
+/// The cache is binary and therefore not greppable, which is a real cost of
+/// the format. This is the answer to it: the question "what have I actually
+/// got" should not require writing a program.
+int print_cache(const std::filesystem::path& directory) {
+    const std::vector<std::filesystem::path> files = bar_store::list(directory);
+    if (files.empty()) {
+        std::cerr << "marketscan: no .msb files in '" << directory.string() << "'\n";
+        return 1;
+    }
+
+    std::cout << directory.string() << "\n\n";
+    std::cout << "  " << std::left << std::setw(10) << "symbol" << std::right << std::setw(10)
+              << "bars" << "  " << std::left << std::setw(12) << "first" << std::setw(12) << "last"
+              << "\n";
+
+    std::uint64_t total = 0;
+    Timestamp earliest = kForever;
+    Timestamp latest = kNever;
+    for (const std::filesystem::path& file : files) {
+        const bar_store::Summary summary = bar_store::summarise(file);
+        total += summary.bars;
+        if (summary.bars > 0) {
+            earliest = std::min(earliest, summary.first);
+            latest = std::max(latest, summary.last);
+        }
+        std::cout << "  " << std::left << std::setw(10) << summary.ticker << std::right
+                  << std::setw(10) << summary.bars << "  " << std::left << std::setw(12)
+                  << (summary.bars > 0 ? time::to_iso8601(summary.first).substr(0, 10) : "--")
+                  << std::setw(12)
+                  << (summary.bars > 0 ? time::to_iso8601(summary.last).substr(0, 10) : "--")
+                  << "\n";
+    }
+
+    std::cout << "\n  " << files.size() << " symbols, " << total << " bars";
+    if (total > 0) {
+        std::cout << ", " << time::to_iso8601(earliest).substr(0, 10) << " .. "
+                  << time::to_iso8601(latest).substr(0, 10);
+    }
+    std::cout << "\n\nNothing here is research-grade. See docs/DATA.md.\n";
+    return 0;
+}
+
 void print_results(const run::BacktestResult& result, std::string_view heading) {
     std::cout << heading << "\n";
     std::cout << std::string(heading.size(), '-') << "\n";
@@ -210,6 +258,13 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
                 exit_code = 2;
                 return false;
             }
+        } else if (argument == "--daily" || argument == "--cache-info") {
+            const char* value = need_value(i, argv[i]);
+            if (value == nullptr) {
+                return false;
+            }
+            out.daily_dir = value;
+            out.inspect_cache = argument == "--cache-info";
         } else if (argument == "--data") {
             const char* value = need_value(i, "--data");
             if (value == nullptr) {
@@ -287,8 +342,13 @@ int run_headless(const HeadlessOptions& options, const std::filesystem::path& ex
 
     // The same run_backtest the Python bindings call. One implementation, so a
     // notebook and the command line cannot disagree about what happened.
+    if (options.inspect_cache) {
+        return print_cache(options.daily_dir);
+    }
+
     run::BacktestConfig config;
     config.data_file = options.data_file;
+    config.daily_dir = options.daily_dir;
     config.symbol = options.default_symbol;
     config.bars_per_session = options.bars;
     config.sessions = options.sessions;

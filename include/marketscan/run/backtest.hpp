@@ -28,6 +28,11 @@ struct BacktestConfig {
     /// A CSV to replay. Empty means generate synthetic data instead.
     std::filesystem::path data_file;
 
+    /// A directory of cached daily .msb files to replay. Takes precedence over
+    /// data_file when both are set, because asking for both is a mistake worth
+    /// resolving the same way every time rather than silently merging.
+    std::filesystem::path daily_dir;
+
     /// Ticker to assume when a CSV has no symbol column, and the instrument
     /// the synthetic generator invents.
     std::string symbol = "SPY";
