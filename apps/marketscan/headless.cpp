@@ -7,6 +7,8 @@
 #include <sstream>
 
 #include "marketscan/data/bar_store.hpp"
+#include "marketscan/data/security_master.hpp"
+#include "marketscan/data/universe.hpp"
 #include "marketscan/metrics/performance.hpp"
 #include "marketscan/run/backtest.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
@@ -31,6 +33,15 @@ replays market data through all of them at once, and prints what happened.
   --daily <dir>         Replay a directory of cached daily bars (.msb). Populate
                         one with: python scripts/fetch_stooq.py --symbols ...
   --cache-info <dir>    Report what a daily cache holds, then stop.
+  --universe <file>     Membership history (date,TICKER,TICKER,... snapshots).
+                        Turns on the survivorship guard: a strategy is never
+                        shown a security that was not a member that day.
+                        Populate with: python scripts/fetch_sp500.py
+  --build-universe <f>  Load a membership history, write docs/IDENTITY_DECISIONS.md
+                        and a summary, then stop.
+  --no-universe         Replay every symbol in the data regardless of index
+                        membership. Correct for intraday and for one
+                        instrument; survivorship-unsafe for anything else.
   --symbol <TICKER>     Ticker to assume for a CSV with no symbol column.
                         Default: SPY
   --bars <n>            Synthetic bars per session. Default: 390
@@ -134,6 +145,64 @@ void print_plugin_table(const std::vector<PluginInfo>& plugins,
         std::cout << "\n";
     }
     std::cout << "\n";
+}
+
+/// Loads a membership history, writes the decision report, and says what it
+/// found.
+///
+/// Separated from a replay on purpose. Building the universe is where every
+/// identity judgment is made, and those judgments deserve to be looked at
+/// before anything is run on top of them rather than scrolling past on the way
+/// to a number.
+int build_universe(const std::filesystem::path& history_path,
+                   const std::filesystem::path& overrides_path,
+                   const std::filesystem::path& report_path) {
+    SymbolTable symbols;
+    SecurityMaster master(symbols);
+
+    const IdentityRules rules = load_overrides(overrides_path);
+    const SnapshotMembershipSource source(history_path);
+    const MembershipHistory history = build_membership(source, master, rules);
+
+    write_decision_report(report_path, history, master, rules, source.describe());
+
+    std::size_t splits = 0;
+    std::size_t near_misses = 0;
+    for (const IdentityDecision& decision : history.decisions) {
+        splits += decision.split ? 1 : 0;
+        near_misses += decision.rule == "near miss" ? 1 : 0;
+    }
+
+    std::cout << "Universe\n--------\n";
+    std::cout << "  source            " << source.describe() << "\n";
+    std::cout << "  snapshots         " << source.snapshots() << "\n";
+    std::cout << "  securities        " << master.size() << "\n";
+    std::cout << "  membership spans  " << history.universe.size() << "\n";
+    std::cout << "  covers            " << time::to_iso8601(history.universe.first()).substr(0, 10)
+              << " .. ";
+    if (history.universe.last() == kForever) {
+        std::cout << "current";
+    } else {
+        std::cout << time::to_iso8601(history.universe.last()).substr(0, 10);
+    }
+    std::cout << "\n";
+    std::cout << "  members today     "
+              << history.universe.members_on(history.universe.last() - 1).size() << "\n\n";
+
+    std::cout << "Identity\n--------\n";
+    std::cout << "  overrides loaded  " << rules.overrides.size() << "\n";
+    std::cout << "  gaps considered   " << history.decisions.size() << "\n";
+    std::cout << "  splits made       " << splits << "\n";
+    std::cout << "  near misses       " << near_misses << "\n\n";
+    std::cout << "  Every one of those calls is in " << report_path.string() << ".\n";
+    std::cout << "  The threshold is a judgment, not a constant. Corrections go in "
+              << overrides_path.string() << ".\n\n";
+
+    if (!history.rejected.empty()) {
+        std::cout << "  " << history.rejected.size()
+                  << " row(s) the source could not supply; see the report.\n\n";
+    }
+    return 0;
 }
 
 /// What a daily cache holds, without replaying it.
@@ -258,6 +327,15 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
                 exit_code = 2;
                 return false;
             }
+        } else if (argument == "--no-universe") {
+            out.no_universe = true;
+        } else if (argument == "--universe" || argument == "--build-universe") {
+            const char* value = need_value(i, argv[i]);
+            if (value == nullptr) {
+                return false;
+            }
+            out.universe_file = value;
+            out.build_universe = argument == "--build-universe";
         } else if (argument == "--daily" || argument == "--cache-info") {
             const char* value = need_value(i, argv[i]);
             if (value == nullptr) {
@@ -345,6 +423,14 @@ int run_headless(const HeadlessOptions& options, const std::filesystem::path& ex
     if (options.inspect_cache) {
         return print_cache(options.daily_dir);
     }
+    if (options.build_universe) {
+        // Relative to the working directory rather than to the executable:
+        // both of these are repository artefacts that get reviewed and
+        // committed, and they belong next to the source rather than beside a
+        // build output.
+        return build_universe(
+            options.universe_file, "data/security_overrides.csv", "docs/IDENTITY_DECISIONS.md");
+    }
 
     run::BacktestConfig config;
     config.data_file = options.data_file;
@@ -360,6 +446,10 @@ int run_headless(const HeadlessOptions& options, const std::filesystem::path& ex
     config.fills.latency_jitter =
         static_cast<Duration>(options.latency_jitter_ms * static_cast<double>(time::kMillisecond));
     config.fills.max_participation = options.participation;
+    if (!options.no_universe) {
+        config.universe_file = options.universe_file;
+        config.security_overrides = "data/security_overrides.csv";
+    }
 
     if (options.list_only) {
         PluginLoader loader(config.theory_roots);
@@ -397,6 +487,21 @@ int run_headless(const HeadlessOptions& options, const std::filesystem::path& ex
             std::cout << options.participation << " participation cap";
         }
         std::cout << "\n\n";
+    }
+
+    // Said before the numbers, because a cross-sectional result produced
+    // without a universe is survivorship-inflated and a reader should not have
+    // to remember which kind of run they are looking at.
+    if (honest.universe_active) {
+        std::cout << "Universe: " << honest.universe_securities << " securities, "
+                  << honest.events_withheld << " event(s) withheld from strategies, "
+                  << honest.forced_exits << " forced exit(s)\n";
+        std::cout << "          " << honest.bars_unidentified
+                  << " bar(s) fell outside every membership period and were dropped.\n\n";
+    } else if (!honest.theories.empty()) {
+        std::cout << "Universe: none. Every symbol in the data is in scope, so a "
+                     "cross-sectional\n          result from this run is "
+                     "survivorship-inflated. Pass --universe.\n\n";
     }
 
     print_results(honest, "Results (spread-crossing fills)");

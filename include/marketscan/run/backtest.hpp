@@ -64,6 +64,18 @@ struct BacktestConfig {
 
     double spread_bps = 2.0;
 
+    /// A membership history. Empty means no universe, which means no
+    /// survivorship guard: every symbol in the data is in scope.
+    ///
+    /// That is the right default for one instrument and for intraday work, and
+    /// it is survivorship-unsafe for a cross-sectional study over decades --
+    /// which is why the results carry `universe_active` rather than leaving a
+    /// reader to remember which kind of run they were looking at.
+    std::filesystem::path universe_file;
+
+    /// Corrections to the identity inference. Consulted before the threshold.
+    std::filesystem::path security_overrides;
+
     /// Execution realism: submit-to-fill latency, jitter, participation caps.
     ///
     /// Default-constructed, which is an instant simulator filling in full --
@@ -129,6 +141,29 @@ struct BacktestResult {
     bool fill_model_realistic = true;
 
     metrics::CorrelationMatrix correlation;
+
+    /// Whether a universe was in force, and what it cost.
+    ///
+    /// Reported rather than assumed. A run without a universe is not wrong --
+    /// it is the only sensible thing for a single instrument -- but a
+    /// cross-sectional result produced without one is survivorship-inflated,
+    /// and the difference has to be visible in the output rather than
+    /// remembered.
+    bool universe_active = false;
+    std::size_t universe_securities = 0;
+    std::uint64_t events_withheld = 0;
+    std::uint64_t forced_exits = 0;
+
+    /// Bars whose date fell outside every membership period, so the feed could
+    /// not say which security they belonged to.
+    ///
+    /// Counted separately from events_withheld because they are stopped at a
+    /// different place for a different reason. A withheld event is one the
+    /// guard refused to show a strategy; an unidentified bar is one the
+    /// universe could not name at all. Both are the guard working, and
+    /// reporting only the second would make a correctly-filtered run look
+    /// unfiltered.
+    std::uint64_t bars_unidentified = 0;
 
     /// Set when the run could not start -- a missing file, an unreadable
     /// dataset. The theories list is empty in that case.

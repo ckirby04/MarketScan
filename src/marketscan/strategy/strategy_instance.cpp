@@ -1,6 +1,7 @@
 #include "marketscan/strategy/strategy_instance.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 #include "marketscan/util/logging.hpp"
@@ -76,6 +77,15 @@ void StrategyInstance::resolve_subscriptions() {
     }
 }
 
+bool StrategyInstance::visible(SymbolId symbol, Timestamp ts) const noexcept {
+    // No universe installed: every symbol in the data is in scope. That is the
+    // intraday and single-instrument case, and --no-universe.
+    if (universe_ == nullptr) {
+        return true;
+    }
+    return universe_->is_member(symbol, ts);
+}
+
 bool StrategyInstance::wants(SymbolId symbol) const noexcept {
     if (subscribed_.empty()) {
         return true;
@@ -101,6 +111,10 @@ void StrategyInstance::stop() {
 }
 
 void StrategyInstance::on_bar(const MS_Bar& bar) {
+    if (started_ && !stopped_ && !visible(bar.symbol, bar.ts)) {
+        ++events_withheld_;
+        return;
+    }
     if (started_ && !stopped_ && wants(bar.symbol)) {
         // Measured around the callback, which is where an order is submitted,
         // priced and booked -- so this is event-in to order-out, not just
@@ -111,6 +125,10 @@ void StrategyInstance::on_bar(const MS_Bar& bar) {
 }
 
 void StrategyInstance::on_quote(const MS_Quote& quote) {
+    if (started_ && !stopped_ && !visible(quote.symbol, quote.ts)) {
+        ++events_withheld_;
+        return;
+    }
     if (started_ && !stopped_ && wants(quote.symbol)) {
         // Measured around the callback, which is where an order is submitted,
         // priced and booked -- so this is event-in to order-out, not just
@@ -121,6 +139,10 @@ void StrategyInstance::on_quote(const MS_Quote& quote) {
 }
 
 void StrategyInstance::on_trade(const MS_Trade& trade) {
+    if (started_ && !stopped_ && !visible(trade.symbol, trade.ts)) {
+        ++events_withheld_;
+        return;
+    }
     if (started_ && !stopped_ && wants(trade.symbol)) {
         // Measured around the callback, which is where an order is submitted,
         // priced and booked -- so this is event-in to order-out, not just
@@ -141,7 +163,79 @@ void StrategyInstance::on_event_complete(const MarketEvent& event) {
     if (market_ != nullptr) {
         broker_.ledger().mark_all(*market_);
     }
+
+    // After the marks, so a forced exit prices against the book as of this
+    // event rather than the previous one.
+    sweep_removals(ts);
+
     broker_.ledger().maybe_sample_equity(ts);
+}
+
+void StrategyInstance::sweep_removals(Timestamp ts) {
+    if (universe_ == nullptr) {
+        return;
+    }
+
+    // Only when the membership set actually changes. A replay asks this on
+    // every event and the answer changes a handful of times a year, so the
+    // comparison below is what keeps this off the hot path.
+    if (last_membership_ts_ != kNever) {
+        const std::vector<SymbolId>& members = universe_->members_on(ts);
+        if (members == last_members_) {
+            return;
+        }
+        last_members_ = members;
+    } else {
+        last_members_ = universe_->members_on(ts);
+        last_membership_ts_ = ts;
+        return;
+    }
+    last_membership_ts_ = ts;
+
+    // Anything held that is no longer a member is sold at the last price the
+    // book has for it.
+    //
+    // This is an OPTIMISTIC APPROXIMATION and it is the single largest thing
+    // this data layer gets wrong. A name leaves an index for two very different
+    // reasons: it was replaced by a bigger one, or it collapsed. The first
+    // liquidates near the last price; the second does not liquidate anywhere
+    // near it, and the real delisting return is frequently -30%, -60%, or
+    // everything. This models both as the first.
+    //
+    // That is precisely where naive backtests hide their losses. When CRSP
+    // delisting returns arrive they replace this path, and until then a result
+    // produced over a universe with removals in it is flattered by an unknown
+    // amount in one direction.
+    std::vector<const Position*> held = broker_.ledger().open_positions();
+    for (const Position* position : held) {
+        if (position == nullptr || position->quantity == 0.0) {
+            continue;
+        }
+        if (universe_->is_member(position->symbol, ts)) {
+            continue;
+        }
+
+        MS_OrderRequest exit{};
+        exit.symbol = position->symbol;
+        exit.side = position->quantity > 0.0 ? MS_SIDE_SELL : MS_SIDE_BUY;
+        exit.type = MS_ORD_MARKET;
+        exit.tif = MS_TIF_IOC;
+        exit.quantity = std::fabs(position->quantity);
+        exit.client_order_id = kForcedExitClientId;
+
+        const OrderId id = broker_.submit(exit, ts);
+        ++forced_exits_;
+
+        std::string message = "forced exit: ";
+        message += symbols_ != nullptr ? symbols_->c_name(position->symbol) : "?";
+        message += " left the universe";
+        if (id == kInvalidOrderId) {
+            message += "; the exit order was REFUSED and the position is stranded";
+            log::write(MS_LOG_ERROR, id_, message);
+        } else {
+            log::write(MS_LOG_INFO, id_, message);
+        }
+    }
 }
 
 void StrategyInstance::on_fill(const MS_Fill& fill) {
@@ -169,6 +263,13 @@ double StrategyInstance::random_uniform() {
 }
 
 double StrategyInstance::position(SymbolId symbol) const {
+    // A non-member reads as flat. It always is -- anything held is liquidated
+    // on the day it leaves the index -- so this closes a probe rather than
+    // hiding a balance: without it, a strategy could ask about a name it was
+    // never shown and learn that it exists.
+    if (!visible(symbol, now())) {
+        return 0.0;
+    }
     return broker_.ledger().position(symbol);
 }
 
@@ -184,16 +285,48 @@ SymbolId StrategyInstance::symbol_id(const char* ticker) const {
     if (symbols_ == nullptr || ticker == nullptr) {
         return kInvalidSymbol;
     }
+
+    // Resolved as of the simulation clock, which is the correct semantics and
+    // is available without touching the frozen ABI: symbol_id has no date
+    // parameter and cannot gain one, but the host knows what time it is.
+    //
+    // A consequence worth knowing, and documented in theories/README.md: the
+    // id returned for one ticker CAN differ across a long replay, if that
+    // ticker was reassigned to a different company. Resolve once and hold the
+    // id; do not re-resolve a string every bar.
+    if (master_ != nullptr) {
+        const SecurityId id = master_->resolve(ticker, now());
+        return visible(id, now()) ? id : kInvalidSymbol;
+    }
+
     // Lookup, never interning. A strategy inventing symbols would grow the
     // table mid-run and change the ids a later run assigns.
-    return symbols_->find(ticker);
+    const SymbolId id = symbols_->find(ticker);
+    return visible(id, now()) ? id : kInvalidSymbol;
 }
 
 const char* StrategyInstance::symbol_name(SymbolId symbol) const {
-    return symbols_ == nullptr ? "" : symbols_->c_name(symbol);
+    if (symbols_ == nullptr) {
+        return "";
+    }
+    // The interned key is "XYZ~2" for a second incarnation of a reused ticker.
+    // That is an internal detail and no strategy should ever see it, so the
+    // display name comes from the master when there is one.
+    if (master_ != nullptr) {
+        if (const Security* security = master_->find(symbol); security != nullptr) {
+            return security->ticker_at(now()).data();
+        }
+    }
+    return symbols_->c_name(symbol);
 }
 
 std::uint32_t StrategyInstance::symbol_count() const {
+    if (universe_ != nullptr) {
+        // Members today, not everything the data file happens to contain. A
+        // strategy iterating 0..symbol_count() must not be able to walk off the
+        // end of the index into a company that was not in it.
+        return static_cast<std::uint32_t>(universe_->members_on(now()).size());
+    }
     return symbols_ == nullptr ? 0 : symbols_->count();
 }
 

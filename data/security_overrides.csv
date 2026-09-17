@@ -1,0 +1,45 @@
+# Corrections to the automatic security-identity inference.
+#
+# The membership history this project loads is ticker-keyed, and a ticker is
+# not an identity. A gap in a ticker's index membership is either the same
+# company leaving and returning, or the string being reassigned to a different
+# company -- and nothing in the source says which. The engine guesses from the
+# length of the gap, and every guess it makes is written to
+# docs/IDENTITY_DECISIONS.md.
+#
+# This file overrules the guess. It is consulted before the threshold.
+#
+#   ticker      the symbol the gap belongs to
+#   action      "split"  -- these are different companies
+#               "keep"   -- this is the same company returning
+#   resumed_on  YYYY-MM-DD, the date membership resumed. Identifies which gap
+#               this applies to. Leave empty to apply to every gap for the
+#               ticker.
+#   note        why. This is the part that matters in two years.
+#
+# WHICH WAY TO ERR
+#
+# Splitting when you should not costs history: a strategy cannot compute a
+# twelve-month signal across the break. That is a visible, bounded loss, and
+# the strategy can say so.
+#
+# Keeping when you should have split welds one company's price series to
+# another's and manufactures a return that never existed. That is invisible,
+# unbounded, and poisons every statistic downstream of it.
+#
+# So when it is genuinely ambiguous, split.
+#
+# RENAMES ARE NOT HANDLED HERE
+#
+# A rename -- FB becoming META -- is one company with two names, and it cannot
+# be inferred from this data at all: it looks exactly like one ticker leaving
+# and another arriving. It needs SecurityMaster::add_ticker and a source that
+# knows about corporate actions. CRSP's PERMNO supplies identity directly and
+# makes this entire file unnecessary.
+#
+# ---------------------------------------------------------------------------
+ticker,action,resumed_on,note
+AMD,keep,2017-03-20,Advanced Micro Devices has traded continuously since 1972. Removed from the index in 2013 and re-added in 2017; the company never went anywhere.
+CIEN,keep,2026-02-09,Ciena has traded continuously since its 1997 IPO. Index removal and re-addition only.
+FSLR,keep,2022-12-19,First Solar has traded continuously since its 2006 IPO. Index removal and re-addition only.
+FMC,keep,2009-08-19,FMC Corp continued trading after the 2001 FMC Technologies spin-off. Index removal and re-addition only.

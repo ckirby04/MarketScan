@@ -47,6 +47,17 @@ struct HeadlessOptions {
     /// List what a daily cache holds, then stop.
     bool inspect_cache = false;
 
+    /// A membership history to load. Enables the survivorship guard.
+    std::string universe_file;
+
+    /// Build the universe, write the identity report, and stop.
+    bool build_universe = false;
+
+    /// Run with no universe at all, even if one is configured. Every symbol in
+    /// the data is in scope, which is correct for intraday and for a single
+    /// instrument, and is survivorship-unsafe for anything else.
+    bool no_universe = false;
+
     bool verbose = false;
 
     /// Start the replay as soon as the window opens, instead of waiting for

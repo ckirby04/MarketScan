@@ -9,6 +9,8 @@
 #include "marketscan/core/random.hpp"
 #include "marketscan/core/session_calendar.hpp"
 #include "marketscan/core/symbol_table.hpp"
+#include "marketscan/data/security_master.hpp"
+#include "marketscan/data/universe.hpp"
 #include "marketscan/exec/broker.hpp"
 #include "marketscan/strategy/host_context.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
@@ -155,8 +157,45 @@ public:
     /// mentions is logged once rather than being silently ignored.
     void resolve_subscriptions();
 
+    // --- The survivorship guard -----------------------------------------
+    //
+    // A backtest run over today's index members, applied to history, is a
+    // backtest over the companies that survived, and it reports a premium
+    // nobody could have earned because nobody knew in 1999 which names would
+    // still be there.
+    //
+    // The defence is not a rule a strategy author is asked to remember. When a
+    // universe is installed here, this instance is the only path from an event
+    // to a plugin and the only implementation of the host context that plugin
+    // has -- so filtering here is not a policy applied at a checkpoint, it is
+    // the absence of a route. There is no call a strategy can make that
+    // returns a non-member.
+    //
+    // Both are borrowed and must outlive this instance.
+
+    void set_universe(const Universe* universe, const SecurityMaster* master) noexcept {
+        universe_ = universe;
+        master_ = master;
+    }
+
+    [[nodiscard]] const Universe* universe() const noexcept { return universe_; }
+
+    /// Securities force-liquidated because they left the universe while held.
+    [[nodiscard]] std::uint64_t forced_exits() const noexcept { return forced_exits_; }
+
+    /// Events withheld from the strategy because the security was not a member
+    /// that day. Counted so the guard's effect is a number rather than a
+    /// claim: a run where this is zero has not been filtered at all.
+    [[nodiscard]] std::uint64_t events_withheld() const noexcept { return events_withheld_; }
+
 private:
     [[nodiscard]] bool wants(SymbolId symbol) const noexcept;
+
+    /// Whether this security may be shown to the strategy at this instant.
+    [[nodiscard]] bool visible(SymbolId symbol, Timestamp ts) const noexcept;
+
+    /// Force-liquidates anything held that has left the universe.
+    void sweep_removals(Timestamp ts);
 
     std::string id_;
     std::string display_name_;
@@ -168,6 +207,16 @@ private:
     const MarketView* market_;
     SymbolTable* symbols_;
     const IClock* clock_;
+
+    const Universe* universe_ = nullptr;
+    const SecurityMaster* master_ = nullptr;
+    std::uint64_t forced_exits_ = 0;
+    std::uint64_t events_withheld_ = 0;
+
+    /// Members as of the last event, so a removal is noticed on the event that
+    /// makes it true rather than by rescanning the whole ledger every tick.
+    std::vector<SymbolId> last_members_;
+    Timestamp last_membership_ts_ = kNever;
 
     Broker broker_;
     HostContext host_;

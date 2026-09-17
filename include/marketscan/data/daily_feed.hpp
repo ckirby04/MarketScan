@@ -8,6 +8,7 @@
 
 #include "marketscan/data/bar_store.hpp"
 #include "marketscan/data/feed.hpp"
+#include "marketscan/data/security_master.hpp"
 
 namespace marketscan {
 
@@ -35,6 +36,18 @@ struct DailyFeedOptions {
 
     /// Skip files whose ticker is not in this list. Empty means take them all.
     std::vector<std::string> only;
+
+    /// Resolve each bar's ticker to a security **as of that bar's date**.
+    ///
+    /// Without one, a file's ticker is interned once and every bar in it gets
+    /// the same id -- which is correct until a ticker has been reused, and then
+    /// welds one company's price history to another's.
+    ///
+    /// With one, a bar whose date belongs to no security is dropped and
+    /// counted. That is not a loss: a date outside every membership period is
+    /// a date on which the universe does not know what this string was, and a
+    /// bar the universe cannot identify is one no strategy may be shown.
+    const SecurityMaster* master = nullptr;
 };
 
 /// Replays daily bars from a directory of cached .msb files.
@@ -92,6 +105,9 @@ public:
     /// Bars loaded, before quote synthesis doubled the event count.
     [[nodiscard]] std::size_t bar_count() const noexcept { return bar_count_; }
 
+    /// Bars whose date belonged to no security. Non-zero only with a master.
+    [[nodiscard]] std::size_t unidentified_bars() const noexcept { return unidentified_; }
+
 private:
     void
     build(std::vector<BarSeries> series, SymbolTable& symbols, const DailyFeedOptions& options);
@@ -100,6 +116,7 @@ private:
     std::vector<MarketEvent> events_;
     std::vector<SymbolId> symbol_ids_;
     std::size_t bar_count_ = 0;
+    std::size_t unidentified_ = 0;
     std::size_t cursor_ = 0;
 };
 

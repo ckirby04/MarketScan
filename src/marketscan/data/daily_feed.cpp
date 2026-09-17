@@ -85,10 +85,26 @@ void DailyBarFeed::build(std::vector<BarSeries> series,
         if (one.ticker.empty()) {
             throw std::runtime_error("DailyBarFeed: a series has no ticker");
         }
-        const SymbolId id = symbols.intern(one.ticker);
-        symbol_ids_.push_back(id);
+        // Interned once per file when there is no identity layer, and
+        // resolved per bar when there is: the same string can be two companies
+        // and only the date says which.
+        const SymbolId file_id =
+            options.master == nullptr ? symbols.intern(one.ticker) : kInvalidSymbol;
+        if (file_id != kInvalidSymbol) {
+            symbol_ids_.push_back(file_id);
+        }
 
         for (const StoredBar& stored : one.bars) {
+            SymbolId id = file_id;
+            if (options.master != nullptr) {
+                id = options.master->resolve(one.ticker, stored.ts);
+                if (id == kInvalidSymbol) {
+                    ++unidentified_;
+                    continue;
+                }
+                symbol_ids_.push_back(id);
+            }
+
             if (!plausible(stored)) {
                 throw std::runtime_error("DailyBarFeed: " + one.ticker +
                                          " has an impossible bar at " +

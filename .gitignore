@@ -37,6 +37,7 @@ credentials.json
 # --- Market data: never commit anything but the curated samples ---
 data/*
 !data/samples/
+!data/security_overrides.csv
 data/samples/*
 !data/samples/*.csv
 !data/samples/README.md

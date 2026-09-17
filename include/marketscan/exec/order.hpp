@@ -14,6 +14,15 @@ using OrderId = std::uint64_t;
 /// Zero is never a valid order id; it is what submit_order returns on refusal.
 inline constexpr OrderId kInvalidOrderId = 0;
 
+/// Client order id stamped on a liquidation the engine performed on a
+/// strategy's behalf, because the security left the universe.
+///
+/// A distinct marker rather than an ordinary sale: a forced exit is not a
+/// decision the strategy made, and a blotter that showed it as one would credit
+/// or blame a strategy for a trade it never chose. The value is deliberately
+/// absurd so it cannot collide with a client id anyone assigned on purpose.
+inline constexpr std::uint64_t kForcedExitClientId = 0xDEAD'0E17ULL;
+
 enum class OrderStatus : std::uint8_t {
     /// Accepted and resting, waiting for a price that makes it marketable.
     Working = 0,

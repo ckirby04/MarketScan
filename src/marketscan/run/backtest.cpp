@@ -8,7 +8,9 @@
 #include "marketscan/core/engine.hpp"
 #include "marketscan/data/csv_feed.hpp"
 #include "marketscan/data/daily_feed.hpp"
+#include "marketscan/data/security_master.hpp"
 #include "marketscan/data/synthetic_feed.hpp"
+#include "marketscan/data/universe.hpp"
 #include "marketscan/exec/fill_model.hpp"
 #include "marketscan/metrics/rolling.hpp"
 #include "marketscan/strategy/strategy_instance.hpp"
@@ -23,12 +25,13 @@ constexpr std::size_t kNoIndex = static_cast<std::size_t>(-1);
     return static_cast<double>(ts) / static_cast<double>(time::kSecond);
 }
 
-[[nodiscard]] std::unique_ptr<IMarketDataFeed> make_feed(const BacktestConfig& config,
-                                                         SymbolTable& symbols) {
+[[nodiscard]] std::unique_ptr<IMarketDataFeed>
+make_feed(const BacktestConfig& config, SymbolTable& symbols, const SecurityMaster* master) {
     if (!config.daily_dir.empty()) {
         DailyFeedOptions options;
         options.synthesize_quotes = config.synthesize_quotes_for_bars;
         options.spread_bps = config.spread_bps;
+        options.master = master;
         return std::make_unique<DailyBarFeed>(config.daily_dir, symbols, options);
     }
 
@@ -82,8 +85,40 @@ BacktestResult run_backtest(const BacktestConfig& config) {
     SymbolTable symbols;
     Engine engine;
 
+    // --- Identity and the universe, before the feed -------------------
+    //
+    // Order matters and is not incidental. The master assigns every id, so it
+    // has to have done so before the feed resolves a single ticker; a feed that
+    // interned first would take the ids and the master would find the table out
+    // of step with itself -- which it refuses rather than papers over.
+    std::unique_ptr<SecurityMaster> master;
+    std::unique_ptr<Universe> universe;
+    if (!config.universe_file.empty()) {
+        try {
+            master = std::make_unique<SecurityMaster>(symbols);
+            const IdentityRules rules = load_overrides(config.security_overrides);
+            const SnapshotMembershipSource source(config.universe_file);
+            MembershipHistory history = build_membership(source, *master, rules);
+            universe = std::make_unique<Universe>(std::move(history.universe));
+            result.universe_active = true;
+            result.universe_securities = master->size();
+        } catch (const std::exception& error) {
+            result.error = std::string("universe: ") + error.what();
+            return result;
+        }
+    }
+
     try {
-        std::unique_ptr<IMarketDataFeed> feed = make_feed(config, symbols);
+        std::unique_ptr<IMarketDataFeed> feed = make_feed(config, symbols, master.get());
+
+        // Only the daily feed resolves identity per bar, and only it can have
+        // dropped any. A dynamic_cast rather than a virtual on IMarketDataFeed:
+        // "how many bars did you fail to identify" is not a question a live
+        // transport or a synthetic generator has an answer to.
+        if (const auto* daily = dynamic_cast<const DailyBarFeed*>(feed.get()); daily != nullptr) {
+            result.bars_unidentified = daily->unidentified_bars();
+        }
+
         const FeedSpan span = feed->span();
         result.first_ts = span.first;
         result.last_ts = span.last;
@@ -132,6 +167,7 @@ BacktestResult run_backtest(const BacktestConfig& config) {
                                 &engine.market(),
                                 &symbols,
                                 &engine.clock());
+        strategies.back().set_universe(universe.get(), master.get());
     }
 
     for (StrategyInstance& strategy : strategies) {
@@ -194,6 +230,9 @@ BacktestResult run_backtest(const BacktestConfig& config) {
         if (const PluginInfo* info = loader.find(row.id); info != nullptr) {
             row.author = info->author;
         }
+
+        result.events_withheld += strategy.events_withheld();
+        result.forced_exits += strategy.forced_exits();
 
         result.theories.push_back(std::move(row));
     }

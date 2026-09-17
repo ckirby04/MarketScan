@@ -140,6 +140,42 @@ publish_metric("signal_strength", value);   // the GUI plots this by itself
 
 ---
 
+## Symbol ids are not tickers
+
+`symbol_id("AAPL")` resolves **as of the current simulation time**, because the
+host knows what time it is and a ticker is not an identity. A ticker dropped
+from the index in 2003 and reassigned to an unrelated company in 2011 is two
+securities sharing one string, and the engine treats them as two.
+
+The consequence for a theory author is one line long:
+
+> **Resolve once and hold the id. Do not re-resolve a ticker string every bar.**
+
+```cpp
+void on_start() override {
+    spy_ = symbol_id("SPY");      // once
+}
+
+void on_bar(const MS_Bar& bar) override {
+    if (bar.symbol != spy_) { return; }
+    // ...
+}
+```
+
+Re-resolving each bar is not merely wasteful: across a long replay the same
+string can return a *different* id, and a strategy that accumulated state
+against the old one is now looking at a different company. Holding the id is
+also how you get continuity across a rename -- FB and META are one security and
+one id, which is the entire point of the id.
+
+`symbol_name(id)` gives the ticker as of the current date, which is what to log
+and display.
+
+When a universe is active, `symbol_id` returns 0 for anything that was not an
+index member today, `symbol_count()` counts only today's members, and you are
+never shown a bar for a non-member. That is not a rule you have to follow; it is
+the absence of an API for breaking it. See [`../docs/IDENTITY.md`](../docs/IDENTITY.md).
+
 ## Parameters
 
 Declare them and bind them. The GUI renders a control for each one and lets the

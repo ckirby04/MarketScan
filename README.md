@@ -72,6 +72,8 @@ as a labelled comparison.
 | Seeded RNG from the host | Same reason. Each theory gets its own stream derived from the run seed, so adding a second theory cannot change the first one's results. |
 | Fills cross the spread **by default** | An optimistic fill model turns noise into alpha — see the $1,082 above. |
 | Orders can take time to arrive | Optional, off by default. A strategy that has never experienced a pending order is one trained on an assumption that breaks live — see [`docs/EXECUTION.md`](docs/EXECUTION.md). |
+| A ticker is an attribute, not an identity | A ticker reused by a different company is two securities. Resolution takes a date, and the dateless overload is a compile error — see [`docs/IDENTITY.md`](docs/IDENTITY.md). |
+| Survivorship is prevented structurally | A strategy is never shown a company that was not in the index that day, because the host context gives it no way to ask. Not a rule an author has to remember. |
 | Benchmark is a plugin, not a special case | Buy-and-hold pays the same spread and runs through the same ledger, so the comparison is apples-to-apples by construction. |
 | Metrics return **NaN**, never zero | A Sharpe ratio that is undefined and a Sharpe ratio of zero are different claims. The interface prints `--` for the first. |
 | No iteration over hash containers on a decision path | Iteration order is unspecified, and an order book that depends on it is a backtest that cannot be reproduced. |
@@ -84,6 +86,28 @@ equity == starting_cash + realized − commission + unrealized
 ```
 
 Exactly — not to within a rounding tolerance. That is what the micro-dollar integers buy.
+
+---
+
+## The data layer
+
+```powershell
+python scripts/fetch_stooq.py --symbols-file universe.txt   # free daily bars
+python scripts/fetch_sp500.py                               # index membership, 1996-
+marketscan.exe --headless --build-universe data/cache/universe/sp500_history.csv
+marketscan.exe --headless --daily data/cache/stooq --universe data/cache/universe/sp500_history.csv
+```
+
+| | |
+|---|---|
+| [`docs/DATA.md`](docs/DATA.md) | Where the bars come from, the binary cache format, and a list of what this data is missing |
+| [`docs/IDENTITY.md`](docs/IDENTITY.md) | Why a ticker is not an identity, and how the survivorship guard is enforced |
+| [`docs/IDENTITY_DECISIONS.md`](docs/IDENTITY_DECISIONS.md) | Every identity call the engine made on the real index, including the ones that went the other way |
+
+> **The free data stack exists to exercise machinery, not to produce
+> conclusions.** No delisting returns, no point-in-time restatements, no
+> corporate actions. Every number derived from it is a statement about this
+> pipeline. Nothing here is committed: `data/cache/` is gitignored.
 
 ---
 
