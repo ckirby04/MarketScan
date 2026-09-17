@@ -10,8 +10,12 @@ Audited at `2535ca2` (the tip of Spec 1). Host: Windows 11, MSVC 19.43, x64.
 tests, 2 findings escalated to the reader rather than fixed.**
 
 > **Updated at M1b.** Escalation 2 — the backtest/live seam — is resolved; see
-> check 5. Escalation 1 — `BUILD_SPEC.md` is not in the repository — still
-> stands.
+> check 5.
+>
+> **Updated at the Session A close-out.** Escalation 1 — the specifications
+> were not in the repository — is resolved. They are in
+> [`specs/`](specs/), verbatim. **Both escalations from this audit are
+> closed.**
 
 ---
 
@@ -219,7 +223,8 @@ committed file — 6,243 assertions.
 
 ## Findings not covered by a numbered check
 
-**`BUILD_SPEC.md` is not in the repository.** *(Still open.)* Spec 2 names it as prerequisite
+**`BUILD_SPEC.md` is not in the repository.** *(Resolved at the Session A
+close-out.)* Spec 2 names it as prerequisite
 reading for its Section 2 and Section 4. It has never been committed; Spec 1
 was delivered as a message and only its conclusions reached disk, in code
 comments, in `README.md` and in the commit messages. The constraints are being
@@ -227,6 +232,12 @@ honoured, but a reader cannot check them against the source, and neither can a
 future session. Reconstructing it from memory would produce a document that
 looks authoritative and is not, so it has not been attempted. Flagged for the
 author to commit the original.
+
+**Closed.** The original documents were placed in the working tree and are now
+committed under [`specs/`](specs/) — `BUILD_SPEC.md`, `BUILD_SPEC_2.md`,
+`SPEC_2_M1B.md` and `SPEC_VIEW_MODES.md` — unedited, with a README noting where
+`BUILD_SPEC_2.md` §6 has been superseded by the identity model in
+[`IDENTITY.md`](IDENTITY.md).
 
 ---
 
