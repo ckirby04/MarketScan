@@ -221,6 +221,11 @@ that same version.
 
 ---
 
+## Where this is
+
+[**`docs/STATUS.md`**](docs/STATUS.md) — what exists, what is blocked, what is
+next, and how to pick the project up on a machine that has never built it.
+
 ## Milestones
 
 | | Milestone | State |
