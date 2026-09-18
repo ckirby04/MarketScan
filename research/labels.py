@@ -131,9 +131,14 @@ def forward_return(frame: pd.DataFrame, horizon: int = 1, terminal: Terminal = "
     value_frame = pd.DataFrame(values, index=index, columns=columns)
     truncated_frame = pd.DataFrame(truncated, index=index, columns=columns)
 
+    # A NaT with an explicit unit. `np.datetime64("NaT")` carries the *generic*
+    # unit, which numpy 2.5 deprecates and a future version will reject -- and
+    # which `pytest`'s error-on-warning setting turns into a failed test suite the
+    # first time CI installs a newer numpy than the one on the developer's
+    # machine. It did.
     safe_positions = np.clip(end_position, 0, n_periods - 1)
     end_dates = np.where(end_position >= 0, dates.to_numpy()[safe_positions],
-                         np.datetime64("NaT"))
+                         np.datetime64("NaT", "ns"))
     end_frame = pd.DataFrame(end_dates, index=index, columns=columns)
 
     def stack(wide: pd.DataFrame) -> pd.Series:
