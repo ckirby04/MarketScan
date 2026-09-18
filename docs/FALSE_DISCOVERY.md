@@ -184,6 +184,113 @@ Anything this project reports from a search of this shape, on data of this
 length, below this Sharpe, is not evidence. Including anything it reports
 later, on real data, having forgotten this page.
 
+## The information coefficient, calibrated
+
+The table above says the IC's t-statistic is not calibrated. This says what to
+use instead.
+
+The same null, the same generator, 1512 runs over
+6 panels across 6 horizons, with the portfolio stage
+switched off because an information coefficient does not need a book. For each
+horizon: the |IC| a t-statistic of 1.96 implicitly demands, how often that rule
+fires when nothing is there, and the |IC| the null actually produces.
+
+| horizon | t = 1.96 demands | that rule's false positives | measured single-test bar | measured best-of-42 bar |
+|---|---|---|---|---|
+| 1 | 0.0074 | **8.3%** | 0.0082 | 0.0145 |
+| 2 | 0.0084 | **12.3%** | 0.0103 | 0.0189 |
+| 5 | 0.0117 | **17.1%** | 0.0156 | 0.0282 |
+| 10 | 0.0150 | **20.6%** | 0.0212 | 0.0405 |
+| 20 | 0.0180 | **25.8%** | 0.0315 | 0.0546 |
+| 40 | 0.0220 | **21.8%** | 0.0372 | 0.0636 |
+
+Read the second and fourth columns against each other. They are the same
+quantity -- an absolute information coefficient -- so the gap between them is the
+size of the error, in the units the statistic is reported in, with no arithmetic
+required.
+
+The t-rule is worst at horizon 20, where it fires
+25.8% of the time on data with nothing in it, and best at
+horizon 1 at 8.3%. It is
+anti-conservative at every horizon measured, which is the direction that matters:
+a test that under-rejects wastes discoveries, and a test that over-rejects
+manufactures them.
+
+**Absolute values throughout.** A researcher who finds a feature with an IC of
+-0.05 negates the feature, so the statistic a search maximizes is |IC| and every
+bar here is on |IC|. The sign flip doubles the tries, and the effective-tries
+calibration absorbs it without being told.
+
+The t-statistic is still computed and still reported -- it is a serviceable
+screen, and its measured false-positive rate travels with it at the call site
+rather than living only here. What it is not is evidence.
+
+## What moves the bar
+
+A bar of 1.96 invites the question of what to do about it, and there are exactly
+two levers: test fewer things, or have more data. They are not equally strong,
+and the difference is not a matter of opinion.
+
+The bar is the spread of null Sharpes multiplied by an extreme-value factor. The
+spread falls as **1/sqrt(sample length)**. The factor grows as roughly
+**sqrt(2 ln n)** in the number of independent tries. Square root against
+logarithm: the sample wins, and it is not close.
+
+Measured, not asserted -- 300 further null runs at
+3 sample lengths, 25 variants over
+4 panels each:
+
+| sample | null Sharpe spread | predicted 1/sqrt(years) | bar, 25 variants | bar, 252 variants |
+|---|---|---|---|---|
+| 3 years | 0.566 | 0.577 | 1.73 | 1.92 |
+| 8 years | 0.378 | 0.354 | 1.13 | 1.28 |
+| 20 years | 0.237 | 0.224 | 0.73 | 0.81 |
+
+The second and third columns are a check on the whole construction: the measured
+spread of null Sharpes tracks 1/sqrt(years) across the range, which is what
+licenses reading the table as arithmetic rather than as three disconnected
+experiments.
+
+The last column uses the effective try count M8 measured for the full family
+(81 independent tries out of
+252 variants), applied at each sample length.
+That assumes the effective count is a property of the family rather than of the
+sample. The assumption was checked and it **drifts by 54%** across these lengths, which is not
+nothing: the effective count is estimated from the mean best over four panels, so
+it is the noisiest quantity on the page. Read that column as indicative and the
+measured one beside it as the result. Both tell the same story, which is the
+reason the drift does not change the conclusion.
+
+One correction worth recording. The arithmetic this section was asked to verify
+sketched the small-search bar at roughly 1.2, on the assumption that 25 variants
+behave like 8 independent tries. Measured, they behave like
+17, and the bar is
+1.73. **The variant lever is weaker
+than sketched** -- cutting the search by a factor of ten buys less than expected,
+which makes the conclusion below stronger rather than weaker.
+
+### The conclusion, without hedging
+
+**Sample length dominates variant discipline.**
+
+Twenty years with the full 252-variant sweep
+gives a bar of 0.81. Three years with a tenth of the
+variants gives 1.73. The long sample with *no* discipline
+beats the short sample with a lot of it, and it is not a close call:
+lengthening the sample cuts the bar by
+58%, while cutting the search
+by a factor of ten cuts it by 10%.
+
+An equity factor with a real Sharpe of 0.3 to 0.8 -- which is what the honest end
+of the literature looks like -- is invisible at 1.73 and
+detectable at 0.81. On three years of data this pipeline
+cannot see a real factor at all, however carefully the search is conducted.
+
+That makes the data source a **research-design constraint rather than a
+convenience**. CRSP back to 1926 is worth more than any modelling improvement
+available to this project right now, and it is not a close call either. Nothing
+in `research/` will produce a defensible result on three years of anything.
+
 ## What this number is not
 
 - **It is not transferable to a different search.** The threshold is a function of

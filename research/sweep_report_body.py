@@ -233,3 +233,141 @@ def caveats(summary: dict[str, object], variants: int) -> list[str]:
         "search always finds something.",
         "",
     ]
+
+
+def ic_calibration(ic: dict[str, object]) -> list[str]:
+    """M8b: the information coefficient bar, measured rather than assumed."""
+    table = pd.DataFrame(ic["by_horizon"])
+    worst = table.loc[table["t_false_positive"].idxmax()]
+    best = table.loc[table["t_false_positive"].idxmin()]
+
+    lines = [
+        "## The information coefficient, calibrated",
+        "",
+        "The table above says the IC's t-statistic is not calibrated. This says what to",
+        "use instead.",
+        "",
+        f"The same null, the same generator, {int(ic['runs'])} runs over",
+        f"{int(ic['panels'])} panels across {len(table)} horizons, with the portfolio stage",
+        "switched off because an information coefficient does not need a book. For each",
+        "horizon: the |IC| a t-statistic of 1.96 implicitly demands, how often that rule",
+        "fires when nothing is there, and the |IC| the null actually produces.",
+        "",
+        "| horizon | t = 1.96 demands | that rule's false positives | measured single-test bar | "
+        f"measured best-of-{int(ic['variants_per_horizon'])} bar |",
+        "|---|---|---|---|---|",
+    ]
+    for row in table.itertuples():
+        lines.append(f"| {int(row.horizon)} | {row.nominal_ic:.4f} | "
+                     f"**{row.t_false_positive:.1%}** | {row.single_test:.4f} | "
+                     f"{row.best_of_n:.4f} |")
+
+    lines += [
+        "",
+        "Read the second and fourth columns against each other. They are the same",
+        "quantity -- an absolute information coefficient -- so the gap between them is the",
+        "size of the error, in the units the statistic is reported in, with no arithmetic",
+        "required.",
+        "",
+        f"The t-rule is worst at horizon {int(worst.horizon)}, where it fires",
+        f"{worst.t_false_positive:.1%} of the time on data with nothing in it, and best at",
+        f"horizon {int(best.horizon)} at {best.t_false_positive:.1%}. It is",
+        "anti-conservative at every horizon measured, which is the direction that matters:",
+        "a test that under-rejects wastes discoveries, and a test that over-rejects",
+        "manufactures them.",
+        "",
+        "**Absolute values throughout.** A researcher who finds a feature with an IC of",
+        "-0.05 negates the feature, so the statistic a search maximizes is |IC| and every",
+        "bar here is on |IC|. The sign flip doubles the tries, and the effective-tries",
+        "calibration absorbs it without being told.",
+        "",
+        "The t-statistic is still computed and still reported -- it is a serviceable",
+        "screen, and its measured false-positive rate travels with it at the call site",
+        "rather than living only here. What it is not is evidence.",
+        "",
+    ]
+    return lines
+
+
+def remedy(scaling: dict[str, object]) -> list[str]:
+    """Part 2: what actually moves the bar."""
+    table = pd.DataFrame(scaling["by_years"])
+    short = table.iloc[0]
+    long = table.iloc[-1]
+
+    lines = [
+        "## What moves the bar",
+        "",
+        "A bar of 1.96 invites the question of what to do about it, and there are exactly",
+        "two levers: test fewer things, or have more data. They are not equally strong,",
+        "and the difference is not a matter of opinion.",
+        "",
+        "The bar is the spread of null Sharpes multiplied by an extreme-value factor. The",
+        "spread falls as **1/sqrt(sample length)**. The factor grows as roughly",
+        "**sqrt(2 ln n)** in the number of independent tries. Square root against",
+        "logarithm: the sample wins, and it is not close.",
+        "",
+        f"Measured, not asserted -- {int(scaling['runs'])} further null runs at",
+        f"{len(table)} sample lengths, {int(scaling['variants'])} variants over",
+        f"{int(scaling['panels'])} panels each:",
+        "",
+        "| sample | null Sharpe spread | predicted 1/sqrt(years) | bar, "
+        f"{int(scaling['variants'])} variants | bar, {int(scaling['full_search_variants'])} "
+        "variants |",
+        "|---|---|---|---|---|",
+    ]
+    for row in table.itertuples():
+        lines.append(f"| {int(row.years)} years | {row.sharpe_sd:.3f} | "
+                     f"{row.sharpe_sd_predicted:.3f} | {row.bar_small_search:.2f} | "
+                     f"{row.bar_full_search:.2f} |")
+
+    lines += [
+        "",
+        "The second and third columns are a check on the whole construction: the measured",
+        "spread of null Sharpes tracks 1/sqrt(years) across the range, which is what",
+        "licenses reading the table as arithmetic rather than as three disconnected",
+        "experiments.",
+        "",
+        "The last column uses the effective try count M8 measured for the full family",
+        f"({int(scaling['full_search_effective'])} independent tries out of",
+        f"{int(scaling['full_search_variants'])} variants), applied at each sample length.",
+        "That assumes the effective count is a property of the family rather than of the",
+        f"sample. The assumption was checked and it **drifts by "
+        f"{scaling['effective_tries_drift']:.0%}** across these lengths, which is not",
+        "nothing: the effective count is estimated from the mean best over four panels, so",
+        "it is the noisiest quantity on the page. Read that column as indicative and the",
+        "measured one beside it as the result. Both tell the same story, which is the",
+        "reason the drift does not change the conclusion.",
+        "",
+        "One correction worth recording. The arithmetic this section was asked to verify",
+        "sketched the small-search bar at roughly 1.2, on the assumption that 25 variants",
+        f"behave like 8 independent tries. Measured, they behave like",
+        f"{scaling['by_years'][0]['n_effective']:.0f}, and the bar is",
+        f"{scaling['by_years'][0]['bar_small_search']:.2f}. **The variant lever is weaker",
+        "than sketched** -- cutting the search by a factor of ten buys less than expected,",
+        "which makes the conclusion below stronger rather than weaker.",
+        "",
+        "### The conclusion, without hedging",
+        "",
+        "**Sample length dominates variant discipline.**",
+        "",
+        f"Twenty years with the full {int(scaling['full_search_variants'])}-variant sweep",
+        f"gives a bar of {long.bar_full_search:.2f}. Three years with a tenth of the",
+        f"variants gives {short.bar_small_search:.2f}. The long sample with *no* discipline",
+        "beats the short sample with a lot of it, and it is not a close call:",
+        f"lengthening the sample cuts the bar by",
+        f"{1 - long.bar_full_search / short.bar_full_search:.0%}, while cutting the search",
+        f"by a factor of ten cuts it by {1 - short.bar_small_search / short.bar_full_search:.0%}.",
+        "",
+        "An equity factor with a real Sharpe of 0.3 to 0.8 -- which is what the honest end",
+        f"of the literature looks like -- is invisible at {short.bar_small_search:.2f} and",
+        f"detectable at {long.bar_full_search:.2f}. On three years of data this pipeline",
+        "cannot see a real factor at all, however carefully the search is conducted.",
+        "",
+        "That makes the data source a **research-design constraint rather than a",
+        "convenience**. CRSP back to 1926 is worth more than any modelling improvement",
+        "available to this project right now, and it is not a close call either. Nothing",
+        "in `research/` will produce a defensible result on three years of anything.",
+        "",
+    ]
+    return lines

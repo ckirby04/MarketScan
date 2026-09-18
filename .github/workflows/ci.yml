@@ -164,5 +164,7 @@ jobs:
           set -euo pipefail
           python -m research.recovery --quick --out "$RUNNER_TEMP/recovery.png"
           python -m research.sweep --quick
+          python -m research.ic_calibration --quick
+          python -m research.sample_length --quick
           python -m research.export --out "$RUNNER_TEMP/synthetic" --periods 120 --securities 25
           python scripts/csv_to_msb.py "$RUNNER_TEMP/synthetic/bars.csv" --out "$RUNNER_TEMP/synthetic/msb"

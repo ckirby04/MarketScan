@@ -335,12 +335,16 @@ def expected_max_sharpe(sigma: float, n: int) -> float:
     return float(location + EULER_MASCHERONI * scale)
 
 
-def max_sharpe_quantile(sigma: float, n: float, percentile: float = 0.95) -> float:
+def max_quantile(sigma: float, n: float, percentile: float = 0.95) -> float:
     """A quantile of the best-of-n distribution, not just its mean.
 
     A threshold set at the *expected* maximum is the median-ish of what a search
     on nothing produces, which would call half of all pure-noise searches a
     discovery. The quantile is the number a threshold should be.
+
+    Generic in the statistic: it is the Gumbel quantile for the maximum of n
+    draws from N(0, sigma), and M8b points it at information coefficients as
+    well as Sharpes.
     """
     if n < 2 or not np.isfinite(sigma) or sigma <= 0.0:
         return metrics.UNDEFINED
@@ -432,8 +436,8 @@ def summarize(frame: pd.DataFrame) -> dict[str, object]:
         "sd_best": float(panel_maxima.std(ddof=1)),
         "resampled_p95_floor": float(at_n["p95"]),
         "n_effective": n_effective,
-        "threshold": max_sharpe_quantile(sigma, n_effective, 0.95),
-        "threshold_independent": max_sharpe_quantile(sigma, n_variants, 0.95),
+        "threshold": max_quantile(sigma, n_effective, 0.95),
+        "threshold_independent": max_quantile(sigma, n_variants, 0.95),
         "expected_max_analytic": expected_max_sharpe(sigma, n_variants),
     }
 

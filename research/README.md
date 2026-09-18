@@ -25,11 +25,17 @@ results have to agree.
 | **M6** | The pipeline recovers a planted signal across six values of λ, 18 runs, all within two standard errors. | [`docs/figures/lambda_recovery.png`](../docs/figures/lambda_recovery.png) |
 | **M7** | Survivorship, lookahead and delisting injected deliberately, each with the magnitude it was worth. | [`docs/PATHOLOGIES.md`](../docs/PATHOLOGIES.md) |
 | **M8** | The Sharpe a search of this size produces on data containing **nothing**. | [`docs/FALSE_DISCOVERY.md`](../docs/FALSE_DISCOVERY.md) |
+| **M8b** | The same treatment for the information coefficient, whose t-statistic turned out to fire 8–26% of the time on nothing. | [`docs/figures/ic_calibration.png`](../docs/figures/ic_calibration.png) |
 
 M8 is the one that matters. Every result this project ever produces is worth
-exactly as much as that number, and `research/thresholds.py` exposes it as a
-constant so a future result is judged against a measured bar rather than a
+exactly as much as that number, and `research/thresholds.py` exposes both bars as
+constants so a future result is judged against a measured bar rather than a
 remembered one.
+
+**Nothing in here is judged against a textbook threshold.** A t-statistic of 1.96
+means one thing in a statistics course and another in a pipeline with overlapping
+labels and persistent features; the difference was measured rather than argued
+about, and the measurement is what the code imports.
 
 ---
 
@@ -64,8 +70,10 @@ installed as a package: run it from the repository root.
 | `metrics.py` | Statistics, and the Fama–MacBeth estimator λ is measured with. Undefined results are NaN, never zero — the same rule the C++ metrics follow. |
 | `recovery.py` | **M6.** |
 | `pathology.py`, `pathology_report.py` | **M7.** |
-| `sweep.py`, `sweep_report.py` | **M8.** |
-| `thresholds.py` | The measured bar, importable. |
+| `sweep.py`, `sweep_report.py`, `sweep_report_body.py` | **M8.** |
+| `ic_calibration.py` | **M8b.** The information coefficient bar, per horizon. |
+| `sample_length.py` | What actually moves the bar: sample length against variant discipline. |
+| `thresholds.py` | The measured bars, importable. |
 
 ---
 

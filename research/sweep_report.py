@@ -2,14 +2,37 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
 
-from research.sweep_report_body import caveats, champion, experiment, single_variant, the_search
+from research.sweep_report_body import (
+    caveats,
+    champion,
+    experiment,
+    ic_calibration,
+    remedy,
+    single_variant,
+    the_search,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 REPORT = REPO / "docs" / "FALSE_DISCOVERY.md"
+IC_RESULTS = REPO / "docs" / "figures" / "ic_calibration.json"
+SCALING_RESULTS = REPO / "docs" / "figures" / "sample_length.json"
+
+
+def _load(path: Path) -> dict | None:
+    """A measurement if it has been taken, None if it has not.
+
+    The report is assembled from whatever measurements exist rather than
+    requiring all of them, so that regenerating it after one sweep does not
+    silently drop the sections belonging to another.
+    """
+    if not Path(path).exists():
+        return None
+    return json.loads(Path(path).read_text(encoding="utf-8"))["summary"]
 
 
 def verdict(threshold: float) -> list[str]:
@@ -62,7 +85,12 @@ def verdict(threshold: float) -> list[str]:
 
 
 def write_report(frame: pd.DataFrame, summary: dict[str, object],
+                 ic: dict[str, object] | None = None,
+                 scaling: dict[str, object] | None = None,
                  path: Path = REPORT) -> Path:
+    """Assembles the document. `ic` and `scaling` default to the committed runs."""
+    ic = ic if ic is not None else _load(IC_RESULTS)
+    scaling = scaling if scaling is not None else _load(SCALING_RESULTS)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -96,6 +124,10 @@ def write_report(frame: pd.DataFrame, summary: dict[str, object],
     ]
     lines += verdict(threshold)
     lines += [""]
+    if ic is not None:
+        lines += ic_calibration(ic)
+    if scaling is not None:
+        lines += remedy(scaling)
     lines += caveats(summary, variants)
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

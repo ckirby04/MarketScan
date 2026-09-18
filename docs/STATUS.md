@@ -60,8 +60,9 @@ a machine that has only ever run the analysis -- `pytest` and
 | **Python** | pybind11 over the same `run_backtest` | `bindings/python/examples/quickstart.ipynb` |
 | **Research** | synthetic panels, purged CV, constrained portfolios | [`research/README.md`](../research/README.md) |
 | **Calibration** | the pipeline recovers a planted signal, is fooled by injected biases, and has a measured false-discovery rate | [`PATHOLOGIES.md`](PATHOLOGIES.md), [`FALSE_DISCOVERY.md`](FALSE_DISCOVERY.md) |
+| **Thresholds** | every statistic judged against this pipeline's own null, not a textbook one | `research/thresholds.py` |
 
-Milestones M0–M9 of Spec 1, and M0–M8 of Spec 2, are done. Specs are in
+Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
 **327 C++ tests** on `debug`, `release`, `ci`, `ci-debug`; **328** on `full`.
@@ -104,20 +105,37 @@ the unexpected thing was right each time:
    effective number of independent tries calibrated from the observed mean best
    — 252 correlated variants behave like 81 independent ones.
 
-### One finding that is a live problem
+### The information coefficient, calibrated rather than trusted
 
-**The information coefficient's t-statistic is not calibrated, and it fails in
-the flattering direction.** On data containing no signal it rejects at 16.6%
-against a nominal 5%, and the rate rises with the horizon: 8.9% at one period,
-17.3% at five, 23.6% at twenty. `PipelineResult.ic_t` corrects for overlapping
-labels with a Newey-West standard error at h−1 lags, and at twenty lags that
-correction is itself too noisy to do the job.
+M8 found that the IC's t-statistic is not calibrated and fails in the flattering
+direction. M8b measured what to use instead, rather than trying to repair the
+estimator: a better HAC correction is fiddly, uncertain at this sample size, and
+would produce a number nobody could check.
 
-The Sharpe (4.4%) and the Fama-MacBeth λ (5.6%) are both calibrated, so the
-milestone's own results stand. But the IC is used for screening throughout
-`research/`, and until this is fixed it is a descriptive statistic only. Fixing
-it properly probably means a different long-run variance estimator, and it wants
-its own measurement rather than a guess.
+So the IC was calibrated the way the Sharpe bar was — point the null at it,
+across six horizons, 1512 runs:
+
+| horizon | what a t of 1.96 demands | how often that fires on nothing | measured bar |
+|---|---|---|---|
+| 1 | 0.0074 | **8.3%** | 0.0082 |
+| 2 | 0.0084 | **12.3%** | 0.0103 |
+| 5 | 0.0117 | **17.1%** | 0.0156 |
+| 10 | 0.0150 | **20.6%** | 0.0212 |
+| 20 | 0.0180 | **25.8%** | 0.0315 |
+| 40 | 0.0220 | **21.8%** | 0.0372 |
+
+The nominal rule is anti-conservative at every horizon measured, and the gap
+widens with the horizon: at twenty periods it demands an |IC| of
+0.0180 where the null produces 0.0315
+one time in twenty.
+
+The bars are exported from `research/thresholds.py` beside the Sharpe bar, with
+the same interface. The t-statistic is still computed — it is a serviceable
+screen — and its measured false-positive rate now travels with it to the call
+site: `PipelineResult.report()` prints the rate for its own horizon next to the
+t, and `ic_bar()` and `ic_is_distinguishable()` answer against the measurement.
+A horizon outside the calibrated range returns NaN rather than an extrapolation.
+
 
 ---
 
@@ -226,7 +244,7 @@ Not bugs. Things this cannot do, written down so they are not rediscovered.
 | **The research layer is frictionless** | No commission, no spread, no slippage — the engine owns execution, and a second cost model here would be a second answer to a question that already has one. Every Sharpe in `research/` reads better than anything tradeable. |
 | **The null is Gaussian** | The false-discovery threshold was measured against a market factor plus normal noise. Real returns have fat tails, volatility clustering and cross-sectional structure that panel does not contain, all of which give a search more to find. The measured threshold is a floor. |
 | **No research result is a market claim** | Every panel is synthetic and every λ was planted. Nothing in `research/` says anything about markets, and it is not built to. |
-| **The IC t-statistic is not calibrated** | Rejects at 16.6% on data with no signal, rising to 23.6% at a twenty-period horizon. Measured, not suspected — see above. Use it descriptively; use the Sharpe or λ for inference. |
+| **The IC t-statistic is anti-conservative** | Fires 8–26% of the time on data with no signal, worsening with the horizon. Not a defect to be fixed but a measured property, and the empirical bar in `research/thresholds.py` is what results are judged against. The t-stat is retained for screening, with its false-positive rate attached at the call site. |
 
 ---
 
