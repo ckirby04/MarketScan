@@ -9,6 +9,7 @@ input is an assertion that has never been tested.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from research.panel import PanelSpec, generate_panel
@@ -96,6 +97,37 @@ def test_the_turnover_budget_binds(one_date):
     # further. A budget that binds only in arithmetic is not a budget.
     unbounded = build_weights(flipped, betas, sectors, loose, previous=start)
     assert float((unbounded - start).abs().sum()) > 0.5
+
+
+def test_repeated_rebalancing_on_a_binding_budget_stays_compliant(one_date):
+    """A property check, and an honest note about what it is not.
+
+    A twenty-year sweep hit a rebalance where the projection cycle ran out of
+    iterations five parts in a hundred thousand off neutral. The cause was the
+    stopping rule: it broke when the iterate stopped *moving*, and alternating
+    projections onto sets meeting at a shallow angle take small steps long before
+    they arrive. The intersection was not empty -- a thousand iterations reached
+    it -- so the book was reachable and the loop gave up early and returned it
+    anyway. The rule now requires the equalities to hold as well.
+
+    **This test does not reproduce that failure.** The state took thousands of
+    rebalances on a real panel to reach, and it survived every attempt to shrink
+    it: random targets, tied scores standing in for a shallow tree's leaves,
+    four hundred-step chains at the exact parameters. What is asserted here is
+    the property that was violated, not the path to violating it.
+
+    The thing that actually caught it was the builder validating its own output.
+    That is the guard worth keeping.
+    """
+    scores, betas, sectors = one_date
+    constraints = PortfolioConstraints(gross=1.0, max_weight=0.04, turnover_budget=0.25)
+    book = build_weights(scores, betas, sectors, constraints)
+
+    rng = np.random.default_rng(11)
+    for _ in range(25):
+        shuffled = pd.Series(rng.permutation(scores.to_numpy()), index=scores.index)
+        book = build_weights(shuffled, betas, sectors, constraints, previous=book)
+        assert violations(book, betas, sectors, constraints) == []
 
 
 def test_infeasible_constraints_are_rejected_rather_than_approximated(one_date):

@@ -94,7 +94,21 @@ class PortfolioConstraints:
     """Maximum sum of absolute weight change per rebalance. Inf for none."""
 
     tolerance: float = 1e-6
-    max_iterations: int = 200
+
+    max_iterations: int = 2000
+    """Iterations of the projection cycle.
+
+    Two hundred was the first value and it was not enough. On a twenty-year panel
+    the cycle hit the ceiling while still five parts in a hundred thousand off
+    neutral -- because the geometry that makes alternating projections slow is a
+    tight turnover ball a long way from the target, and a long panel eventually
+    produces one. The intersection was not empty: a thousand iterations reached it
+    and five thousand found nothing more.
+
+    Each iteration is a handful of vector operations over the cross-section, so
+    the ceiling is cheap; reaching it is the signal that matters, and the caller
+    is told rather than handed the last iterate.
+    """
 
     def __post_init__(self) -> None:
         if self.gross <= 0.0:
@@ -256,10 +270,33 @@ def _project(scores: np.ndarray, betas: np.ndarray, sector_codes: np.ndarray,
         if previous is not None and np.isfinite(budget):
             weights = previous + _project_l1_ball(weights - previous, budget)
 
-        if float(np.abs(weights - before).sum()) < constraints.tolerance:
+        # Stop when the iterate has stopped moving **and** the equalities hold.
+        #
+        # The movement test alone was the original stopping rule and it was
+        # wrong: alternating projections onto sets that meet at a shallow angle
+        # take small steps long before they arrive, so "it stopped moving" was
+        # read as "it converged" and an infeasible book was returned. The clip
+        # and the turnover ball are exact, so the only residuals that can survive
+        # an iteration are the two equalities -- which is what this measures.
+        moved = float(np.abs(weights - before).sum())
+        if moved < constraints.tolerance and _equality_residual(
+                weights, betas, sector_index, constraints) < constraints.tolerance:
             break
 
     return weights
+
+
+def _equality_residual(weights: np.ndarray, betas: np.ndarray,
+                       sector_index: dict[object, np.ndarray],
+                       constraints: PortfolioConstraints) -> float:
+    """How far the book is from neutral and from its beta target, in one number."""
+    if constraints.sector_neutral:
+        worst = max((abs(float(weights[rows].sum())) for rows in sector_index.values()),
+                    default=0.0)
+    else:
+        worst = abs(float(weights.sum()))
+    drift = abs(float(np.dot(weights, betas)) - constraints.beta_target)
+    return max(worst, drift)
 
 
 def build_weights(scores: pd.Series, betas: pd.Series, sectors: pd.Series,
