@@ -98,6 +98,137 @@ Near misses first: these are the calls that nearly went the other way.
 
 ---
 
+# Measurement
+
+The threshold above is an inference. A company that merely left the index kept
+trading, so its price series spans the gap; a ticker that was surrendered and
+reassigned has a hole in it. That is measurable, and this section is the
+measurement.
+
+| | |
+|---|---|
+| Continuous at coverage | >= 90.0%, no hole > 20 weekdays |
+| Discontinuous at coverage | <= 10.0%, with one hole >= 50.0% of the gap |
+| Continuous also requires flank coverage | >= 50.0% |
+| Seam flagged beyond | 50.0% |
+| Gaps measured | 53 |
+| Settled by data | 0 |
+| Disagreements with the threshold | 0 |
+| Flagged for review | 0 |
+
+These thresholds are judgment calls in the same way the 730 days is, and they are
+stated here for the same reason: a number nobody can see is a number nobody can
+argue with.
+
+**The flank check is the one that matters.** A vendor serves one series per ticker,
+the current issuer's. Ask for `CCI` and you get Crown Castle from 1998, not
+Citicorp from before it -- so a naive coverage test reads a clean series straight
+through the gap and concludes "continuous", producing a confident and wrong `keep`
+on exactly the cases where a wrong keep welds two companies together. A continuous
+verdict therefore also requires the series to cover the membership period *before*
+the gap. Where it does not, the answer is unresolved.
+
+## Disagreements
+
+Where the data and the threshold reached different answers. This is the headline of
+the document.
+
+_None._ Nothing was settled by data, so there was nothing to disagree with.
+
+## Flagged for review
+
+A large return across the hole, whatever the verdict. A seam of this size is at
+least as likely to be a reverse split, a spin-off adjustment or unadjusted vendor
+data as a different company, so it flags and never decides.
+
+_None._
+
+## Unresolved
+
+**The threshold governs these and they remain open.** Absence of data is never
+evidence of a split: a vendor that does not carry a long-dead ticker is a coverage
+limit, not a delisting.
+
+| Ticker | Threshold said | Why the data could not say |
+|---|---|---|
+| `AAL` | split | no price data for this ticker |
+| `AMD` | keep | no price data for this ticker |
+| `AMP` | split | no price data for this ticker |
+| `AN` | split | no price data for this ticker |
+| `BR` | split | no price data for this ticker |
+| `CBE` | split | no price data for this ticker |
+| `CCI` | split | no price data for this ticker |
+| `CE` | split | no price data for this ticker |
+| `CEG` | split | no price data for this ticker |
+| `CF` | split | no price data for this ticker |
+| `CIEN` | keep | no price data for this ticker |
+| `CNC` | split | no price data for this ticker |
+| `COV` | split | no price data for this ticker |
+| `COV` | keep | no price data for this ticker |
+| `DD` | keep | no price data for this ticker |
+| `DELL` | split | no price data for this ticker |
+| `DG` | split | no price data for this ticker |
+| `DOW` | keep | no price data for this ticker |
+| `DXC` | keep | no price data for this ticker |
+| `EQT` | split | no price data for this ticker |
+| `ESV` | split | no price data for this ticker |
+| `FISV` | split | no price data for this ticker |
+| `FL` | split | no price data for this ticker |
+| `FMC` | keep | no price data for this ticker |
+| `FSLR` | keep | no price data for this ticker |
+| `GAS` | keep | no price data for this ticker |
+| `GGP` | split | no price data for this ticker |
+| `H` | split | no price data for this ticker |
+| `HCA` | split | no price data for this ticker |
+| `HLT` | split | no price data for this ticker |
+| `HP` | split | no price data for this ticker |
+| `HRS` | split | no price data for this ticker |
+| `IR` | keep | no price data for this ticker |
+| `JBL` | split | no price data for this ticker |
+| `KDP` | split | no price data for this ticker |
+| `KMI` | split | no price data for this ticker |
+| `KSU` | split | no price data for this ticker |
+| `LDOS` | split | no price data for this ticker |
+| `MEE` | split | no price data for this ticker |
+| `MIR` | keep | no price data for this ticker |
+| `MXIM` | split | no price data for this ticker |
+| `NE` | keep | no price data for this ticker |
+| `OI` | split | no price data for this ticker |
+| `OKE` | split | no price data for this ticker |
+| `PCG` | split | no price data for this ticker |
+| `PTC` | split | no price data for this ticker |
+| `Q` | split | no price data for this ticker |
+| `RIG` | split | no price data for this ticker |
+| `SNDK` | split | no price data for this ticker |
+| `TEL` | split | no price data for this ticker |
+| `TER` | split | no price data for this ticker |
+| `TMUS` | split | no price data for this ticker |
+| `TT` | split | no price data for this ticker |
+
+## Decisions that are not measurements
+
+Two things here are policy rather than data, settled deliberately so they are not
+re-litigated in two years.
+
+**Companies that went private and re-listed are split.** `DELL`, `HCA`, `HLT`,
+`KMI` and `DG` each left the market entirely and came back. During the private
+interval there is no tradeable price at all, so any signal computed across the gap
+reads a discontinuity as a return; and each re-listed with a different capital
+structure and share count. Split is both correct and the safe direction, and the
+threshold already produces it -- no override is needed, only this note.
+
+**`TT` is split, and the continuity that matters was never in `TT`.** Trane Inc was
+acquired in 2008; the 2020 `TT` is Ingersoll-Rand renaming itself Trane
+Technologies. Splitting the ticker is right. The company's continuous history lives
+in `IR`, whose own 504-day gap is below the threshold and was correctly kept as one
+security -- so that continuity is preserved. What is *not* captured is the rename
+linking `IR` to the later `TT`: renames cannot be inferred from ticker-keyed
+membership data, and this one needs `SecurityMaster::add_ticker` and a source that
+knows about corporate actions.
+
+
+---
+
 ## When CRSP arrives
 
 PERMNO is a permanent security identifier that survives renames and is never reused --

@@ -30,6 +30,7 @@ add_library(marketscan_core STATIC
     marketscan/data/bar_store.cpp
     marketscan/data/csv_feed.cpp
     marketscan/data/daily_feed.cpp
+    marketscan/data/identity_probe.cpp
     marketscan/data/security_master.cpp
     marketscan/data/universe.cpp
     marketscan/data/synthetic_feed.cpp

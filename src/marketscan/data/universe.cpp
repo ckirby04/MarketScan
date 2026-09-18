@@ -1,6 +1,7 @@
 #include "marketscan/data/universe.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -362,6 +363,7 @@ MembershipHistory build_membership(const IMembershipSource& source,
 
     std::string current_ticker;
     Timestamp previous_until = kNever;
+    Timestamp flank_start = kNever;
     SecurityId current_id = kInvalidSecurity;
 
     for (const IMembershipSource::Row& row : rows) {
@@ -374,12 +376,14 @@ MembershipHistory build_membership(const IMembershipSource& source,
             current_ticker = row.ticker;
             previous_until = kNever;
             current_id = kInvalidSecurity;
+            flank_start = kNever;
         }
 
         if (current_id == kInvalidSecurity) {
             current_id = master.declare(row.ticker, row.from, row.until);
             history.universe.add(current_id, row.from, row.until);
             previous_until = row.until;
+            flank_start = row.from;
             continue;
         }
 
@@ -387,6 +391,7 @@ MembershipHistory build_membership(const IMembershipSource& source,
         const Duration gap = row.from - previous_until;
         IdentityDecision decision;
         decision.ticker = row.ticker;
+        decision.flank_start = flank_start;
         decision.gap_start = previous_until;
         decision.gap_end = row.from;
         decision.gap = gap;
@@ -434,6 +439,11 @@ MembershipHistory build_membership(const IMembershipSource& source,
 
         history.universe.add(current_id, row.from, row.until);
         previous_until = row.until;
+
+        // The flank for the *next* gap is this period, unless this one started
+        // a new security -- in which case the earlier eras belong to somebody
+        // else and would make the next flank check meaningless.
+        flank_start = split ? row.from : flank_start;
     }
 
     history.universe.build();
@@ -441,14 +451,286 @@ MembershipHistory build_membership(const IMembershipSource& source,
 }
 
 // ---------------------------------------------------------------------------
+// Measurement
+// ---------------------------------------------------------------------------
+
+void measure_identities(MembershipHistory& history,
+                        const std::filesystem::path& price_cache,
+                        const IdentityProbeConfig& config) {
+    // One series per ticker, loaded once even when a ticker has several gaps.
+    std::map<std::string, std::vector<StoredBar>> series;
+
+    for (IdentityDecision& decision : history.decisions) {
+        auto cached = series.find(decision.ticker);
+        if (cached == series.end()) {
+            std::vector<StoredBar> bars;
+            const std::filesystem::path file =
+                price_cache / (decision.ticker + std::string(bar_store::kExtension));
+            std::error_code ec;
+            if (std::filesystem::exists(file, ec)) {
+                try {
+                    bars = bar_store::read(file).bars;
+                } catch (const std::exception&) {
+                    // A corrupt cache entry is missing data, not evidence.
+                    bars.clear();
+                }
+            }
+            cached = series.emplace(decision.ticker, std::move(bars)).first;
+        }
+
+        decision.measured = probe_identity(
+            cached->second, decision.flank_start, decision.gap_start, decision.gap_end, config);
+    }
+}
+
+std::size_t write_measured_overrides(const std::filesystem::path& path,
+                                     const MembershipHistory& history,
+                                     const IdentityProbeConfig& config,
+                                     std::string_view source_description) {
+    std::ofstream out(path, std::ios::trunc);
+    if (!out) {
+        throw std::runtime_error("cannot write '" + path.string() + "'");
+    }
+
+    out << "# Corrections to the automatic security-identity inference.\n";
+    out << "#\n";
+    out << "# GENERATED from measurement. Regenerate with:\n";
+    out << "#     marketscan --headless --measure-identity <history> --prices <cache>\n";
+    out << "#\n";
+    out << "# A row exists here only where a price series settled the question. Every note\n";
+    out << "# states what was observed rather than what is believed: \"coverage 97.4%, no hole\n";
+    out << "# > 3d\" is a measurement, and \"AutoNation traded continuously\" is a claim about\n";
+    out << "# the world that this file has no business making.\n";
+    out << "#\n";
+    out << "# A gap the data could not settle gets no row. It stays governed by the\n";
+    out << "# " << days_of(IdentityRules{}.split_gap) << "-day threshold and stays open. That is "
+        << "the honest outcome far more\n";
+    out << "# often than either verdict, and it is not a failure.\n";
+    out << "#\n";
+    out << "# Source: " << source_description << "\n";
+    out << "# Probe: continuous at coverage >= " << config.continuous_coverage << " with no hole > "
+        << config.max_hole_days
+        << " weekdays; discontinuous at coverage <= " << config.discontinuous_coverage
+        << " with one hole covering >= " << config.discontinuous_hole
+        << " of the gap; a continuous verdict also needs >= " << config.flank_coverage
+        << " coverage of the membership period before the gap.\n";
+    out << "#\n";
+    out << "# WHICH WAY TO ERR. Splitting when you should not costs history: a strategy cannot\n";
+    out << "# compute a twelve-month signal across the break, and it can see that it cannot.\n";
+    out << "# Keeping when you should have split welds one company's price series to another's\n";
+    out << "# and manufactures a return that never existed, invisibly. So when it is genuinely\n";
+    out << "# ambiguous, split.\n";
+    out << "#\n";
+    out << "# HAND-WRITTEN ROWS. Anything added here by a person should say so in its note and\n";
+    out << "# will be overwritten the next time this is regenerated. Put durable corrections in\n";
+    out << "# a separate file and merge, rather than editing a generated one.\n";
+    out << "# -------------------------------------------------------------------------------\n";
+    out << "ticker,action,resumed_on,note\n";
+
+    std::size_t written = 0;
+    for (const IdentityDecision& decision : history.decisions) {
+        if (!decision.measured.resolved()) {
+            continue;
+        }
+        const bool keep = decision.measured.verdict == IdentityVerdict::Continuous;
+
+        std::ostringstream note;
+        note << std::fixed << std::setprecision(1) << "coverage "
+             << decision.measured.coverage * 100.0 << "%";
+        if (decision.measured.largest_hole_days > 0) {
+            note << ", largest hole " << decision.measured.largest_hole_days << "d";
+        } else {
+            note << ", no hole";
+        }
+        if (!std::isnan(decision.measured.flank_coverage)) {
+            note << ", flank " << decision.measured.flank_coverage * 100.0 << "%";
+        }
+        if (decision.measured.flagged) {
+            note << " (seam " << std::setprecision(0) << decision.measured.seam_return * 100.0
+                 << "% -- flagged)";
+        }
+
+        out << decision.ticker << "," << (keep ? "keep" : "split") << ","
+            << date_of(decision.gap_end) << "," << note.str() << "\n";
+        ++written;
+    }
+
+    if (written == 0) {
+        out << "# No gap was settled by measurement. Every case is governed by the threshold.\n";
+    }
+    return written;
+}
+
+// ---------------------------------------------------------------------------
 // The report
 // ---------------------------------------------------------------------------
+
+namespace {
+
+[[nodiscard]] std::string percent(double fraction) {
+    if (std::isnan(fraction)) {
+        return "--";
+    }
+    std::ostringstream out;
+    out << std::fixed << std::setprecision(1) << fraction * 100.0 << "%";
+    return out.str();
+}
+
+[[nodiscard]] std::string signed_percent(double fraction) {
+    if (std::isnan(fraction)) {
+        return "--";
+    }
+    std::ostringstream out;
+    out << std::showpos << std::fixed << std::setprecision(0) << fraction * 100.0 << "%";
+    return out.str();
+}
+
+/// Disagreements, flags, and everything the data could not settle.
+void write_measurement_sections(std::ofstream& out,
+                                const MembershipHistory& history,
+                                const IdentityProbeConfig& config) {
+    std::size_t resolved = 0;
+    std::size_t disagreements = 0;
+    std::size_t flagged = 0;
+    for (const IdentityDecision& decision : history.decisions) {
+        resolved += decision.measured.resolved() ? 1 : 0;
+        disagreements += decision.disagrees() ? 1 : 0;
+        flagged += decision.measured.flagged ? 1 : 0;
+    }
+
+    out << "\n---\n\n";
+    out << "# Measurement\n\n";
+    out << "The threshold above is an inference. A company that merely left the index kept\n"
+           "trading, so its price series spans the gap; a ticker that was surrendered and\n"
+           "reassigned has a hole in it. That is measurable, and this section is the\n"
+           "measurement.\n\n";
+
+    out << "| | |\n|---|---|\n";
+    out << "| Continuous at coverage | >= " << percent(config.continuous_coverage) << ", no hole > "
+        << config.max_hole_days << " weekdays |\n";
+    out << "| Discontinuous at coverage | <= " << percent(config.discontinuous_coverage)
+        << ", with one hole >= " << percent(config.discontinuous_hole) << " of the gap |\n";
+    out << "| Continuous also requires flank coverage | >= " << percent(config.flank_coverage)
+        << " |\n";
+    out << "| Seam flagged beyond | " << percent(config.seam_review) << " |\n";
+    out << "| Gaps measured | " << history.decisions.size() << " |\n";
+    out << "| Settled by data | " << resolved << " |\n";
+    out << "| Disagreements with the threshold | " << disagreements << " |\n";
+    out << "| Flagged for review | " << flagged << " |\n\n";
+
+    out << "These thresholds are judgment calls in the same way the 730 days is, and they are\n"
+           "stated here for the same reason: a number nobody can see is a number nobody can\n"
+           "argue with.\n\n";
+
+    out << "**The flank check is the one that matters.** A vendor serves one series per ticker,\n"
+           "the current issuer's. Ask for `CCI` and you get Crown Castle from 1998, not\n"
+           "Citicorp from before it -- so a naive coverage test reads a clean series straight\n"
+           "through the gap and concludes \"continuous\", producing a confident and wrong `keep`\n"
+           "on exactly the cases where a wrong keep welds two companies together. A continuous\n"
+           "verdict therefore also requires the series to cover the membership period *before*\n"
+           "the gap. Where it does not, the answer is unresolved.\n\n";
+
+    // --- Disagreements -------------------------------------------------
+    out << "## Disagreements\n\n";
+    out << "Where the data and the threshold reached different answers. This is the headline of\n"
+           "the document.\n\n";
+    if (disagreements == 0) {
+        out << "_None._ ";
+        if (resolved == 0) {
+            out << "Nothing was settled by data, so there was nothing to disagree with.\n\n";
+        } else {
+            out << "Every gap the data settled agreed with the threshold.\n\n";
+        }
+    } else {
+        out << "| Ticker | Threshold | Measured | Coverage | Largest hole | Flank | Seam |\n";
+        out << "|---|---|---|---|---|---|---|\n";
+        for (const IdentityDecision& decision : history.decisions) {
+            if (!decision.disagrees()) {
+                continue;
+            }
+            out << "| `" << decision.ticker << "` | " << (decision.split ? "split" : "keep")
+                << " | **" << to_string(decision.measured.verdict) << "** | "
+                << percent(decision.measured.coverage) << " | "
+                << decision.measured.largest_hole_days << "d | "
+                << percent(decision.measured.flank_coverage) << " | "
+                << signed_percent(decision.measured.seam_return) << " |\n";
+        }
+        out << "\n";
+    }
+
+    // --- Flagged --------------------------------------------------------
+    out << "## Flagged for review\n\n";
+    out << "A large return across the hole, whatever the verdict. A seam of this size is at\n"
+           "least as likely to be a reverse split, a spin-off adjustment or unadjusted vendor\n"
+           "data as a different company, so it flags and never decides.\n\n";
+    if (flagged == 0) {
+        out << "_None._\n\n";
+    } else {
+        out << "| Ticker | Verdict | Seam | Largest hole | Coverage |\n";
+        out << "|---|---|---|---|---|\n";
+        for (const IdentityDecision& decision : history.decisions) {
+            if (!decision.measured.flagged) {
+                continue;
+            }
+            out << "| `" << decision.ticker << "` | " << to_string(decision.measured.verdict)
+                << " | " << signed_percent(decision.measured.seam_return) << " | "
+                << decision.measured.largest_hole_days << "d | "
+                << percent(decision.measured.coverage) << " |\n";
+        }
+        out << "\n";
+    }
+
+    // --- Unresolved -----------------------------------------------------
+    out << "## Unresolved\n\n";
+    out << "**The threshold governs these and they remain open.** Absence of data is never\n"
+           "evidence of a split: a vendor that does not carry a long-dead ticker is a coverage\n"
+           "limit, not a delisting.\n\n";
+    out << "| Ticker | Threshold said | Why the data could not say |\n";
+    out << "|---|---|---|\n";
+    std::size_t unresolved = 0;
+    for (const IdentityDecision& decision : history.decisions) {
+        if (decision.measured.resolved()) {
+            continue;
+        }
+        ++unresolved;
+        out << "| `" << decision.ticker << "` | " << (decision.split ? "split" : "keep") << " | "
+            << (decision.measured.reason.empty() ? "not measured" : decision.measured.reason)
+            << " |\n";
+    }
+    if (unresolved == 0) {
+        out << "| _none_ | | |\n";
+    }
+    out << "\n";
+
+    // --- Policy ---------------------------------------------------------
+    out << "## Decisions that are not measurements\n\n";
+    out << "Two things here are policy rather than data, settled deliberately so they are not\n"
+           "re-litigated in two years.\n\n";
+    out << "**Companies that went private and re-listed are split.** `DELL`, `HCA`, `HLT`,\n"
+           "`KMI` and `DG` each left the market entirely and came back. During the private\n"
+           "interval there is no tradeable price at all, so any signal computed across the gap\n"
+           "reads a discontinuity as a return; and each re-listed with a different capital\n"
+           "structure and share count. Split is both correct and the safe direction, and the\n"
+           "threshold already produces it -- no override is needed, only this note.\n\n";
+    out << "**`TT` is split, and the continuity that matters was never in `TT`.** Trane Inc was\n"
+           "acquired in 2008; the 2020 `TT` is Ingersoll-Rand renaming itself Trane\n"
+           "Technologies. Splitting the ticker is right. The company's continuous history lives\n"
+           "in `IR`, whose own 504-day gap is below the threshold and was correctly kept as one\n"
+           "security -- so that continuity is preserved. What is *not* captured is the rename\n"
+           "linking `IR` to the later `TT`: renames cannot be inferred from ticker-keyed\n"
+           "membership data, and this one needs `SecurityMaster::add_ticker` and a source that\n"
+           "knows about corporate actions.\n\n";
+}
+
+}  // namespace
 
 void write_decision_report(const std::filesystem::path& path,
                            const MembershipHistory& history,
                            const SecurityMaster& master,
                            const IdentityRules& rules,
-                           std::string_view source_description) {
+                           std::string_view source_description,
+                           const IdentityProbeConfig& probe_config,
+                           bool measured) {
     if (std::filesystem::path parent = path.parent_path(); !parent.empty()) {
         std::error_code ec;
         std::filesystem::create_directories(parent, ec);
@@ -538,6 +820,10 @@ void write_decision_report(const std::filesystem::path& path,
         for (const std::string& rejected : history.rejected) {
             out << "- " << rejected << "\n";
         }
+    }
+
+    if (measured) {
+        write_measurement_sections(out, history, probe_config);
     }
 
     out << "\n---\n\n";

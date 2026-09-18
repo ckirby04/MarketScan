@@ -26,6 +26,24 @@ python scripts/fetch_stooq.py --status
 marketscan.exe --headless --cache-info data/cache/stooq
 ```
 
+> ### ⚠️ Stooq's CSV endpoint is currently gated
+>
+> As of 2026-09-17 Stooq answers every request to `/q/d/l/` with **HTTP 200 and
+> a JavaScript browser-verification page** rather than CSV. Nothing here
+> attempts to defeat that check.
+>
+> The fetcher detects it and says so by name, rather than reporting "symbol is
+> probably unknown" and sending you hunting for a ticker problem that does not
+> exist. Everything else in the project works without it: the cache format, the
+> feed, the universe, the guard and the identity classifier are all exercised
+> against committed synthetic fixtures. What is blocked is **measuring** real
+> identity — see [`IDENTITY.md`](IDENTITY.md).
+>
+> Restoring it means either Stooq lifting the gate, a different free daily
+> source, or a licensed one. Substituting a source is a decision, not a fix:
+> the specification names Stooq, and every other free vendor comes with either
+> a key, an account, or terms this project has not read.
+
 [Stooq](https://stooq.com) publishes end-of-day US equity history as CSV over
 plain HTTP. No API key, no account, no paid tier — which is the entire reason
 it is the source here. Nothing in this project requires asking anyone for

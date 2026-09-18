@@ -203,6 +203,18 @@ def parse_csv(symbol: str, text: str) -> list[tuple]:
     Stooq answers a request for an unknown symbol with a short body rather than
     an HTTP error, so "no data" has to be detected from the content.
     """
+    # A browser check, not a data problem. Stooq has put its CSV endpoint behind
+    # JavaScript verification, and it answers HTTP 200 with a challenge page for
+    # every symbol -- so without this, every fetch reports "symbol is probably
+    # unknown" and sends the reader hunting for a ticker problem that does not
+    # exist. Distinguishing the two failures is the whole value of the message.
+    head = text[:400].lower()
+    if "<html" in head or "requires javascript" in head:
+        raise ValueError(
+            "Stooq returned a browser-verification page instead of CSV. Its free endpoint is "
+            "now gated behind a JavaScript check, which this script does not attempt to "
+            "defeat. See docs/DATA.md.")
+
     reader = csv.DictReader(io.StringIO(text))
     if reader.fieldnames is None or "Date" not in reader.fieldnames:
         raise ValueError("no data (Stooq returned no header; symbol is probably unknown)")
@@ -346,6 +358,17 @@ def main() -> int:
         return 130
 
     print(f"\n{fetched} fetched, {failed} failed, cache at {CACHE}")
+
+    if failed and not fetched:
+        blocked = sum(1 for e in manifest.entries.values() if "verification page" in e.note)
+        if blocked:
+            print(
+                "\nEvery request was answered with a browser-verification page. This is not a "
+                "\nproblem with the symbols or with this script: Stooq has put its free CSV "
+                "\nendpoint behind a JavaScript check, and nothing here attempts to defeat it."
+                "\n\nEverything else in the project works without this. docs/DATA.md says what "
+                "\ndepends on it and what does not.",
+                file=sys.stderr)
     return 1 if failed and not fetched else 0
 
 

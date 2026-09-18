@@ -86,6 +86,71 @@ marketscan.exe --headless --build-universe data/cache/universe/sp500_history.csv
 On the real S&P 500 history — 2,720 snapshots, 1996 to the present — that
 produces **1,254 securities from 53 gaps, 45 of them split**, before overrides.
 
+### Measuring identity instead of inferring it
+
+The threshold is an inference, and it does not have to be. A company that merely
+left the index kept trading, so its price series spans the gap; a ticker that was
+surrendered and reassigned has a hole in it. `probe_identity` measures that:
+
+```powershell
+marketscan.exe --headless --build-universe data/cache/universe/sp500_history.csv `
+               --prices data/cache/stooq
+```
+
+| Coverage in the gap | Largest hole | Verdict |
+|---|---|---|
+| ≥ 90% | ≤ 20 weekdays | **continuous** → `keep` |
+| ≤ 10% | ≥ half the gap | **discontinuous** → `split` |
+| anything else | — | **unresolved** → the threshold governs |
+
+Overrides are written from measurements only, and each note states what was
+observed — `coverage 97.4%, no hole > 3d` — never what is believed. An
+unresolved case gets no row and stays open.
+
+**The flank check is the part that earns its keep.** A vendor serves one series
+per ticker: the *current* issuer's. Ask for `CCI` and you get Crown Castle from
+1998, not Citicorp from before it. A naive coverage test reads that clean series
+straight through the 1998–2012 gap and concludes "continuous" — a confident,
+wrong `keep` on exactly the case where a wrong keep welds two companies. So a
+continuous verdict also requires the series to cover the membership period
+*before* the gap. Where it does not, the answer is unresolved.
+
+Two further rules, both of which exist to stop the instrument overreaching:
+
+- **Absence is never evidence.** A ticker with no cached series is unresolved,
+  full stop. A vendor that does not carry a long-dead ticker is a coverage
+  limit, not a delisting.
+- **The seam flags; it never decides.** A large return across the hole is at
+  least as likely to be a reverse split, a spin-off adjustment or unadjusted
+  vendor data as a different company. Flagged cases get their own section of
+  the report and keep whatever verdict they earned.
+
+> **Currently unmeasurable.** Stooq has put its CSV endpoint behind a
+> JavaScript check, so there is no price cache to measure against and all 53
+> gaps read `unresolved: no price data`. The classifier is built, unit-tested
+> offline against synthetic series, and calibrated by
+> `data/identity_calibration.csv` — ten cases whose status is known — which runs
+> and reports the moment data exists. Until then **the 730-day threshold
+> governs and all 41 splits remain inferences.** See [`DATA.md`](DATA.md).
+
+### Decisions that are not measurements
+
+Two calls in the report are policy rather than data, settled so they are not
+re-litigated:
+
+**Private-and-relisted is a split.** `DELL`, `HCA`, `HLT`, `KMI` and `DG` each
+left the market entirely. During the private interval there is no tradeable
+price, so any signal computed across the gap reads a discontinuity as a return,
+and each re-listed with a different capital structure and share count. The
+threshold already splits them; this is the reasoning, not an override.
+
+**`TT` is split, and the continuity that matters was never in `TT`.** Trane Inc
+was acquired in 2008; the 2020 `TT` is Ingersoll-Rand renaming itself Trane
+Technologies. The company's continuous history lives in `IR`, whose own 504-day
+gap is below the threshold and was correctly kept as one security — so that
+continuity is preserved. What is *not* captured is the rename linking `IR` to
+the later `TT`, for the reason immediately below.
+
 ### Renames are not inferred, and cannot be
 
 From ticker-keyed membership data a rename is **indistinguishable** from one

@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "marketscan/data/bar_store.hpp"
+#include "marketscan/data/identity_probe.hpp"
 #include "marketscan/data/security_master.hpp"
 #include "marketscan/data/universe.hpp"
 #include "marketscan/metrics/performance.hpp"
@@ -39,6 +40,10 @@ replays market data through all of them at once, and prints what happened.
                         Populate with: python scripts/fetch_sp500.py
   --build-universe <f>  Load a membership history, write docs/IDENTITY_DECISIONS.md
                         and a summary, then stop.
+  --prices <dir>        With --build-universe: measure every membership gap
+                        against cached daily bars, so identity is observed
+                        rather than inferred from a threshold. Overrides are
+                        then written from measurements only.
   --no-universe         Replay every symbol in the data regardless of index
                         membership. Correct for intraday and for one
                         instrument; survivorship-unsafe for anything else.
@@ -156,15 +161,28 @@ void print_plugin_table(const std::vector<PluginInfo>& plugins,
 /// to a number.
 int build_universe(const std::filesystem::path& history_path,
                    const std::filesystem::path& overrides_path,
-                   const std::filesystem::path& report_path) {
+                   const std::filesystem::path& report_path,
+                   const std::filesystem::path& price_cache) {
     SymbolTable symbols;
     SecurityMaster master(symbols);
 
     const IdentityRules rules = load_overrides(overrides_path);
     const SnapshotMembershipSource source(history_path);
-    const MembershipHistory history = build_membership(source, master, rules);
+    MembershipHistory history = build_membership(source, master, rules);
 
-    write_decision_report(report_path, history, master, rules, source.describe());
+    const bool measuring = !price_cache.empty();
+    const IdentityProbeConfig probe;
+    std::size_t settled = 0;
+    std::size_t disagreements = 0;
+    if (measuring) {
+        measure_identities(history, price_cache, probe);
+        for (const IdentityDecision& decision : history.decisions) {
+            settled += decision.measured.resolved() ? 1 : 0;
+            disagreements += decision.disagrees() ? 1 : 0;
+        }
+    }
+
+    write_decision_report(report_path, history, master, rules, source.describe(), probe, measuring);
 
     std::size_t splits = 0;
     std::size_t near_misses = 0;
@@ -194,6 +212,26 @@ int build_universe(const std::filesystem::path& history_path,
     std::cout << "  gaps considered   " << history.decisions.size() << "\n";
     std::cout << "  splits made       " << splits << "\n";
     std::cout << "  near misses       " << near_misses << "\n\n";
+    if (measuring) {
+        std::cout << "Measurement\n-----------\n";
+        std::cout << "  prices from       " << price_cache.string() << "\n";
+        std::cout << "  settled by data   " << settled << " of " << history.decisions.size()
+                  << "\n";
+        std::cout << "  disagreements     " << disagreements << "\n";
+
+        if (settled > 0) {
+            const std::size_t rows =
+                write_measured_overrides(overrides_path, history, probe, source.describe());
+            std::cout << "  overrides written " << rows << " (measurements only)\n\n";
+        } else {
+            // Nothing settled means nothing to write. Overwriting a file that
+            // may hold hand-written corrections with a header and no rows would
+            // destroy them in order to record an absence.
+            std::cout << "  overrides written 0 -- nothing was settled, so "
+                      << overrides_path.string() << " is left alone\n\n";
+        }
+    }
+
     std::cout << "  Every one of those calls is in " << report_path.string() << ".\n";
     std::cout << "  The threshold is a judgment, not a constant. Corrections go in "
               << overrides_path.string() << ".\n\n";
@@ -327,6 +365,12 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
                 exit_code = 2;
                 return false;
             }
+        } else if (argument == "--prices") {
+            const char* value = need_value(i, "--prices");
+            if (value == nullptr) {
+                return false;
+            }
+            out.price_cache = value;
         } else if (argument == "--no-universe") {
             out.no_universe = true;
         } else if (argument == "--universe" || argument == "--build-universe") {
@@ -428,8 +472,10 @@ int run_headless(const HeadlessOptions& options, const std::filesystem::path& ex
         // both of these are repository artefacts that get reviewed and
         // committed, and they belong next to the source rather than beside a
         // build output.
-        return build_universe(
-            options.universe_file, "data/security_overrides.csv", "docs/IDENTITY_DECISIONS.md");
+        return build_universe(options.universe_file,
+                              "data/security_overrides.csv",
+                              "docs/IDENTITY_DECISIONS.md",
+                              options.price_cache);
     }
 
     run::BacktestConfig config;

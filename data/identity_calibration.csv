@@ -1,0 +1,46 @@
+# Calibration set for the identity classifier.
+#
+# An uncalibrated instrument's readings are not evidence. These are cases whose
+# status is known with high confidence, and the classifier has to get them right
+# before any verdict it produces about anything else is worth reading.
+#
+# If the classifier misses one of these, the classifier is wrong. Fix it -- and
+# do not adjust this file to match the output, which would turn a calibration
+# into a curve fit and the instrument into a decoration.
+#
+# An expected case that comes back UNRESOLVED is not a failure. It means the
+# vendor does not carry that history, which is a coverage limit rather than a
+# wrong answer, and the calibration set simply has one fewer usable case. A
+# *wrong* verdict is the failure.
+#
+#   ticker    the symbol
+#   expect    continuous | discontinuous
+#   why       what makes this one knowable
+#
+# ---------------------------------------------------------------------------
+# CONTINUOUS -- companies that merely left the index and came back. The
+# corporate entity never went anywhere, so the price series spans the gap.
+# ---------------------------------------------------------------------------
+ticker,expect,why
+HP,continuous,Helmerich & Payne -- not Hewlett-Packard -- continuously listed for decades
+OKE,continuous,ONEOK continuously listed
+TER,continuous,Teradyne continuously listed
+JBL,continuous,Jabil continuously listed
+AN,continuous,AutoNation continuously listed
+RIG,continuous,Transocean continuously listed
+#
+# ---------------------------------------------------------------------------
+# DISCONTINUOUS -- the string genuinely changed hands. These are the cases a
+# wrong verdict is most expensive on: merging them welds one company's price
+# history to another's.
+#
+# Expect several of these to come back unresolved rather than discontinuous. A
+# vendor serves one series per ticker -- the current issuer's -- so the earlier
+# company's history is usually absent, and the classifier declines rather than
+# reading the later issuer's clean series as continuity. That is the flank
+# check doing its job.
+# ---------------------------------------------------------------------------
+CCI,discontinuous,Citicorp merged into Citigroup in 1998; Crown Castle took the ticker
+BR,discontinuous,Burlington Resources acquired by ConocoPhillips in 2006; Broadridge took the ticker
+CNC,discontinuous,Conseco went bankrupt in 2002; Centene took the ticker
+AMP,discontinuous,AMP Incorporated acquired by Tyco in 1999; Ameriprise Financial took the ticker

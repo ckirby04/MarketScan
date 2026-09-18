@@ -801,3 +801,201 @@ TEST_CASE("without a master the feed interns once, as it always did",
     REQUIRE(feed.symbols().size() == 1);
     REQUIRE(feed.unidentified_bars() == 0);
 }
+
+// --------------------------------------------------------------------------
+// Measurement over a whole history
+// --------------------------------------------------------------------------
+
+TEST_CASE("measurement overrules the threshold where the data can",
+          "[universe][identity][measure]") {
+    const ScratchDir dir;
+
+    // KEPTUP left the index for eight years and kept trading throughout.
+    // GONE left for eight years and stopped trading. The threshold splits both;
+    // only the second deserves it.
+    write_snapshots(dir.file("history.csv"),
+                    {
+                        {"2000-01-03", {"KEPTUP", "GONE", "ANCHOR"}},
+                        {"2001-01-03", {"ANCHOR"}},
+                        {"2009-01-05", {"KEPTUP", "GONE", "ANCHOR"}},
+                        {"2010-01-05", {"KEPTUP", "GONE", "ANCHOR"}},
+                    });
+
+    const ScratchDir prices;
+    bar_store::write(prices.file("KEPTUP.msb"), bars_between("KEPTUP", 1999, 2010, 50.0));
+
+    BarSeries broken;
+    broken.ticker = "GONE";
+    for (const BarSeries& piece :
+         {bars_between("GONE", 1999, 2000, 20.0), bars_between("GONE", 2009, 2010, 80.0)}) {
+        broken.bars.insert(broken.bars.end(), piece.bars.begin(), piece.bars.end());
+    }
+    bar_store::write(prices.file("GONE.msb"), broken);
+    // ANCHOR has no cached series at all.
+
+    SymbolTable symbols;
+    SecurityMaster master(symbols);
+    const SnapshotMembershipSource source(dir.file("history.csv"));
+    MembershipHistory history = build_membership(source, master);
+
+    // The weekly fixtures are about a fifth of the weekdays they span, so the
+    // thresholds have to be relaxed to match. What is being tested is the
+    // wiring and the ordering, not the exact numbers -- those are pinned in
+    // test_identity_probe.cpp against series with a bar on every weekday.
+    IdentityProbeConfig probe;
+    probe.continuous_coverage = 0.15;
+    probe.flank_coverage = 0.10;
+    probe.max_hole_days = 10;
+    measure_identities(history, prices.path(), probe);
+
+    const IdentityDecision* kept = nullptr;
+    const IdentityDecision* gone = nullptr;
+    for (const IdentityDecision& decision : history.decisions) {
+        if (decision.ticker == "KEPTUP") {
+            kept = &decision;
+        } else if (decision.ticker == "GONE") {
+            gone = &decision;
+        }
+    }
+    REQUIRE(kept != nullptr);
+    REQUIRE(gone != nullptr);
+
+    // The threshold split both; the data agrees with one of them.
+    REQUIRE(kept->split);
+    REQUIRE(gone->split);
+    REQUIRE(kept->measured.verdict == IdentityVerdict::Continuous);
+    REQUIRE(gone->measured.verdict == IdentityVerdict::Discontinuous);
+
+    // Which makes KEPTUP a disagreement and GONE a confirmation.
+    REQUIRE(kept->disagrees());
+    REQUIRE_FALSE(gone->disagrees());
+
+    // Only measurements reach the override file, and the note states what was
+    // observed rather than what is believed.
+    const std::size_t rows =
+        write_measured_overrides(dir.file("overrides.csv"), history, probe, "test");
+    REQUIRE(rows == 2);
+
+    std::ifstream file(dir.file("overrides.csv"));
+    const std::string text((std::istreambuf_iterator<char>(file)),
+                           std::istreambuf_iterator<char>());
+    REQUIRE_THAT(text, ContainsSubstring("KEPTUP,keep,"));
+    REQUIRE_THAT(text, ContainsSubstring("GONE,split,"));
+    REQUIRE_THAT(text, ContainsSubstring("coverage "));
+
+    // And the file round-trips: what was written is what load_overrides reads.
+    const IdentityRules reloaded = load_overrides(dir.file("overrides.csv"));
+    REQUIRE(reloaded.overrides.size() == 2);
+}
+
+TEST_CASE("a ticker with no cached prices is never split by measurement",
+          "[universe][identity][measure]") {
+    const ScratchDir dir;
+    write_snapshots(dir.file("history.csv"),
+                    {
+                        {"2000-01-03", {"NODATA", "ANCHOR"}},
+                        {"2001-01-03", {"ANCHOR"}},
+                        {"2009-01-05", {"NODATA", "ANCHOR"}},
+                        {"2010-01-05", {"NODATA", "ANCHOR"}},
+                    });
+
+    const ScratchDir empty_cache;
+
+    SymbolTable symbols;
+    SecurityMaster master(symbols);
+    const SnapshotMembershipSource source(dir.file("history.csv"));
+    MembershipHistory history = build_membership(source, master);
+    measure_identities(history, empty_cache.path());
+
+    // The property the whole design turns on: a vendor that does not carry a
+    // ticker is a coverage limit, not a delisting. Nothing here may become a
+    // verdict, and nothing here may reach the override file.
+    for (const IdentityDecision& decision : history.decisions) {
+        INFO(decision.ticker << ": " << decision.measured.reason);
+        REQUIRE_FALSE(decision.measured.resolved());
+    }
+    REQUIRE(write_measured_overrides(dir.file("overrides.csv"), history, {}, "test") == 0);
+}
+
+// --------------------------------------------------------------------------
+// Calibration
+// --------------------------------------------------------------------------
+//
+// An uncalibrated instrument's readings are not evidence. data/identity_
+// calibration.csv holds cases whose status is known with high confidence, and
+// this runs the classifier against the real membership history and the real
+// price cache to check it gets them right.
+//
+// It SKIPs when either is absent, which is the normal state in CI and on a
+// fresh clone: neither is committed, because one is market data and the other
+// is fetched. The skip message says exactly what to run. A test that silently
+// passed when it had measured nothing would be worse than no test.
+
+TEST_CASE("the classifier agrees with the cases we are sure of",
+          "[universe][identity][calibration]") {
+    const std::filesystem::path history_path("data/cache/universe/sp500_history.csv");
+    const std::filesystem::path price_cache("data/cache/stooq");
+    const std::filesystem::path calibration_path("data/identity_calibration.csv");
+
+    if (!std::filesystem::exists(history_path) || !std::filesystem::exists(price_cache)) {
+        SKIP("no membership history or price cache; run scripts/fetch_sp500.py and "
+             "scripts/fetch_stooq.py --symbols-file <the gap tickers>");
+    }
+
+    // ticker -> expected verdict.
+    std::vector<std::pair<std::string, IdentityVerdict>> expected;
+    {
+        std::ifstream file(calibration_path);
+        REQUIRE(file);
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.empty() || line[0] == '#' || line.rfind("ticker,", 0) == 0) {
+                continue;
+            }
+            const std::size_t first = line.find(',');
+            if (first == std::string::npos) {
+                continue;
+            }
+            const std::size_t second = line.find(',', first + 1);
+            const std::string ticker = line.substr(0, first);
+            const std::string want = line.substr(first + 1, second - first - 1);
+            expected.emplace_back(ticker,
+                                  want == "continuous" ? IdentityVerdict::Continuous
+                                                       : IdentityVerdict::Discontinuous);
+        }
+    }
+    REQUIRE(expected.size() == 10);
+
+    SymbolTable symbols;
+    SecurityMaster master(symbols);
+    const SnapshotMembershipSource source(history_path);
+    MembershipHistory history = build_membership(source, master);
+    measure_identities(history, price_cache);
+
+    std::size_t checked = 0;
+    std::size_t coverage_limited = 0;
+    for (const auto& [ticker, want] : expected) {
+        for (const IdentityDecision& decision : history.decisions) {
+            if (decision.ticker != ticker) {
+                continue;
+            }
+            INFO(ticker << ": expected " << to_string(want) << ", measured "
+                        << to_string(decision.measured.verdict) << " -- "
+                        << decision.measured.reason);
+            if (!decision.measured.resolved()) {
+                // A coverage limit, not a wrong answer. Recorded, not failed.
+                ++coverage_limited;
+                break;
+            }
+            // The assertion. A wrong verdict on a case we are sure of means the
+            // classifier is wrong, and nothing it says about the other 43 gaps
+            // can be trusted until it is fixed.
+            REQUIRE(decision.measured.verdict == want);
+            ++checked;
+            break;
+        }
+    }
+
+    WARN("calibration: " << checked << " verified, " << coverage_limited << " coverage-limited, of "
+                         << expected.size());
+}

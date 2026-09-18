@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "marketscan/data/identity_probe.hpp"
 #include "marketscan/data/security_master.hpp"
 
 namespace marketscan {
@@ -135,6 +136,12 @@ struct IdentityRules {
 /// One decision the split heuristic made, for the audit report.
 struct IdentityDecision {
     std::string ticker;
+
+    /// Start of the membership period *before* the gap. What the identity
+    /// probe needs to tell "this series covers both eras" from "this series is
+    /// the later issuer's alone".
+    Timestamp flank_start = kNever;
+
     Timestamp gap_start = kNever;
     Timestamp gap_end = kNever;
     Duration gap = 0;
@@ -143,6 +150,19 @@ struct IdentityDecision {
     std::string rule;
     std::string note;
     SecurityId result = kInvalidSecurity;
+
+    /// What the price series said, when there was one. Verdict Unresolved with
+    /// an empty reason means no measurement was attempted at all.
+    IdentityMeasurement measured;
+
+    /// Whether the measurement contradicts the threshold.
+    [[nodiscard]] bool disagrees() const noexcept {
+        if (!measured.resolved()) {
+            return false;
+        }
+        const bool measured_split = measured.verdict == IdentityVerdict::Discontinuous;
+        return measured_split != split;
+    }
 };
 
 /// A membership history, as loaded.
@@ -219,12 +239,37 @@ private:
 [[nodiscard]] IdentityRules load_overrides(const std::filesystem::path& path,
                                            IdentityRules rules = {});
 
+/// Measures every gap against a directory of cached daily bars.
+///
+/// A ticker with no cached series is left Unresolved with the reason, never
+/// Discontinuous: a vendor that does not carry a dead ticker is a coverage
+/// limit, not a delisting.
+void measure_identities(MembershipHistory& history,
+                        const std::filesystem::path& price_cache,
+                        const IdentityProbeConfig& config = {});
+
 /// Writes docs/IDENTITY_DECISIONS.md.
 void write_decision_report(const std::filesystem::path& path,
                            const MembershipHistory& history,
                            const SecurityMaster& master,
                            const IdentityRules& rules,
-                           std::string_view source_description);
+                           std::string_view source_description,
+                           const IdentityProbeConfig& probe_config = {},
+                           bool measured = false);
+
+/// Writes data/security_overrides.csv from measurements only.
+///
+/// Every row carries the numbers it was drawn from and nothing else. "coverage
+/// 97.4%, no hole > 3d" is a statement about what was observed;
+/// "AutoNation traded continuously" is a claim about the world, and this file
+/// is not the place for one.
+///
+/// Returns how many rows were written. An unresolved case produces none, which
+/// leaves it governed by the threshold and open.
+std::size_t write_measured_overrides(const std::filesystem::path& path,
+                                     const MembershipHistory& history,
+                                     const IdentityProbeConfig& config,
+                                     std::string_view source_description);
 
 }  // namespace marketscan
 

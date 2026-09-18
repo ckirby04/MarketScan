@@ -53,6 +53,10 @@ struct HeadlessOptions {
     /// Build the universe, write the identity report, and stop.
     bool build_universe = false;
 
+    /// Cached daily bars to measure membership gaps against. Empty means the
+    /// 730-day threshold decides alone.
+    std::string price_cache;
+
     /// Run with no universe at all, even if one is configured. Every symbol in
     /// the data is in scope, which is correct for intraday and for a single
     /// instrument, and is survivorship-unsafe for anything else.

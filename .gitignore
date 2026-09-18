@@ -38,6 +38,7 @@ credentials.json
 data/*
 !data/samples/
 !data/security_overrides.csv
+!data/identity_calibration.csv
 data/samples/*
 !data/samples/*.csv
 !data/samples/README.md
