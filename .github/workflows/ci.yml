@@ -128,3 +128,41 @@ jobs:
           mapfile -t files < <(git ls-files '*.cpp' '*.hpp' '*.h' '*.c')
           if [ "${#files[@]}" -eq 0 ]; then echo "no sources to check"; exit 0; fi
           clang-format --dry-run --Werror "${files[@]}"
+
+  research:
+    name: research / python
+    runs-on: ubuntu-latest
+    # Ubuntu, not Windows, and that is not a shortcut. The research layer is pure
+    # Python with no dependency on the engine, the plugin ABI or MSVC, so running
+    # it on Linux is both faster and a standing check that it stays that way --
+    # the first import of anything Windows-specific turns this job red.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+
+      - name: Install
+        run: pip install -r research/requirements.txt
+
+      - name: Test
+        # Deterministic given their seeds, so a failure here is a real failure and
+        # never a flake. -p no:randomly in case anybody adds an ordering plugin:
+        # several tests share module-scoped fixtures that take a minute to build.
+        run: pytest -q -p no:randomly
+
+      - name: The committed measurements still reproduce
+        # Not the full sweep -- that is an hour. The quick paths exercise every
+        # code path the committed numbers came from, so a change that would
+        # invalidate docs/FALSE_DISCOVERY.md or the recovery figure fails here
+        # rather than the next time somebody regenerates them.
+        run: |
+          set -euo pipefail
+          python -m research.recovery --quick --out "$RUNNER_TEMP/recovery.png"
+          python -m research.sweep --quick
+          python -m research.export --out "$RUNNER_TEMP/synthetic" --periods 120 --securities 25
+          python scripts/csv_to_msb.py "$RUNNER_TEMP/synthetic/bars.csv" --out "$RUNNER_TEMP/synthetic/msb"

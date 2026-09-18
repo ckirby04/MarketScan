@@ -2,7 +2,7 @@
 
 Where the project is, what to do next, and what is blocked.
 
-**Last updated:** 2026-09-18, end of Session A (`6fe8f57`). CI green.
+**Last updated:** 2026-09-18, end of Session B. CI green.
 
 ---
 
@@ -29,10 +29,19 @@ marketscan.exe --headless --build-universe data/cache/universe/sp500_history.csv
 
 # 4. Price data. This one does NOT work -- see the blocker below.
 python scripts/fetch_stooq.py --symbols AAPL
+
+# 5. The research layer. Pure Python, no vcpkg, no MSVC, no engine.
+pip install -r research/requirements.txt
+pytest
 ```
 
 Nothing else is machine-specific. The tests do not touch the network and the
 committed fixtures are synthetic.
+
+The research layer is worth knowing about separately: it needs none of the C++
+toolchain. On a machine with Python and no vcpkg -- which is a normal state for
+a machine that has only ever run the analysis -- `pytest` and
+`python -m research.sweep` both work from a fresh clone.
 
 ---
 
@@ -49,11 +58,66 @@ committed fixtures are synthetic.
 | **Universe** | structural survivorship guard | a strategy has no API that returns a non-member |
 | **GUI** | twelve panels, ImGui + ImPlot | `docs/screenshots/dashboard.png` |
 | **Python** | pybind11 over the same `run_backtest` | `bindings/python/examples/quickstart.ipynb` |
+| **Research** | synthetic panels, purged CV, constrained portfolios | [`research/README.md`](../research/README.md) |
+| **Calibration** | the pipeline recovers a planted signal, is fooled by injected biases, and has a measured false-discovery rate | [`PATHOLOGIES.md`](PATHOLOGIES.md), [`FALSE_DISCOVERY.md`](FALSE_DISCOVERY.md) |
 
-Milestones M0–M9 of Spec 1, and M0–M3b of Spec 2, are done. Specs are in
+Milestones M0–M9 of Spec 1, and M0–M8 of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
-**327 tests** on `debug`, `release`, `ci`, `ci-debug`; **328** on `full`.
+**327 C++ tests** on `debug`, `release`, `ci`, `ci-debug`; **328** on `full`.
+**139 Python tests** in `research/tests`, run by the `research` CI job on
+Linux -- deliberately, because the research layer depends on nothing in the C++
+toolchain and the first import that changes that turns the job red.
+
+---
+
+## What Session B measured
+
+The three numbers the research harness exists to produce. All of them are
+statements about this pipeline on synthetic data; none of them says anything
+about markets.
+
+| | | |
+|---|---|---|
+| **Recovery** | 18 runs across six values of λ, every one within two standard errors of the truth | [`figures/lambda_recovery.png`](figures/lambda_recovery.png) |
+| **Pathologies** | survivorship 1.32× on the premium and +4.8%/yr on the index level; a lookahead R² of 0.66 against an honest 0.0002; a naive delisting policy removing 82% of the average loss | [`PATHOLOGIES.md`](PATHOLOGIES.md) |
+| **False discovery** | **a Sharpe of 1.96** is the bar a result from a 252-variant search over three years has to clear to be distinguishable from noise | [`FALSE_DISCOVERY.md`](FALSE_DISCOVERY.md) |
+
+Three of these changed after the first run produced something unexpected, and
+the unexpected thing was right each time:
+
+1. **Survivorship bias deflated the premium** in the first configuration. Not a
+   bug: the failures were in the strategy's *short* leg, so removing them
+   removed gains. The sign of survivorship bias follows which leg failed. Only
+   the index-level inflation has a fixed sign, and the report says so instead of
+   reporting the expected answer.
+2. **The null panel was not null.** Its departure hazard was tilted by the
+   exposure, which makes the exposure predict returns through the delisting
+   channel — measurably, across seeds. A false-discovery rate measured on that
+   would have been inflated by a signal that was genuinely there. The first
+   40-minute sweep was discarded and re-run untilted; a test and its control
+   pin it now.
+3. **The best-of-N percentiles were not estimable** by resampling: drawing 252
+   variants from a panel holding 252 returns the panel maximum every time, so
+   the "95th percentile" was the largest Sharpe in the sweep. The threshold is
+   now built from the per-variant distribution (1512 runs, near-normal) with the
+   effective number of independent tries calibrated from the observed mean best
+   — 252 correlated variants behave like 81 independent ones.
+
+### One finding that is a live problem
+
+**The information coefficient's t-statistic is not calibrated, and it fails in
+the flattering direction.** On data containing no signal it rejects at 16.6%
+against a nominal 5%, and the rate rises with the horizon: 8.9% at one period,
+17.3% at five, 23.6% at twenty. `PipelineResult.ic_t` corrects for overlapping
+labels with a Newey-West standard error at h−1 lags, and at twenty lags that
+correction is itself too noisy to do the job.
+
+The Sharpe (4.4%) and the Fama-MacBeth λ (5.6%) are both calibrated, so the
+milestone's own results stand. But the IC is used for screening throughout
+`research/`, and until this is fixed it is a descriptive statistic only. Fixing
+it properly probably means a different long-run variance estimator, and it wants
+its own measurement rather than a guess.
 
 ---
 
@@ -105,26 +169,45 @@ fails every time.
 
 ## Next
 
-**Session B — Spec 2 M4–M8, the research harness.** Python, `research/`, and
-a fresh session: the spec says so and it is right, because none of it touches
-the C++ engine.
+**Session C — Spec 2 M9, parity and integration.** Read
+`specs/BUILD_SPEC_2.md` §8 first.
 
-1. **M4** — synthetic panel generator with a known embedded signal λ.
-2. **M5** — the research pipeline: point-in-time features, purged and embargoed
-   k-fold, ridge and GBM, portfolio construction with active weights.
-3. **M6** — ground truth recovery. Does the pipeline find the λ that was
-   planted?
-4. **M7** — pathology injection: survivorship, lookahead, delisting. Assert each
-   guard fires, and record the magnitude.
-5. **M8** — false discovery rate at λ = 0. **This is the one that matters.** Run
-   200+ pipeline variants over data containing no signal and count how many
-   claim one.
+1. **The parity test.** One trivial strategy — long the top decile of the
+   synthetic exposure, short the bottom, monthly rebalance — implemented
+   *twice*: once in the Python pipeline and once as a C++ theory using
+   `CrossSectionalStrategy`. Same panel, both ways. Under optimistic fills and
+   zero costs the equity curves must match to floating-point tolerance; under
+   spread-crossing fills the C++ result must be worse by an amount consistent
+   with the modelled costs. If they disagree, one of them is wrong, and finding
+   out is the whole milestone.
 
-Read `specs/BUILD_SPEC_2.md` §7 before starting. None of it needs the Stooq
-data — the whole point of M4–M8 is synthetic ground truth.
+   The panel to run it on comes out of `python -m research.export`, which writes
+   bars and a membership history in the formats the engine already reads —
+   `scripts/csv_to_msb.py` converts the bars, and the round trip is exercised by
+   `research/tests/test_export.py` and by CI. What has **not** happened is an
+   actual replay: no C++ binary has read those files, because the machine this
+   session ran on has no vcpkg. Expect the first run to find something.
 
-**Then Session C — M9** (parity test, Universe Inspector panel) and **M9b**
-(`specs/SPEC_VIEW_MODES.md`, dual GUI presentation modes, not started).
+2. **The Universe Inspector panel** — membership over time, current members,
+   add/drop events, forced exits.
+
+3. **Documentation.** `README.md` still describes the project as of Spec 1. It
+   has one line about `research/` in the repository layout and nothing else: no
+   quickstart for it, no mention of what it measured, and a milestone table that
+   stops at Spec 1 M9. Spec 2 §8 puts that in this milestone, and the material
+   to draw on is [`research/README.md`](../research/README.md).
+
+**Then M9b** (`specs/SPEC_VIEW_MODES.md`, dual GUI presentation modes, not
+started).
+
+One thing to carry into it: the research layer's delisting handling and the
+engine's are **not the same model**. The pipeline compounds a departing name's
+final return, which is the real answer to what a holder experienced; the engine
+force-liquidates at the last price, which is optimistic. On a panel with
+departures the two will disagree, and the disagreement is not a bug in either —
+it is the known limitation below, showing up where it was always going to. Run
+the parity test on a panel with `delist_hazard=0` first, so that a real
+discrepancy is not hidden behind an expected one.
 
 ---
 
@@ -140,6 +223,10 @@ Not bugs. Things this cannot do, written down so they are not rediscovered.
 | **No point-in-time restatements** | Prices are as they are today, adjustments included. |
 | **Terminal order status** | A cancel, rejection or expiry produces no fill, so nothing tells the plugin the order is dead. Needs ABI v2; deliberately deferred. |
 | **Free data is not research-grade** | Every number from it is a statement about this pipeline, not about markets. |
+| **The research layer is frictionless** | No commission, no spread, no slippage — the engine owns execution, and a second cost model here would be a second answer to a question that already has one. Every Sharpe in `research/` reads better than anything tradeable. |
+| **The null is Gaussian** | The false-discovery threshold was measured against a market factor plus normal noise. Real returns have fat tails, volatility clustering and cross-sectional structure that panel does not contain, all of which give a search more to find. The measured threshold is a floor. |
+| **No research result is a market claim** | Every panel is synthetic and every λ was planted. Nothing in `research/` says anything about markets, and it is not built to. |
+| **The IC t-statistic is not calibrated** | Rejects at 16.6% on data with no signal, rising to 23.6% at a twenty-period horizon. Measured, not suspected — see above. Use it descriptively; use the Sharpe or λ for inference. |
 
 ---
 

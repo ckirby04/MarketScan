@@ -264,6 +264,8 @@ src/                  implementation, mirroring include/
 apps/marketscan/      the desktop application
 theories/             the USB port: strategy plugins, discovered at runtime
 bindings/python/      pybind11 module
+research/             the dynamometer: synthetic panels, and what the pipeline
+                      finds in them when the answer is known
 tests/                Catch2 suite
 data/samples/         small committed datasets for tests and first run
 scripts/              developer environment, sample data, screenshots
