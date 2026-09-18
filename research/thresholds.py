@@ -26,6 +26,8 @@ down.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 from scipy import stats
 
@@ -126,3 +128,117 @@ def _expected_max(n: int) -> float:
     upper = stats.norm.ppf(1.0 - 1.0 / n)
     lower = stats.norm.ppf(1.0 - 1.0 / (n * np.e))
     return float((1.0 - EULER_MASCHERONI) * upper + EULER_MASCHERONI * lower)
+
+
+# ---------------------------------------------------------------------------
+# M8b: the information coefficient, measured. See docs/FALSE_DISCOVERY.md.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class IcBar:
+    """What the null does to an information coefficient at one horizon."""
+
+    horizon: int
+
+    sd: float
+    """Spread of the mean IC across null runs."""
+
+    nominal: float
+    """The |IC| a t-statistic of 1.96 implicitly demands."""
+
+    t_false_positive: float
+    """How often that nominal rule fires when nothing is there. Nominally 0.05."""
+
+    single_test: float
+    """The |IC| the null exceeds 5% of the time. One test, no search."""
+
+    best_of_n: float
+    """The same, for the best of a search of `variants` variants."""
+
+    n_effective: float
+    """Independent signed-draw equivalents behind that best-of-N, calibrated from
+    the observed mean best. Signed-draw: maximizing |IC| over n variants behaves
+    like maximizing a signed IC over 2n, because a negative IC is a feature
+    somebody negates."""
+
+    variants: int
+
+
+IC_SWEEP_PANELS = 6
+IC_SWEEP_RUNS = 1512
+
+IC_BARS: dict[int, IcBar] = {
+    1: IcBar(horizon=1, sd=0.00464, nominal=0.00745,
+            t_false_positive=0.0833, single_test=0.00818,
+            best_of_n=0.01448, n_effective=23.7, variants=42),
+    2: IcBar(horizon=2, sd=0.00575, nominal=0.00844,
+            t_false_positive=0.1230, single_test=0.01025,
+            best_of_n=0.01885, n_effective=49.1, variants=42),
+    5: IcBar(horizon=5, sd=0.00894, nominal=0.01172,
+            t_false_positive=0.1706, single_test=0.01564,
+            best_of_n=0.02818, n_effective=27.9, variants=42),
+    10: IcBar(horizon=10, sd=0.01209, nominal=0.01498,
+            t_false_positive=0.2063, single_test=0.02119,
+            best_of_n=0.04046, n_effective=66.8, variants=42),
+    20: IcBar(horizon=20, sd=0.01632, nominal=0.01801,
+            t_false_positive=0.2579, single_test=0.03149,
+            best_of_n=0.05461, n_effective=66.8, variants=42),
+    40: IcBar(horizon=40, sd=0.01916, nominal=0.02199,
+            t_false_positive=0.2183, single_test=0.03717,
+            best_of_n=0.06362, n_effective=59.7, variants=42),
+}
+"""Measured at these horizons. Between them the bars are interpolated; outside
+them nothing is returned, because extrapolating a calibration is the thing this
+module exists to stop."""
+
+IC_HORIZONS = tuple(sorted(IC_BARS))
+
+
+def _ic_interpolate(horizon: float, field: str) -> float:
+    if horizon < IC_HORIZONS[0] or horizon > IC_HORIZONS[-1]:
+        raise ValueError(
+            f"horizon {horizon} is outside the calibrated range "
+            f"{IC_HORIZONS[0]}-{IC_HORIZONS[-1]}. Re-run "
+            f"`python -m research.ic_calibration` with it included rather than "
+            f"extrapolating.")
+    grid = [float(h) for h in IC_HORIZONS]
+    values = [float(getattr(IC_BARS[h], field)) for h in IC_HORIZONS]
+    return float(np.interp(float(horizon), grid, values))
+
+
+def ic_t_false_positive_rate(horizon: int) -> float:
+    """How often |t| > 1.96 fires on this pipeline's null at this horizon.
+
+    The number that belongs next to any reported IC t-statistic. It is not 5%.
+    """
+    return _ic_interpolate(horizon, "t_false_positive")
+
+
+def ic_threshold_for(horizon: int, variants_tried: int = 1) -> float:
+    """The |IC| a result has to clear at this horizon, for a search this size.
+
+    Mirrors `threshold_for` for the Sharpe. `variants_tried` counts variants; the
+    sign flip that turns a negative IC into a positive one doubles them, and this
+    does that doubling for the caller before treating them as independent.
+    """
+    if variants_tried < 1:
+        raise ValueError("variants_tried must be at least one")
+    single = _ic_interpolate(horizon, "single_test")
+    if variants_tried == 1:
+        return single
+
+    anchor = _ic_interpolate(horizon, "best_of_n")
+    anchor_n = _ic_interpolate(horizon, "n_effective")
+    return float(anchor * _expected_max(2.0 * variants_tried) / _expected_max(anchor_n))
+
+
+def ic_distinguishable(ic: float, horizon: int, variants_tried: int = 1) -> bool:
+    """Whether an information coefficient is distinguishable from this null.
+
+    Absolute: a negative IC of the same size is the same finding with the feature
+    negated.
+    """
+    if not np.isfinite(ic):
+        return False
+    return abs(ic) > ic_threshold_for(horizon, variants_tried)

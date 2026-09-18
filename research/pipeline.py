@@ -44,7 +44,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from research import metrics
+from research import metrics, thresholds
 from research.features import Feature, build_features, exposure_feature, leaking
 from research.labels import Terminal, forward_return
 from research.models import make_model
@@ -117,6 +117,38 @@ class PipelineResult:
         return float(self.ic.mean() / se)
 
     @property
+    def ic_t_false_positive(self) -> float:
+        """How often this t-statistic fires on nothing, at this horizon.
+
+        M8b measured it: between 8% and 26% depending on the horizon, against a
+        nominal 5%. The number travels with the statistic rather than living only
+        in the documentation, because a t-statistic that looks like every other
+        t-statistic is exactly the thing somebody reads at face value.
+
+        NaN when the horizon is outside the calibrated range, which is a truthful
+        answer rather than an extrapolated one.
+        """
+        try:
+            return thresholds.ic_t_false_positive_rate(self.config.horizon)
+        except ValueError:
+            return metrics.UNDEFINED
+
+    def ic_bar(self, variants_tried: int = 1) -> float:
+        """The measured |IC| this result has to clear. See M8b."""
+        try:
+            return thresholds.ic_threshold_for(self.config.horizon, variants_tried)
+        except ValueError:
+            return metrics.UNDEFINED
+
+    def ic_is_distinguishable(self, variants_tried: int = 1) -> bool:
+        """Whether the IC clears the measured bar rather than the nominal one."""
+        try:
+            return thresholds.ic_distinguishable(self.ic_mean, self.config.horizon,
+                                                 variants_tried)
+        except ValueError:
+            return False
+
+    @property
     def sharpe(self) -> float:
         if self.portfolio is None:
             return metrics.UNDEFINED
@@ -140,7 +172,11 @@ class PipelineResult:
             f"  rows          {self.n_rows} ({self.purged} purged, {self.embargoed} embargoed)",
             f"  lam           planted {self.panel_lam:+.6f}, {self.lambda_hat}",
             f"  oos R2        {self.oos_r2:+.5f}",
-            f"  IC            {self.ic_mean:+.4f} (t={self.ic_t:+.2f}, {self.ic.size} dates)",
+            f"  IC            {self.ic_mean:+.4f} over {self.ic.size} dates",
+            f"                t={self.ic_t:+.2f}, and that t fires on nothing "
+            f"{self.ic_t_false_positive:.1%} of the time at h={self.config.horizon}",
+            f"                measured bar |IC| > {self.ic_bar():.4f} single-test; "
+            f"this result {'clears' if self.ic_is_distinguishable() else 'does not clear'} it",
             f"  calibration   {self.prediction_slope}",
         ]
         if self.portfolio is not None:
