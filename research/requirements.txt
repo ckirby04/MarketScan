@@ -1,0 +1,21 @@
+# The research layer's dependencies. Nothing here is needed to build or run the
+# C++ engine -- those come from vcpkg.json.
+#
+# Lower bounds rather than pins. A pin would make this the only place in the
+# repository that dictates what is installed on a developer's machine, and the
+# research code uses nothing exotic enough to justify that. CI installs whatever
+# is current within these bounds, which is also the early warning that something
+# upstream has changed.
+#
+#     pip install -r research/requirements.txt
+#
+# Versions this was developed and measured against, for the record:
+#   numpy 2.3.4  pandas 2.3.3  scipy 1.16.3  scikit-learn 1.8.0
+#   matplotlib 3.10.8  pytest 9.0.2
+
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+scikit-learn>=1.4
+matplotlib>=3.8
+pytest>=7.4

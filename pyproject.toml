@@ -1,0 +1,25 @@
+# Configuration for the Python research layer only.
+#
+# There is deliberately no build backend here and no package to install: the C++
+# side is built by CMake and the research layer is run from the repository root
+# with `pytest` or `python -m research.<module>`. A second build system whose job
+# was to install six files would be a thing to keep in sync for no gain.
+#
+# The pybind11 module in bindings/python is built by CMake and is unrelated to
+# this file.
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["research/tests"]
+pythonpath = ["."]
+# No -q here. CI passes its own, and two of them suppress the summary line --
+# which is the one line anybody reads in a CI log.
+addopts = "--strict-markers"
+filterwarnings = [
+    # A warning from numpy or pandas during a research run is usually a silent
+    # NaN or a silent dtype change, and both of those are how a wrong number
+    # gets reported as a right one.
+    "error",
+    # pandas 2.x deprecation, raised from inside its own groupby machinery.
+    "default::DeprecationWarning:pandas",
+]
