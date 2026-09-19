@@ -6,10 +6,8 @@
 add_subdirectory(buy_and_hold)
 add_subdirectory(sma_crossover)
 
-# The parity fixture. It reads its signal out of the volume column, which only
-# research/parity.py writes anything meaningful into, so on real data it stands
-# down rather than ranking on turnover. Shipped as a real theory because the
-# M9 parity test should exercise the same binary the host would load.
+# The M9 parity fixture. Built with the same helper a real theory uses, and
+# written where the host does not scan -- see its own CMakeLists for why.
 add_subdirectory(decile_parity)
 
 # The skeleton is compiled here so that CI notices if it stops building, but

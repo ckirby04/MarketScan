@@ -139,6 +139,63 @@ A horizon outside the calibrated range returns NaN rather than an extrapolation.
 
 ---
 
+## M9 parity: what it measured, and the question it opened
+
+The same strategy — long the top decile of the synthetic exposure, short the
+bottom, monthly — written twice: `theories/decile_parity/` as a C++ theory on
+`CrossSectionalStrategy`, and `research/parity.py` as a second implementation of
+the **engine's** accounting rather than of `portfolio.py`'s.
+
+**Churn-free parity holds.** Over the committed fixture the two agree exactly —
+to the micro-dollar, integer arithmetic, no tolerance — for 84 sessions and four
+monthly rebalances, then differ by **one micro-dollar**: 1e-11 of the book. The
+assertion is a micro-dollar bound plus a no-drift check, because an error that
+accumulates is an accounting difference and one that sits at a rounding boundary
+is two expressions for the same quantity landing either side of a half.
+
+Where that micro-dollar comes from is visible in the composition: at that session
+the engine's cash is $766 below the reference's and its positions worth $766
+more. Both books are dollar-neutral, so a slightly different decision-time equity
+rescales every share count and leaves the marked total where it was. **The
+rounding boundary is in the sizing, not in the ledger.**
+
+### Open: the engine charges thirteen times the spread
+
+The fixture's spread is two basis points, so crossing it should cost a basis
+point of what is traded. The reference implementation trades $858,386 of
+notional, which predicts **$85.84**, and the Python side measures **$85.25** —
+model and arithmetic agree.
+
+The engine, on the same fixture with the same fill model configuration, comes out
+**$1,122.29** worse than optimistic. Thirteen times the spread, and nothing has
+explained the factor yet.
+
+Candidates, none confirmed: the synthesized quote's size at the touch interacting
+with order size; slippage applied on top of the spread; the spread applied per
+fill rather than per crossing; or the two implementations trading different
+notional because their equity paths diverge once costs are charged. The parity
+test asserts the direction and a floor and records the number rather than
+asserting a consistency that does not hold.
+
+**This is the first thing to chase in the next session.** Spec 2 §8 asked for the
+cost difference to be "consistent with the modelled costs" and it is not, which
+makes it either a real defect in the fill path or a misunderstanding of what the
+engine models — and both are worth knowing before anything is measured with it.
+
+### Also open
+
+- **The one-symbol lookahead was predicted and not observed.** Reading the engine
+  says an order submitted inside a callback fills immediately against the book as
+  of that event, and `on_session_close` fires while the first bar of the *next*
+  session is being dispatched — so one symbol per session should price at
+  tomorrow's close. Four rebalances matched exactly, so either the reading is
+  wrong or the effect is masked. It wants a purpose-built probe rather than an
+  inference from a curve that happened to agree.
+- **Churn parity has not been run.** Only the churn-free case, which is the
+  ordering the spec asks for.
+
+---
+
 ## Blocked — needs a decision
 
 ### 1. Stooq is gated, so identity cannot be measured

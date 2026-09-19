@@ -61,7 +61,8 @@ function(marketscan_add_test name)
         MARKETSCAN_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/data/samples"
         MARKETSCAN_THEORY_DIR="${MARKETSCAN_RUNTIME_DIR}/theories"
         MARKETSCAN_TEST_PLUGIN_DIR="${MARKETSCAN_TEST_PLUGIN_DIR}"
-        MARKETSCAN_TEMPLATE_DLL="${CMAKE_BINARY_DIR}/theory_template/my_theory.dll")
+        MARKETSCAN_TEMPLATE_DLL="${CMAKE_BINARY_DIR}/theory_template/my_theory.dll"
+        MARKETSCAN_PARITY_THEORY_DIR="${CMAKE_BINARY_DIR}/parity_theory")
     set_target_properties(${name} PROPERTIES FOLDER "marketscan/tests")
     # The plugin tests load real DLLs, so those must exist before ctest runs.
     add_dependencies(${name}

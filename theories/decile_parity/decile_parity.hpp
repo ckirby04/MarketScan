@@ -72,11 +72,11 @@ public:
                                  0.5,
                                  0.1),
         marketscan::param_int("rebalance_sessions",
-                             "Sessions between rebalances. 21 is a month of "
-                             "business days.",
-                             1.0,
-                             252.0,
-                             21.0),
+                              "Sessions between rebalances. 21 is a month of "
+                              "business days.",
+                              1.0,
+                              252.0,
+                              21.0),
         marketscan::param_double("gross",
                                  "Target gross exposure as a multiple of "
                                  "equity. 1.0 is fully invested long and short "
@@ -134,8 +134,8 @@ protected:
         });
 
         const auto count = static_cast<std::size_t>(ranked_.size());
-        const auto side = static_cast<std::size_t>(std::floor(
-            static_cast<double>(count) * decile_));
+        const auto side =
+            static_cast<std::size_t>(std::floor(static_cast<double>(count) * decile_));
         if (side == 0 || side * 2 > count) {
             return;  // too few names to form two disjoint sides
         }
