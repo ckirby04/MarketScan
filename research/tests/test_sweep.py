@@ -82,9 +82,19 @@ def test_the_null_panel_is_actually_null():
 def test_a_tilted_hazard_would_have_been_caught():
     """The control for the test above: with the tilt on, it fails.
 
-    Without this, the null check only establishes that the current panel passes
-    it -- not that it would notice the contamination it exists to prevent.
+    Two things have to be true at once now, and the second is new. The tilt has
+    to leave a measurable trace -- otherwise the null check above proves only
+    that the current panel passes it. And the trace only exists once the
+    **delisting return is applied**: Session D moved it out of the price series,
+    so under the default `last_price` a tilted hazard changes who leaves and
+    costs nothing, which leaves the returns alone.
+
+    That is a real improvement to the null and worth stating rather than
+    absorbing: the sweep's panels are now null under the default model even if
+    somebody re-tilts the hazard. This control therefore has to ask for the
+    contamination explicitly.
     """
+    from research.delisting import APPLY_TRUE_RETURN, applied_returns
     from research.labels import forward_return
     from research.panel import generate_panel
 
@@ -92,7 +102,9 @@ def test_a_tilted_hazard_would_have_been_caught():
     for seed in (20260918, 20260919, 20260920, 20260921):
         panel = generate_panel(NULL_SPEC.replace(seed=seed, delist_exposure_tilt=0.8,
                                                  delist_hazard=0.002))
-        labels = forward_return(panel.frame, horizon=5)
+        labels = forward_return(
+            panel.frame, horizon=5,
+            delisting_returns=applied_returns(panel.delistings, APPLY_TRUE_RETURN))
         slopes.append(metrics.cross_sectional_slopes(panel.frame["exposure"], labels.values))
 
     pooled = pd.concat(slopes, ignore_index=True)

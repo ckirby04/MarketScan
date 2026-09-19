@@ -44,8 +44,9 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from research import metrics, thresholds
+from research import delisting, metrics, thresholds
 from research.features import Feature, build_features, exposure_feature, leaking
+from research.delisting import DEFAULT_MODEL, DelistingReturnModel
 from research.labels import Terminal, forward_return
 from research.models import make_model
 from research.panel import Panel
@@ -64,6 +65,11 @@ class PipelineConfig:
     n_splits: int = 5
     embargo: int = 5
     terminal: Terminal = "compound"
+
+    delisting_model: DelistingReturnModel = DEFAULT_MODEL
+    """What a position is worth after the last quoted price. Defaults to the
+    optimistic `last_price`, which is what the engine does and what every
+    committed result here was measured under -- see research/delisting.py."""
     constraints: PortfolioConstraints = field(default_factory=PortfolioConstraints)
     rebalance_every: int = 21
     build_portfolio: bool = True
@@ -213,7 +219,9 @@ def run_pipeline(panel: Panel, config: PipelineConfig | None = None) -> Pipeline
     config = config or PipelineConfig()
 
     features = build_features(panel.frame, list(config.features))
-    labels = forward_return(panel.frame, horizon=config.horizon, terminal=config.terminal)
+    applied_delistings = delisting.applied_returns(panel.delistings, config.delisting_model)
+    labels = forward_return(panel.frame, horizon=config.horizon, terminal=config.terminal,
+                            delisting_returns=applied_delistings)
 
     aligned = features.join(labels.values.rename("_label"), how="inner").dropna()
     if aligned.empty:
@@ -258,7 +266,8 @@ def run_pipeline(panel: Panel, config: PipelineConfig | None = None) -> Pipeline
     if config.build_portfolio:
         portfolio = build_portfolio(prediction_series, panel.frame, panel.betas, panel.sectors,
                                     constraints=config.constraints,
-                                    rebalance_every=config.rebalance_every)
+                                    rebalance_every=config.rebalance_every,
+                                    delisting_returns=applied_delistings)
 
     return PipelineResult(
         config=config,

@@ -131,22 +131,64 @@ def test_membership_is_point_in_time_by_construction():
         assert group["date"].between(start, end).all()
 
 
-def test_a_departure_carries_the_delisting_return():
+def test_a_departure_leaves_the_price_series_ordinary():
+    """The delisting return is **not** in the final bar, and that is Session D.
+
+    It used to be: a departing name's last bar carried -30%, which meant the
+    engine's "liquidate at the last price the book has" captured the loss by
+    construction and the whole question of delisting returns could not be asked.
+    On real data the delisting return is a separate event after the last quoted
+    price. So the final bar is now an ordinary bar and the return that follows it
+    is recorded beside the panel.
+    """
     panel = generate_panel(PanelSpec(n_securities=50, n_periods=400, seed=6,
-                                     delist_hazard=0.002, delist_exposure_tilt=0.0,
-                                     delist_return=-0.4))
+                                     delist_hazard=0.002, delist_exposure_tilt=0.0))
     departures = panel.frame[panel.frame["delisted"]]
     assert not departures.empty
-    assert np.allclose(departures["ret"].to_numpy(), -0.4)
 
-    # A departure is the name's last row, and never the panel's last date: a
-    # name whose final period is the panel's final period is censored, and
-    # calling that a delisting plants a loss nobody could have known about.
+    # An ordinary bar: nothing near a delisting-sized move.
+    assert departures["ret"].abs().max() < 0.25
+
+    # And the truth is recorded, once per departing name.
+    assert len(panel.delistings) == len(departures)
+    assert set(panel.delistings.index) == {s for _, s in departures.index}
+
+    # A departure is the name's last row, and never the panel's last date.
     last_date = panel.dates[-1]
     for (date, security) in departures.index:
         assert date != last_date
-        held = panel.frame.xs(security, level=1)
-        assert held.index.max() == date
+        assert panel.frame.xs(security, level=1).index.max() == date
+
+
+def test_the_delisting_model_is_bimodal_by_cause():
+    """Distress with mass near total loss, voluntary exits that pay a premium.
+
+    A single mean would describe neither arm. The parameters are a modelling
+    choice and `panel.py` says so; what is asserted here is that the two arms are
+    actually distinguishable and that neither can lose more than everything.
+    """
+    panel = generate_panel(PanelSpec(n_securities=120, n_periods=800, seed=31,
+                                     delist_hazard=0.003))
+    d = panel.delistings
+    assert len(d) > 50
+    assert set(d["cause"]) == {"distress", "voluntary"}
+
+    distress = d.loc[d["cause"] == "distress", "delisting_return"]
+    voluntary = d.loc[d["cause"] == "voluntary", "delisting_return"]
+
+    assert distress.mean() < -0.3
+    assert voluntary.mean() > -0.05
+    assert distress.mean() < voluntary.mean() - 0.4
+
+    assert (d["delisting_return"] >= -1.0).all(), "a position cannot lose more than itself"
+    assert (distress <= 0.0).all(), "a distressed delisting does not pay a premium"
+    assert (d["delisting_return"] <= -0.99).any(), "no total loss in the distress arm"
+
+
+def test_the_delisting_draw_is_seeded_like_everything_else():
+    a = generate_panel(PanelSpec(n_securities=60, n_periods=400, seed=5, delist_hazard=0.003))
+    b = generate_panel(PanelSpec(n_securities=60, n_periods=400, seed=5, delist_hazard=0.003))
+    pd.testing.assert_frame_equal(a.delistings, b.delistings)
 
 
 def test_the_tilt_decides_which_names_die():

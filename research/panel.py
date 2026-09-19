@@ -55,14 +55,14 @@ something else.
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 
 # Stream names, spawned in this order off the master seed. Appending to the end
 # is safe; reordering changes every panel this module has ever generated.
-_STREAMS = ("market", "beta", "sector", "exposure", "noise", "churn", "price")
+_STREAMS = ("market", "beta", "sector", "exposure", "noise", "churn", "price", "delisting")
 
 _ANNUAL_PERIODS = 252
 
@@ -132,18 +132,30 @@ class PanelSpec:
     delist_exposure_tilt: float = 0.0
     """How much a low exposure raises the hazard. See the module docstring."""
 
-    delist_return: float = -0.30
-    """The return on a departing name's final period.
+    delist_distress_share: float = 0.6
+    """Fraction of departures that are distress rather than choice.
 
-    -30% is a made-up number of the right order for a real delisting, and the
-    only claim made for it is that it is not zero. A backtest that liquidates at
-    the last print assumes zero, which is how naive backtests hide their losses.
+    A name leaves an index for two very different reasons and the real
+    distribution is not one blob: it was bought, or it merged, or it moved
+    listing -- versus it fell below a threshold, or it failed. The first arm is
+    neutral to positive and the second has mass near total loss, so a single
+    mean would describe neither.
 
-    This is the research layer's half of **the assumed exit**, the project's name
-    for the fact that neither layer knows what a delisting actually cost: the
-    engine assumes the last price it saw, this assumes a planted number, and CRSP
-    delisting returns replace both in one change. See `docs/EXECUTION.md`.
+    Six in ten distressed is a **modelling choice, not a measurement**. So is
+    every parameter below. They are chosen to make the two arms distinguishable
+    on a panel of this size; nothing here was fitted to anything.
     """
+
+    delist_distress_mean: float = -0.55
+    delist_distress_sd: float = 0.30
+    """Performance, distress, bankruptcy. Drawn normal and clipped into
+    [-1, 0]: a delisting cannot lose more than everything, and a distressed one
+    does not pay a premium."""
+
+    delist_voluntary_mean: float = 0.05
+    delist_voluntary_sd: float = 0.15
+    """Merger, acquisition, voluntary withdrawal. Clipped at -1 only; a takeover
+    premium is a real and positive thing."""
 
     volume_mean: float = 1_000_000.0
 
@@ -192,6 +204,16 @@ class Panel:
     membership: pd.DataFrame
     """One row per membership period: security, start, end (both inclusive
     dates, `end` being the last date the name was a member)."""
+
+    delistings: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(
+        columns=["date", "delisting_return", "cause"],
+        index=pd.Index([], name="security")))
+    """What each departing name did *after* its last quoted bar.
+
+    Indexed by security: the date it left, the return that followed, and whether
+    the cause was distress or voluntary. This is the truth the panel knows and
+    real data does not supply for free -- `DelistingReturnModel` decides whether
+    a consumer uses it."""
 
     @property
     def dates(self) -> pd.DatetimeIndex:
@@ -346,11 +368,38 @@ def generate_panel(spec: PanelSpec | None = None, **overrides: object) -> Panel:
     # terms: row t of `exposure` drives row t of `ret`.
     ret = betas[None, :] * market[:, None] + spec.lam * exposure[:n_periods, :] + noise
 
+    # The departure return does NOT go into the price series.
+    #
+    # It used to: a departing name's final bar carried -30%, which made the
+    # engine's "liquidate at the last price the book has" capture the loss by
+    # construction and made the whole question of delisting returns untestable.
+    # On real data the delisting return is a separate event *after* the last
+    # quoted price, and for a distressed name it is frequently most of the
+    # position. So the final bar here is an ordinary bar, and the return that
+    # follows it is recorded beside the panel for a consumer to apply or ignore
+    # -- which is what `DelistingReturnModel` selects between.
     delisted = np.zeros((n_periods, pool), dtype=bool)
-    for i in np.flatnonzero(delisted_at >= 0):
-        t = delisted_at[i]
-        ret[t, i] = spec.delist_return
-        delisted[t, i] = True
+    departing = np.flatnonzero(delisted_at >= 0)
+    delisting_returns = np.zeros(pool, dtype=float)
+    if departing.size:
+        distress = rng["delisting"].random(departing.size) < spec.delist_distress_share
+        draws = np.where(
+            distress,
+            rng["delisting"].normal(spec.delist_distress_mean, spec.delist_distress_sd,
+                                    size=departing.size),
+            rng["delisting"].normal(spec.delist_voluntary_mean, spec.delist_voluntary_sd,
+                                    size=departing.size))
+        # A delisting cannot lose more than everything; a distressed one cannot
+        # pay a premium.
+        draws = np.maximum(draws, -1.0)
+        draws = np.where(distress, np.minimum(draws, 0.0), draws)
+        delisting_returns[departing] = draws
+        delisting_causes = np.where(distress, "distress", "voluntary")
+    else:
+        delisting_causes = np.array([], dtype=object)
+
+    for i in departing:
+        delisted[delisted_at[i], i] = True
 
     # Prices compound the returns that the panel actually shows, so a bar file
     # exported for the engine and a return column read by the pipeline cannot
@@ -399,6 +448,15 @@ def generate_panel(spec: PanelSpec | None = None, **overrides: object) -> Panel:
         "end": dates[end_index[used]],
     }).sort_values(["start", "security"]).reset_index(drop=True)
 
+    delistings = pd.DataFrame({
+        "security": names[departing],
+        "date": dates[delisted_at[departing]] if departing.size else [],
+        "delisting_return": delisting_returns[departing],
+        "cause": delisting_causes,
+    }).set_index("security").sort_index() if departing.size else pd.DataFrame(
+        columns=["date", "delisting_return", "cause"],
+        index=pd.Index([], name="security"))
+
     return Panel(
         spec=spec,
         frame=frame,
@@ -406,4 +464,5 @@ def generate_panel(spec: PanelSpec | None = None, **overrides: object) -> Panel:
         betas=pd.Series(betas[used], index=names[used], name="beta"),
         sectors=pd.Series(sectors[used], index=names[used], name="sector"),
         membership=membership,
+        delistings=delistings,
     )

@@ -388,7 +388,8 @@ class PortfolioResult:
 
 def build_portfolio(scores: pd.Series, panel_frame: pd.DataFrame, betas: pd.Series,
                     sectors: pd.Series, constraints: PortfolioConstraints | None = None,
-                    rebalance_every: int = 21) -> PortfolioResult:
+                    rebalance_every: int = 21,
+                    delisting_returns: dict[str, float] | None = None) -> PortfolioResult:
     """Runs the book forward over the panel.
 
     `scores` is MultiIndexed (date, security) -- typically out-of-sample model
@@ -402,6 +403,7 @@ def build_portfolio(scores: pd.Series, panel_frame: pd.DataFrame, betas: pd.Seri
     with the research code.
     """
     constraints = constraints or PortfolioConstraints()
+    delisting_returns = delisting_returns or {}
     if rebalance_every < 1:
         raise ValueError("rebalance_every must be at least one period")
 
@@ -440,6 +442,16 @@ def build_portfolio(scores: pd.Series, panel_frame: pd.DataFrame, betas: pd.Seri
         departed = book.index.difference(members)
         closed = float(book.reindex(departed).abs().sum()) if len(departed) else 0.0
         forced_exits += int(len(departed))
+
+        # What the position was actually worth after the tape stopped. Empty
+        # under the default delisting model, so this is a no-op until somebody
+        # asks for the other one. See research/delisting.py.
+        if len(departed) and delisting_returns:
+            realized_exit = sum(float(book[symbol]) * delisting_returns[symbol]
+                                for symbol in departed if symbol in delisting_returns)
+            if realized_exit:
+                realized[date] = realized.get(date, 0.0) + realized_exit
+                delisting_loss += realized_exit
         surviving = book.reindex(book.index.intersection(members))
 
         # A departure is a rebalance trigger of its own. Holding a book from

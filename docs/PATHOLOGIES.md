@@ -12,24 +12,25 @@ magnitude -- not the decimals.
 
 | | honest | with the bias | ratio |
 |---|---|---|---|
-| survivorship (per period, per unit exposure) | +0.000294 | +0.000388 | 1.32x |
+| survivorship (per period, per unit exposure) | +0.000289 | +0.000388 | 1.34x |
 | lookahead (out-of-sample R-squared) | +0.000214 | +0.658763 | 3081.69x |
-| delisting (mean forward return in the study) | -0.013554 | -0.002402 | 0.18x |
+| delisting (mean forward return in the study) | -0.004702 | -0.001512 | 0.32x |
+| assumed exit (total return over the panel) | +0.328436 | +0.546414 | 1.66x |
 
 ---
 
 ## 1. Survivorship
 
 Panel: 390 securities over 1250 periods, planted lambda +0.000500, departure hazard 0.0008 per period tilted towards *high* exposure,
-departure return -30%. 190 names left. A survivors-only universe keeps 200 of them.
+and delisting returns drawn from the bimodal model in `panel.py`. 190 names left. A survivors-only universe keeps 200 of them.
 
 ### The index level
 
 | | |
 |---|---|
-| equal-weight return, point-in-time | -2.09% a year |
+| equal-weight return, point-in-time | -1.86% a year |
 | equal-weight return, survivors only | +2.73% a year |
-| **difference** | **+4.82% a year** |
+| **difference** | **+4.59% a year** |
 
 This is the part of survivorship bias whose sign is not negotiable. The survivors
 are the names that did not fall over; an index built from them returns more than
@@ -39,11 +40,11 @@ the one anybody could have held, every time.
 
 | | |
 |---|---|
-| lambda, point-in-time | +0.000294 |
+| lambda, point-in-time | +0.000289 |
 | lambda, survivors only | +0.000388 |
-| inflation | **1.32x** |
-| standard error of either estimate | 0.000035 |
-| information coefficient | +0.0259 -> +0.0231 |
+| inflation | **1.34x** |
+| standard error of either estimate | 0.000041 |
+| information coefficient | +0.0263 -> +0.0231 |
 
 The mechanism: the hazard here is tilted towards names with a *high* exposure --
 the ones a long-short book following this signal is long. Their exits are losses
@@ -57,7 +58,7 @@ failures are among the names the book is *short*:
 
 | | |
 |---|---|
-| lambda, point-in-time | +0.000631 |
+| lambda, point-in-time | +0.000629 |
 | lambda, survivors only | +0.000449 |
 | ratio | **0.71x** |
 
@@ -135,17 +136,17 @@ left, so a pipeline has to decide what that label is. The two policies in
 | | |
 |---|---|
 | labels lost by dropping truncated windows | 1658 |
-| cumulative return carried by those labels | -1658.0 |
-| mean forward return in the study, compounded | -0.013554 |
-| mean forward return in the study, dropped | **-0.002402** |
-| labels that swallowed a departure whole, compounded | 1841 |
-| labels that swallowed a departure whole, dropped | **183** |
+| cumulative return carried by those labels | -475.6 |
+| mean forward return in the study, compounded | -0.004702 |
+| mean forward return in the study, dropped | **-0.001512** |
+| labels that swallowed a departure whole, compounded | 90 |
+| labels that swallowed a departure whole, dropped | **9** |
 | worst single label, either policy | -1.0000 |
 | positions force-exited by the book | 156 |
-| return earned in departure periods | -0.02657 |
+| return earned in departure periods | +0.03434 |
 
-The average forward return in the study goes from -1.36% to -0.24% -- the naive policy
-removes 82% of the average
+The average forward return in the study goes from -0.47% to -0.15% -- the naive policy
+removes 68% of the average
 loss. Those rows are not adjusted for, or modelled around, or argued about: they
 are *absent*. Nobody decided to exclude them. The label window had nowhere to end
 and the row went away.
@@ -153,7 +154,7 @@ and the row went away.
 **And the worst case survives, which is what makes it dangerous.** Of the ten
 labels whose window contains a given departure, exactly one is untruncated -- the
 window that ends precisely on the departure date -- and it survives both policies.
-So 1841 ruinous labels become 183, but the minimum of the sample is unchanged at -1.00.
+So 90 ruinous labels become 9, but the minimum of the sample is unchanged at -1.00.
 
 A study that sanity-checks its own worst observation therefore finds it present,
 correct, and catastrophic, and concludes the delistings are being counted. They
@@ -164,7 +165,7 @@ opposite -- that the surviving rows were the ones further back -- and the
 assertion failed against the measurement. The counts above are now counted rather
 than argued.)
 
-The estimated lambda moves too, from +0.000247 to +0.000346 against a standard error of 0.000099.
+The estimated lambda moves too, from +0.000366 to +0.000362 against a standard error of 0.000056.
 That one is reported and not leaned on: the hazard in this panel is untilted, so
 what a -100% label does to a cross-sectional *slope* depends on the exposure the
 dying name happened to have, and across one panel that is mostly the seed. The
@@ -187,6 +188,60 @@ available price, where a real delisting return is frequently far worse. That is 
 known limitation with its own entry in `docs/STATUS.md`, and nothing in this
 milestone fixes it. What this milestone establishes is what it would be worth if
 it were wrong.
+
+## 4. The assumed exit
+
+What ignoring the delisting return is worth, measured by running one strategy
+over one panel under both settings of `DelistingReturnModel`.
+
+`last_price` liquidates at the final quoted price and applies no delisting
+return. It is the default, it is what the engine does, and it is what a backtest
+does when nobody has asked the question. `apply_true_return` uses what the
+generator knows actually happened -- a bimodal draw by cause, distress with mass
+near total loss against voluntary exits that pay a small premium.
+
+211 departures, 64% distressed, worst -100%; Sharpe +1.91 -> +4.30
+
+| | |
+|---|---|
+| total return, assuming a zero delisting return | **+54.64%** |
+| total return, applying the real one | +32.84% |
+| **flattery** | **+21.80%** |
+| Sharpe, assuming | **+4.30** |
+| Sharpe, applying | +1.91 |
+| **flattery** | **+2.39 of Sharpe** |
+
+The assumption **more than doubles the Sharpe**. Not a rounding difference, not a
+second-order correction: a book that is long the names which fail, credited with
+selling them at the last print, looks like a different strategy from the one that
+actually ran.
+
+### And the sign follows which leg failed, again
+
+Run the identical experiment with the hazard tilted the other way, so the
+failures are among the names the book is *short*:
+
+| | |
+|---|---|
+| difference in total return | -40.95% |
+| difference in Sharpe | -0.03 |
+
+Ignoring the delisting return now *understates* the return substantially while
+barely moving the Sharpe -- the gains arrive in a few large lumps, which raises
+the mean and the volatility together. Same rule as survivorship: the direction is
+a property of the correlation between failure and the signal, and only the
+magnitude is reliably large.
+
+### Why the default stays the flattering one
+
+Because changing it silently would move every number measured under it. The
+switch is named on both sides -- `research/delisting.py` and the engine's
+equivalent -- and `last_price` remains the default so that turning it on is a
+decision somebody made. When CRSP delisting returns arrive, `apply_true_return`
+is the whole of the change.
+
+See **the assumed exit** in [`EXECUTION.md`](EXECUTION.md) for the shared name
+and what each layer substitutes.
 
 ---
 

@@ -71,13 +71,22 @@ class Labels:
 
 
 def forward_return(frame: pd.DataFrame, horizon: int = 1, terminal: Terminal = "compound",
-                   return_column: str = "ret") -> Labels:
+                   return_column: str = "ret",
+                   delisting_returns: dict[str, float] | None = None) -> Labels:
     """The compounded return over the `horizon` periods after each date.
 
     `frame` is a panel frame: MultiIndex (date, security), holding a
     `return_column` and a boolean `delisted` marking the final period of a name
     that left.
+
+    `delisting_returns` is what happened *after* the last quoted bar, by
+    security, and it is empty under the default delisting model -- see
+    `research/delisting.py`. Where a name has one, every label whose window
+    reaches its departure compounds it as one further factor. That is the
+    difference between a study that knows a position went to zero and one that
+    believes it was sold at the last print.
     """
+    delisting_returns = delisting_returns or {}
     if horizon < 1:
         raise ValueError("horizon must be at least one period")
     if terminal not in ("compound", "drop"):
@@ -92,6 +101,7 @@ def forward_return(frame: pd.DataFrame, horizon: int = 1, terminal: Terminal = "
                 else pd.DataFrame(False, index=returns.index, columns=returns.columns))
 
     dates = returns.index
+    columns = returns.columns
     n_periods = len(dates)
     values = np.full(returns.shape, np.nan)
     end_position = np.full(returns.shape, -1, dtype=int)
@@ -123,11 +133,15 @@ def forward_return(frame: pd.DataFrame, horizon: int = 1, terminal: Terminal = "
             window = growth[t + 1:stop + 1, column]
             if not np.all(np.isfinite(window)):
                 continue  # a hole inside a membership period; nothing to compound
-            values[t, column] = float(np.prod(window) - 1.0)
+            growth_total = float(np.prod(window))
+            if name_died and stop == last:
+                extra = delisting_returns.get(str(columns[column]))
+                if extra is not None:
+                    growth_total *= (1.0 + extra)
+            values[t, column] = growth_total - 1.0
             end_position[t, column] = stop
 
     index = returns.index
-    columns = returns.columns
     value_frame = pd.DataFrame(values, index=index, columns=columns)
     truncated_frame = pd.DataFrame(truncated, index=index, columns=columns)
 

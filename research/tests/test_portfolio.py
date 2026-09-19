@@ -256,8 +256,7 @@ def test_a_departure_closes_the_position_and_the_loss_is_realized():
     price, which is the price *before* the drop.
     """
     panel = generate_panel(PanelSpec(n_securities=60, n_periods=300, lam=0.001, seed=73,
-                                     delist_hazard=0.004, delist_exposure_tilt=0.0,
-                                     delist_return=-0.5))
+                                     delist_hazard=0.004, delist_exposure_tilt=0.0))
     # Score every name by exposure so the book is long the high ones; with no
     # hazard tilt, departures are indifferent to the score and some will be longs.
     result = build_portfolio(panel.frame["exposure"], panel.frame, panel.betas, panel.sectors,

@@ -11,7 +11,12 @@ from pathlib import Path
 
 import numpy as np
 
-from research.pathology import HONEST_R2_CEILING, SURVIVORSHIP_SPEC, Finding
+from research.pathology import (
+    FLATTERY_SPEC,
+    HONEST_R2_CEILING,
+    SURVIVORSHIP_SPEC,
+    Finding,
+)
 
 REPO = Path(__file__).resolve().parent.parent
 REPORT = REPO / "docs" / "PATHOLOGIES.md"
@@ -46,6 +51,8 @@ def write_report(findings: dict[str, Finding], details: dict[str, dict[str, floa
     survivorship = findings["survivorship"]
     lookahead = findings["lookahead"]
     delisting = findings["delisting"]
+    a = findings["assumed_exit"]
+    a_detail = details["assumed_exit"]
     s = details["survivorship"]
     k = details["lookahead"]
     d = details["delisting"]
@@ -66,7 +73,7 @@ def write_report(findings: dict[str, Finding], details: dict[str, dict[str, floa
         "| | honest | with the bias | ratio |",
         "|---|---|---|---|",
     ]
-    for finding in (survivorship, lookahead, delisting):
+    for finding in (survivorship, lookahead, delisting, a):
         ratio = finding.inflation
         ratio_text = f"{ratio:.2f}x" if np.isfinite(ratio) else "--"
         lines.append(f"| {finding.name} ({finding.units}) | {finding.honest:+.6f} | "
@@ -82,7 +89,7 @@ def write_report(findings: dict[str, Finding], details: dict[str, dict[str, floa
         f"{SURVIVORSHIP_SPEC.n_periods} periods, planted lambda "
         f"{SURVIVORSHIP_SPEC.lam:+.6f}, departure hazard "
         f"{SURVIVORSHIP_SPEC.delist_hazard:g} per period tilted towards *high* exposure,",
-        f"departure return {SURVIVORSHIP_SPEC.delist_return:.0%}. "
+        f"and delisting returns drawn from the bimodal model in `panel.py`. "
         f"{int(s['departures'])} names left. A survivors-only universe keeps "
         f"{int(s['names_survivors_only'])} of them.",
         "",
@@ -262,6 +269,63 @@ def write_report(findings: dict[str, Finding], details: dict[str, dict[str, floa
         "known limitation with its own entry in `docs/STATUS.md`, and nothing in this",
         "milestone fixes it. What this milestone establishes is what it would be worth if",
         "it were wrong.",
+        "",
+        "## 4. The assumed exit",
+        "",
+        "What ignoring the delisting return is worth, measured by running one strategy",
+        "over one panel under both settings of `DelistingReturnModel`.",
+        "",
+        "`last_price` liquidates at the final quoted price and applies no delisting",
+        "return. It is the default, it is what the engine does, and it is what a backtest",
+        "does when nobody has asked the question. `apply_true_return` uses what the",
+        "generator knows actually happened -- a bimodal draw by cause, distress with mass",
+        "near total loss against voluntary exits that pay a small premium.",
+        "",
+        f"{a.note}",
+        "",
+    ] + _table([
+        ("total return, assuming a zero delisting return",
+         f"**{a_detail['long_the_failures/last_price__total_return']:+.2%}**"),
+        ("total return, applying the real one",
+         f"{a_detail['long_the_failures/apply_true_return__total_return']:+.2%}"),
+        ("**flattery**", f"**{a_detail['flattery_return']:+.2%}**"),
+        ("Sharpe, assuming", f"**{a_detail['long_the_failures/last_price__sharpe']:+.2f}**"),
+        ("Sharpe, applying",
+         f"{a_detail['long_the_failures/apply_true_return__sharpe']:+.2f}"),
+        ("**flattery**", f"**{a_detail['flattery_sharpe']:+.2f} of Sharpe**"),
+    ]) + [
+        "",
+        "The assumption **more than doubles the Sharpe**. Not a rounding difference, not a",
+        "second-order correction: a book that is long the names which fail, credited with",
+        "selling them at the last print, looks like a different strategy from the one that",
+        "actually ran.",
+        "",
+        "### And the sign follows which leg failed, again",
+        "",
+        "Run the identical experiment with the hazard tilted the other way, so the",
+        "failures are among the names the book is *short*:",
+        "",
+    ] + _table([
+        ("difference in total return", f"{a_detail['mirror_return']:+.2%}"),
+        ("difference in Sharpe", f"{a_detail['mirror_sharpe']:+.2f}"),
+    ]) + [
+        "",
+        "Ignoring the delisting return now *understates* the return substantially while",
+        "barely moving the Sharpe -- the gains arrive in a few large lumps, which raises",
+        "the mean and the volatility together. Same rule as survivorship: the direction is",
+        "a property of the correlation between failure and the signal, and only the",
+        "magnitude is reliably large.",
+        "",
+        "### Why the default stays the flattering one",
+        "",
+        "Because changing it silently would move every number measured under it. The",
+        "switch is named on both sides -- `research/delisting.py` and the engine's",
+        "equivalent -- and `last_price` remains the default so that turning it on is a",
+        "decision somebody made. When CRSP delisting returns arrive, `apply_true_return`",
+        "is the whole of the change.",
+        "",
+        "See **the assumed exit** in [`EXECUTION.md`](EXECUTION.md) for the shared name",
+        "and what each layer substitutes.",
         "",
         "---",
         "",

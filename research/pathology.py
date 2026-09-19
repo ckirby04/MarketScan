@@ -44,10 +44,11 @@ from pathlib import Path
 
 import numpy as np
 
-from research import metrics
+from research import delisting, metrics
 from research.features import Feature, exposure_feature
 from research.labels import forward_return
 from research.panel import Panel, PanelSpec, generate_panel
+from research.delisting import APPLY_TRUE_RETURN, LAST_PRICE
 from research.pipeline import PipelineConfig, run_pipeline
 
 REPO = Path(__file__).resolve().parent.parent
@@ -59,7 +60,6 @@ SURVIVORSHIP_SPEC = PanelSpec(
     seed=20260918,
     delist_hazard=0.0008,
     delist_exposure_tilt=-0.8,
-    delist_return=-0.30,
 )
 """Roughly five percent of the panel leaves per year, and the departures are
 tilted towards names with a *high* exposure -- the ones the signal liked.
@@ -140,17 +140,36 @@ def survivors_only(panel: Panel) -> Panel:
         betas=panel.betas.reindex(survivors),
         sectors=panel.sectors.reindex(survivors),
         membership=membership.reset_index(drop=True),
+        delistings=panel.delistings.reindex(
+            panel.delistings.index.intersection(survivors)),
     )
 
 
-def benchmark_return(panel: Panel) -> float:
+def benchmark_return(panel: Panel,
+                     delisting_returns: dict[str, float] | None = None) -> float:
     """Annualized mean return of an equal-weight book over whoever was a member.
 
     The level effect, and the one part of survivorship bias whose sign is not up
     for discussion: the survivors are the names that did not fall over, so the
     index they make up always looks better than the one anybody could have held.
+
+    The departure return has to be in here, and once Session D moved it out of
+    the price series it had to be put back by hand. Without it this measured the
+    wrong thing and said so loudly: it reported the survivors-only index
+    returning *less* than the point-in-time one, which is the opposite of the
+    only claim in this document whose sign is not negotiable. What it was
+    actually measuring was that the hazard is tilted towards high-exposure names
+    and high-exposure names earn more -- a real effect, and not this one.
     """
-    per_date = panel.frame.groupby(level=0)["ret"].mean()
+    returns = panel.frame["ret"].copy()
+    if delisting_returns:
+        departures = panel.frame.index[panel.frame["delisted"].to_numpy(dtype=bool)]
+        for date, security in departures:
+            extra = delisting_returns.get(str(security))
+            if extra is not None:
+                base = float(returns.loc[(date, security)])
+                returns.loc[(date, security)] = (1.0 + base) * (1.0 + extra) - 1.0
+    per_date = returns.groupby(level=0).mean()
     return float(per_date.mean() * metrics.ANNUAL_PERIODS)
 
 
@@ -163,11 +182,17 @@ def measure_survivorship(spec: PanelSpec = SURVIVORSHIP_SPEC,
     bias is a property of which leg the failures were in and not of survivorship
     itself. See the note on `SURVIVORSHIP_SPEC`.
     """
-    config = config or PipelineConfig(build_portfolio=False)
+    # Measured with the delisting return applied. Survivorship bias is about
+    # losing the failures, and since Session D moved the departure return out of
+    # the price series, a failure under `last_price` costs nothing at all -- so
+    # the bias would have nothing to hide and the measurement would be of noise.
+    config = config or PipelineConfig(build_portfolio=False,
+                                      delisting_model=APPLY_TRUE_RETURN)
     if not spec.delist_hazard:
         raise ValueError("a panel nobody leaves cannot demonstrate survivorship bias")
 
     panel = generate_panel(spec)
+    applied = delisting.applied_returns(panel.delistings, config.delisting_model)
     honest = run_pipeline(panel, config)
     biased = run_pipeline(survivors_only(panel), config)
 
@@ -180,8 +205,8 @@ def measure_survivorship(spec: PanelSpec = SURVIVORSHIP_SPEC,
         "departures": float(panel.frame["delisted"].sum()),
         "names_point_in_time": float(len(panel.securities)),
         "names_survivors_only": float(len(panel.survivors)),
-        "benchmark_point_in_time": benchmark_return(panel),
-        "benchmark_survivors_only": benchmark_return(survivors_only(panel)),
+        "benchmark_point_in_time": benchmark_return(panel, applied),
+        "benchmark_survivors_only": benchmark_return(survivors_only(panel), applied),
         "ic_point_in_time": honest.ic_mean,
         "ic_survivors_only": biased.ic_mean,
         "mirrored_tilt": mirrored_spec.delist_exposure_tilt,
@@ -270,20 +295,27 @@ def measure_delisting(spec: PanelSpec | None = None) -> tuple[Finding, dict[str,
     names earned in their final period under each labelling policy.
     """
     spec = spec or PanelSpec(n_securities=150, n_periods=1000, lam=0.0005, seed=20260920,
-                             delist_hazard=0.0012, delist_exposure_tilt=0.0,
-                             delist_return=-1.0)
+                             delist_hazard=0.0012, delist_exposure_tilt=0.0)
     panel = generate_panel(spec)
     departures = int(panel.frame["delisted"].sum())
     if departures == 0:
         raise ValueError("no departures were generated; nothing to measure")
 
     horizon = 10
+    # With the delisting return applied, so there is a loss for the naive label
+    # policy to drop. Under `last_price` a departure costs nothing and this
+    # measurement would have nothing to measure.
+    applied = delisting.applied_returns(panel.delistings, APPLY_TRUE_RETURN)
     compounded = run_pipeline(panel, PipelineConfig(horizon=horizon, terminal="compound",
-                                                    embargo=5))
-    dropped = run_pipeline(panel, PipelineConfig(horizon=horizon, terminal="drop", embargo=5))
+                                                    embargo=5,
+                                                    delisting_model=APPLY_TRUE_RETURN))
+    dropped = run_pipeline(panel, PipelineConfig(horizon=horizon, terminal="drop", embargo=5,
+                                                 delisting_model=APPLY_TRUE_RETURN))
 
-    seen = forward_return(panel.frame, horizon=horizon, terminal="compound")
-    unseen = forward_return(panel.frame, horizon=horizon, terminal="drop")
+    seen = forward_return(panel.frame, horizon=horizon, terminal="compound",
+                          delisting_returns=applied)
+    unseen = forward_return(panel.frame, horizon=horizon, terminal="drop",
+                            delisting_returns=applied)
     lost_rows = len(seen.values) - len(unseen.values)
     lost_return = float(seen.values[seen.truncated].sum())
 
@@ -333,6 +365,79 @@ def measure_delisting(spec: PanelSpec | None = None) -> tuple[Finding, dict[str,
 
 
 # ---------------------------------------------------------------------------
+# 4. What assuming a zero delisting return is worth
+# ---------------------------------------------------------------------------
+
+
+FLATTERY_SPEC = PanelSpec(
+    n_securities=150,
+    n_periods=1000,
+    lam=0.0006,
+    seed=20260921,
+    delist_hazard=0.0015,
+    delist_exposure_tilt=-0.8,
+)
+"""Failures among the names the book is **long**, which is when the assumption
+flatters.
+
+Same lesson as survivorship, and it has to be stated again because it is the
+thing everybody gets wrong: the sign follows which leg the failures were in. A
+long-short book that is long the names that fail is flattered by ignoring what
+failure cost; one that is short them is understated. Both are measured."""
+
+
+def measure_delisting_flattery(spec: PanelSpec = FLATTERY_SPEC
+                               ) -> tuple[Finding, dict[str, float]]:
+    """The same strategy, both delisting models, on one panel.
+
+    Session D Part 2.3. `last_price` liquidates at the final quoted price and
+    applies no delisting return -- the default, and what a backtest does when
+    nobody has asked the question. `apply_true_return` uses what the generator
+    knows actually happened. The difference is what the assumption is worth.
+    """
+    results: dict[str, dict[str, float]] = {}
+    for tilt, label in ((spec.delist_exposure_tilt, "long_the_failures"),
+                        (-spec.delist_exposure_tilt, "short_the_failures")):
+        panel = generate_panel(spec.replace(delist_exposure_tilt=tilt))
+        for model in (LAST_PRICE, APPLY_TRUE_RETURN):
+            result = run_pipeline(panel, PipelineConfig(delisting_model=model))
+            returns = result.portfolio.active_returns
+            results[f"{label}/{model}"] = {
+                "total_return": float((1.0 + returns).prod() - 1.0),
+                "sharpe": result.sharpe,
+                "delisting_pnl": result.portfolio.delisting_loss,
+                "departures": float(panel.frame["delisted"].sum()),
+                "distress_share": float(
+                    (panel.delistings["cause"] == "distress").mean())
+                if len(panel.delistings) else float("nan"),
+                "worst_delisting": float(panel.delistings["delisting_return"].min())
+                if len(panel.delistings) else float("nan"),
+            }
+
+    assumed = results["long_the_failures/last_price"]
+    truth = results["long_the_failures/apply_true_return"]
+    detail = {f"{key}__{stat}": value
+              for key, row in results.items() for stat, value in row.items()}
+    detail["flattery_return"] = assumed["total_return"] - truth["total_return"]
+    detail["flattery_sharpe"] = assumed["sharpe"] - truth["sharpe"]
+    detail["mirror_return"] = (results["short_the_failures/last_price"]["total_return"]
+                               - results["short_the_failures/apply_true_return"]["total_return"])
+    detail["mirror_sharpe"] = (results["short_the_failures/last_price"]["sharpe"]
+                               - results["short_the_failures/apply_true_return"]["sharpe"])
+
+    return Finding(
+        name="assumed exit",
+        honest=truth["total_return"],
+        pathological=assumed["total_return"],
+        units="total return over the panel",
+        note=(f"{int(assumed['departures'])} departures, "
+              f"{assumed['distress_share']:.0%} distressed, worst "
+              f"{assumed['worst_delisting']:.0%}; Sharpe "
+              f"{truth['sharpe']:+.2f} -> {assumed['sharpe']:+.2f}"),
+    ), detail
+
+
+# ---------------------------------------------------------------------------
 # Running them
 # ---------------------------------------------------------------------------
 
@@ -344,7 +449,8 @@ def run_all(verbose: bool = True) -> tuple[dict[str, Finding], dict[str, dict[st
 
     for name, measure in (("survivorship", measure_survivorship),
                           ("lookahead", measure_lookahead),
-                          ("delisting", measure_delisting)):
+                          ("delisting", measure_delisting),
+                          ("assumed_exit", measure_delisting_flattery)):
         if verbose:
             print(f"{name} ...", flush=True)
         finding, detail = measure()

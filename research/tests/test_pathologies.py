@@ -12,8 +12,10 @@ import pytest
 from research.features import Feature, exposure_feature
 from research.labels import forward_return
 from research.panel import PanelSpec, generate_panel
+from research.delisting import APPLY_TRUE_RETURN, applied_returns
 from research.pathology import (
     HONEST_R2_CEILING,
+    measure_delisting_flattery,
     benchmark_return,
     measure_delisting,
     measure_lookahead,
@@ -24,7 +26,7 @@ from research.pathology_report import write_report
 from research.pipeline import PipelineConfig, run_pipeline
 
 SMALL = PanelSpec(n_securities=120, n_periods=700, lam=0.0008, seed=20260918,
-                  delist_hazard=0.0015, delist_exposure_tilt=-0.8, delist_return=-0.30)
+                  delist_hazard=0.0015, delist_exposure_tilt=-0.8)
 
 
 # ---------------------------------------------------------------------------
@@ -34,7 +36,8 @@ SMALL = PanelSpec(n_securities=120, n_periods=700, lam=0.0008, seed=20260918,
 
 @pytest.fixture(scope="module")
 def survivorship():
-    return measure_survivorship(SMALL, PipelineConfig(build_portfolio=False))
+    return measure_survivorship(SMALL, PipelineConfig(build_portfolio=False,
+                                                      delisting_model=APPLY_TRUE_RETURN))
 
 
 def test_survivors_only_drops_exactly_the_names_that_left():
@@ -51,10 +54,18 @@ def test_survivors_only_drops_exactly_the_names_that_left():
 
 
 def test_the_index_looks_better_without_the_failures():
-    """The level effect. This direction is not configuration-dependent."""
+    """The level effect. This direction is not configuration-dependent.
+
+    With the delisting return applied, which it has to be: Session D moved it out
+    of the price series, so under `last_price` a failure costs nothing and this
+    measures the wrong thing. It did, briefly, and said so -- it reported the
+    survivors-only index returning *less*, which is the only claim in the report
+    whose sign is not negotiable.
+    """
     panel = generate_panel(SMALL)
-    honest = benchmark_return(panel)
-    biased = benchmark_return(survivors_only(panel))
+    applied = applied_returns(panel.delistings, APPLY_TRUE_RETURN)
+    honest = benchmark_return(panel, applied)
+    biased = benchmark_return(survivors_only(panel), applied)
 
     assert biased > honest
     assert biased - honest > 0.005, (f"survivorship moved the index return by only "
@@ -137,7 +148,7 @@ def test_the_leak_is_reported_as_a_leak():
 def delisting():
     return measure_delisting(PanelSpec(n_securities=100, n_periods=700, lam=0.0005,
                                        seed=20260920, delist_hazard=0.0015,
-                                       delist_exposure_tilt=0.0, delist_return=-1.0))
+                                       delist_exposure_tilt=0.0))
 
 
 def test_dropping_truncated_labels_removes_the_loss(delisting):
@@ -182,6 +193,23 @@ def test_the_book_realizes_the_delisting_rather_than_stepping_around_it(delistin
     assert detail["portfolio_delisting_return_compound"] != 0.0
 
 
+def test_the_flattery_of_a_zero_delisting_return_is_material():
+    """Session D Part 2.3, as a gate.
+
+    Assuming a position was sold at the last print, when it was not, has to move
+    the result by an amount nobody could call second-order -- and it has to move
+    it in the flattering direction when the book is long the names that fail.
+    """
+    finding, detail = measure_delisting_flattery()
+
+    assert detail["flattery_return"] > 0.05, "assuming a zero delisting return barely mattered"
+    assert detail["flattery_sharpe"] > 0.5
+    assert finding.pathological > finding.honest
+
+    # And the mirror: short the failures and the same assumption understates.
+    assert detail["mirror_return"] < 0.0
+
+
 def test_a_held_position_earns_the_departure_return():
     """The mechanism, in the smallest case that shows it.
 
@@ -189,16 +217,19 @@ def test_a_held_position_earns_the_departure_return():
     position was still on when the -100% landed.
     """
     panel = generate_panel(PanelSpec(n_securities=40, n_periods=300, seed=20260922,
-                                     delist_hazard=0.004, delist_return=-1.0))
+                                     delist_hazard=0.004))
     departures = panel.frame[panel.frame["delisted"]]
     assert not departures.empty
 
-    labels = forward_return(panel.frame, horizon=5, terminal="compound")
+    applied = applied_returns(panel.delistings, APPLY_TRUE_RETURN)
+    labels = forward_return(panel.frame, horizon=5, terminal="compound",
+                            delisting_returns=applied)
     truncated = labels.values[labels.truncated]
     assert not truncated.empty
-    assert truncated.min() <= -0.99
+    assert truncated.min() <= -0.9
 
-    dropped = forward_return(panel.frame, horizon=5, terminal="drop")
+    dropped = forward_return(panel.frame, horizon=5, terminal="drop",
+                             delisting_returns=applied)
     assert not dropped.truncated.any()
     assert len(dropped.values) < len(labels.values)
 
@@ -215,18 +246,21 @@ def test_a_panel_with_no_departures_is_refused():
 
 def test_the_report_is_written_from_the_measurements(survivorship, lookahead, delisting,
                                                      tmp_path):
+    assumed = measure_delisting_flattery()
     findings = {"survivorship": survivorship[0], "lookahead": lookahead[0],
-                "delisting": delisting[0]}
+                "delisting": delisting[0], "assumed_exit": assumed[0]}
     details = {"survivorship": survivorship[1], "lookahead": lookahead[1],
-               "delisting": delisting[1]}
+               "delisting": delisting[1], "assumed_exit": assumed[1]}
 
     path = write_report(findings, details, tmp_path / "PATHOLOGIES.md")
     text = path.read_text(encoding="utf-8")
 
     assert "# Pathologies" in text
     assert "statement about this pipeline on synthetic data" in text
-    for name in findings:
-        assert name in text
+    # By the finding's own display name, not the dictionary key: "assumed_exit"
+    # is how the code addresses it and "assumed exit" is what a reader sees.
+    for finding in findings.values():
+        assert finding.name in text
     # The numbers in the prose come from the measurements, so a stale report
     # cannot survive a change in what was measured.
     assert f"{findings['survivorship'].inflation:.2f}x" in text
