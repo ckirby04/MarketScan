@@ -139,70 +139,82 @@ A horizon outside the calibrated range returns NaN rather than an extrapolation.
 
 ---
 
-## M9 parity: what it measured, and the question it opened
+## M9 parity: exact, and what it took
 
 The same strategy — long the top decile of the synthetic exposure, short the
 bottom, monthly — written twice: `theories/decile_parity/` as a C++ theory on
 `CrossSectionalStrategy`, and `research/parity.py` as a second implementation of
 the **engine's** accounting rather than of `portfolio.py`'s.
 
-**Churn-free parity holds.** Over the committed fixture the two agree exactly —
-to the micro-dollar, integer arithmetic, no tolerance — for 84 sessions and four
-monthly rebalances, then differ by **one micro-dollar**: 1e-11 of the book. The
-assertion is a micro-dollar bound plus a no-drift check, because an error that
-accumulates is an accounting difference and one that sits at a rounding boundary
-is two expressions for the same quantity landing either side of a half.
+**The equity curves are now identical.** Asserted as equality in
+`tests/test_parity.cpp`, with no tolerance parameter anywhere, and green in CI on
+both presets. Getting there took two fixes, and neither was the one that looked
+likely at the start.
 
-Where that micro-dollar comes from is visible in the composition: at that session
-the engine's cash is $766 below the reference's and its positions worth $766
-more. Both books are dollar-neutral, so a slightly different decision-time equity
-rescales every share count and leaves the marked total where it was. **The
-rounding boundary is in the sizing, not in the ledger.**
+### One: the engine sized from a price it could not have known
 
-### The engine charges thirteen times the spread, and that is correct
+The C++ side sized from `equity()`. The ledger marks each position at the last
+price its book holds, and `on_session_close` fires while the engine is
+dispatching the first bar of the *next* session — which it has already applied.
+So one symbol, whichever bar rolled the date, was marked a day ahead at the
+moment the decision was taken.
 
-Worth recording in full, because it looked like a defect for an hour.
+That was a disagreement between the layers and a small lookahead at once. The fix
+is [`SIZING.md`](SIZING.md): the rule written down, with decision-time equity
+computed from the cross-section the decision is based on. Both layers implement
+that page independently — `include/marketscan/strategy/sizing.hpp` and
+`research/sizing.py`, neither calling the other — and a committed grid of 54
+adversarial cases asserts they produce bit-identical share counts.
 
-The fixture's spread is two basis points, so crossing it should cost a basis
-point of what trades. The reference implementation trades $858,386 of notional,
-predicting **$85.84**; the research layer measures **$85.25**. The engine came
-out **$1,122.29** worse than optimistic — thirteen times as much.
+### Two: the two layers snapshotted different instants
 
-The engine is not only crossing the spread. It also models **market impact**: a
-synthesized quote shows 100 shares at the touch, and everything beyond that pays
+What remained was one session in 126, one micro-dollar, with identical final
+equity and a $766 cash gap — which says the positions are equivalent and the
+difference heals. The engine holds the *previous* book through all of session N
+and changes it while N+1's first bar is dispatched. It trades at session N's
+closes either way, so the economics always agreed; the reference was simply
+recording post-trade where the engine records pre-trade.
 
-    impact_bps = impact_coefficient_bps * sqrt(excess / displayed)
+The reference now records pre-trade. Five rows of the committed curve moved: cash
+shifted back one rebalance on all five, equity on exactly one, by one
+micro-dollar, onto the number the engine had been reporting throughout.
 
-at a coefficient of 10bps, on by default. The orders here have a median size of
-**306 shares against 100 displayed**, so two thirds of every order pays about
-14bps rather than 1. Running the fixture's own trades through that formula
-predicts **$1,136.02** against $1,122.29 measured — 1.2% apart, the residual
-being the two equity paths diverging slightly once costs are charged and the
-trade sizes with them.
+### What this cost in committed numbers
 
-So the milestone did its job. It did not find a bug; it found that the two layers
-model different things, and now the difference is attributed to the line of code
-that causes it and predicted to within a couple of percent. The parity test
-asserts against the derived figure rather than a loose bound, and
-`research.parity.modelled_cost` computes both numbers so they move with the
-fixture.
+One micro-dollar, on one session, in `data/samples/parity_expected.csv`. Caught
+by the equality assertion itself.
 
-The standing implication for the research layer: it is frictionless, the engine
-charges spread *and* impact, and on orders of this size impact is an order of
-magnitude larger than the spread. Any research Sharpe compared against an engine
-run has to carry that.
+### Still open, and it is Session D Part 3
 
-### Also open
+The sizing-side lookahead is gone. The **fill-side** one is not even measured
+yet. Both layers currently fill a decision taken from session N's close *at*
+session N's close, which Session D argues is itself a lookahead — trading on
+information simultaneously with acting on it. Resolving it means instrumenting
+the fill path with a decision/price/fill timestamp triple and asserting that a
+fill price is stamped later than the bar that produced the decision. Expect it to
+move committed results.
 
-- **The one-symbol lookahead was predicted and not observed.** Reading the engine
-  says an order submitted inside a callback fills immediately against the book as
-  of that event, and `on_session_close` fires while the first bar of the *next*
-  session is being dispatched — so one symbol per session should price at
-  tomorrow's close. Four rebalances matched exactly, so either the reading is
-  wrong or the effect is masked. It wants a purpose-built probe rather than an
-  inference from a curve that happened to agree.
-- **Churn parity has not been run.** Only the churn-free case, which is the
-  ordering the spec asks for.
+---
+
+## Session D: where it stands
+
+| | | |
+|---|---|---|
+| 0 | Housekeeping, reboot, baseline | **not done** — see below |
+| 1 | Bit-identical sizing | **done**, CI green |
+| 2 | Make delisting returns real | not started |
+| 3 | The lookahead probe | not started; the sizing half of it landed in Part 1 |
+| 4 | Toolchain gate (GUI stack) | not reached |
+| 5–7 | Inspector, dual view, close-out | not started |
+
+**Part 0 was skipped and should not have been, except that its substance did not
+block Part 1.** It asks for a reboot first: this machine's endpoint security
+holds freshly built binaries in a kernel-mode wait — one thread, zero CPU,
+surviving `Kill()` — and stale copies keep their own executables open, so
+`test_parity.exe` cannot relink. 26 such processes are outstanding. Part 1 was
+finished by compiling locally and verifying through CI, which worked but cost
+several seven-minute round-trips for answers a local run gives in seconds. Parts
+2 and 3 involve real iteration and should not be attempted that way.
 
 ---
 
