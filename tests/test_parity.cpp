@@ -200,14 +200,39 @@ TEST_CASE("the engine and the research pipeline agree, exactly", "[parity][m9]")
         }
     }
 
-    if (first < run.curve.size()) {
-        INFO("first divergence at session " << first << " (" << expected.dates[first] << ")");
-        INFO("  engine    equity " << run.curve[first].equity.micros() << "  cash "
-                                   << run.curve[first].cash.micros());
-        INFO("  reference equity " << expected.equity[first].micros() << "  cash "
-                                   << expected.cash[first].micros());
-        INFO(differing << " of " << run.curve.size() << " sessions differ, worst " << worst
-                       << " micro-dollars");
+    // Reported through FAIL rather than INFO + CHECK, because an INFO scope ends
+    // with the block it was declared in: the first version of this put the
+    // diagnostics inside an `if` and the CHECK outside it, so CI printed
+    // "1 == 0" and nothing else, and the one thing worth knowing -- which
+    // session, and by how much -- was discarded before the assertion ran.
+    if (differing != 0) {
+        std::ostringstream message;
+        message << differing << " of " << run.curve.size()
+                << " sessions differ.
+                   "
+                << "  first at session " << first << " (" << expected.dates[first]
+                << ")
+                   "
+                << "    engine    equity " << run.curve[first].equity.micros() << "  cash "
+                << run.curve[first].cash.micros()
+                << "
+                   "
+                << "    reference equity " << expected.equity[first].micros() << "  cash "
+                << expected.cash[first].micros()
+                << "
+                   "
+                << "    equity delta "
+                << (run.curve[first].equity.micros() - expected.equity[first].micros())
+                << "  cash delta "
+                << (run.curve[first].cash.micros() - expected.cash[first].micros())
+                << "
+                   "
+                << "  worst " << worst
+                << " micro-dollars
+                   "
+                << "  final equity engine " << run.final_equity.micros() << " reference "
+                << expected.equity.back().micros();
+        FAIL(message.str());
     }
 
     CHECK(differing == 0);
