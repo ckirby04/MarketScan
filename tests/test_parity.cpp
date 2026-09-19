@@ -224,20 +224,30 @@ TEST_CASE("the engine and the research pipeline agree, to the micro-dollar", "[p
           kToleranceMicros);
 }
 
-TEST_CASE("crossing the spread costs more than the spread", "[parity][m9]") {
-    // The second half of the milestone, and it does not say what Spec 2 section
-    // 8 expected it to say.
+TEST_CASE("crossing costs what the fill model says it costs", "[parity][m9]") {
+    // Spec 2 section 8: the spread-crossing result should be worse by an amount
+    // consistent with the modelled costs. It is -- but "the modelled costs" are
+    // not the spread, and the first version of this test assumed they were.
     //
-    // The spread is two basis points, so crossing it costs a basis point of
-    // whatever is traded. Over this fixture the reference implementation trades
-    // $858,386 of notional, which predicts a cost of $85.84 -- and the Python
-    // side measures $85.25, so the model and its own arithmetic agree.
+    // The spread is two basis points, so crossing it costs a basis point of what
+    // trades. Over this fixture that is $85.84, and the research layer -- which
+    // models the spread and nothing else -- measures $85.25. The engine came out
+    // $1,122.29 worse, thirteen times as much, which looked like a defect.
     //
-    // The engine charges about **thirteen times** that. The direction is right
-    // and the magnitude is not explained by the spread, so this asserts the
-    // direction and the floor, records the number, and does not pretend the gap
-    // is "consistent with the modelled costs" when it is not. See docs/STATUS.md
-    // -- it is the open question this milestone produced.
+    // It is not. The engine also models **market impact**: a synthesized quote
+    // shows 100 shares at the touch, and everything beyond that is charged
+    //
+    //     impact_bps = impact_coefficient_bps * sqrt(excess / displayed)
+    //
+    // at a coefficient of 10bps. The orders here have a median size of 306
+    // shares, so two thirds of every one of them pays about 14bps rather than 1.
+    // Working that through the fill model's own arithmetic predicts $1,136
+    // against $1,122 measured, and the 1.2% residual is the two equity paths
+    // diverging slightly once costs are charged and the trade sizes with them.
+    //
+    // So the assertion is against the derived figure, not a loose bound. The
+    // research layer is frictionless by design and the engine owns execution;
+    // this is the number that difference is worth on this fixture.
     const OptimisticFillModel optimistic{free_of_charge()};
     const SpreadCrossingFillModel crossing{free_of_charge()};
 
@@ -250,14 +260,16 @@ TEST_CASE("crossing the spread costs more than the spread", "[parity][m9]") {
     const double gap =
         static_cast<double>((free_run.final_equity - costed.final_equity).micros()) / 1'000'000.0;
 
-    // What a basis point of the traded notional comes to. Measured by the
-    // reference implementation rather than asserted here, so if the fixture
-    // changes this number moves with it.
-    constexpr double kSpreadOnlyCost = 85.84;
+    // Derived from the fixture's own trades through the fill model's formula;
+    // see research/parity.py, which computes both figures.
+    constexpr double kSpreadOnly = 85.84;
+    constexpr double kSpreadPlusImpact = 1136.02;
 
-    INFO("optimistic " << free_run.final_equity.micros() << ", crossing "
-                       << costed.final_equity.micros() << ", gap $" << gap << " against $"
-                       << kSpreadOnlyCost << " of spread (" << (gap / kSpreadOnlyCost) << "x)");
-    CHECK(gap > 0.0);
-    CHECK(gap >= kSpreadOnlyCost * 0.5);
+    INFO("gap $" << gap << " against $" << kSpreadOnly << " of spread and $" << kSpreadPlusImpact
+                 << " of spread-plus-impact");
+
+    // Far above the spread alone, and within a few percent of the full model.
+    CHECK(gap > kSpreadOnly * 5.0);
+    CHECK(gap > kSpreadPlusImpact * 0.9);
+    CHECK(gap < kSpreadPlusImpact * 1.1);
 }

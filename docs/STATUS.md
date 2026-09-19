@@ -159,28 +159,38 @@ more. Both books are dollar-neutral, so a slightly different decision-time equit
 rescales every share count and leaves the marked total where it was. **The
 rounding boundary is in the sizing, not in the ledger.**
 
-### Open: the engine charges thirteen times the spread
+### The engine charges thirteen times the spread, and that is correct
+
+Worth recording in full, because it looked like a defect for an hour.
 
 The fixture's spread is two basis points, so crossing it should cost a basis
-point of what is traded. The reference implementation trades $858,386 of
-notional, which predicts **$85.84**, and the Python side measures **$85.25** —
-model and arithmetic agree.
+point of what trades. The reference implementation trades $858,386 of notional,
+predicting **$85.84**; the research layer measures **$85.25**. The engine came
+out **$1,122.29** worse than optimistic — thirteen times as much.
 
-The engine, on the same fixture with the same fill model configuration, comes out
-**$1,122.29** worse than optimistic. Thirteen times the spread, and nothing has
-explained the factor yet.
+The engine is not only crossing the spread. It also models **market impact**: a
+synthesized quote shows 100 shares at the touch, and everything beyond that pays
 
-Candidates, none confirmed: the synthesized quote's size at the touch interacting
-with order size; slippage applied on top of the spread; the spread applied per
-fill rather than per crossing; or the two implementations trading different
-notional because their equity paths diverge once costs are charged. The parity
-test asserts the direction and a floor and records the number rather than
-asserting a consistency that does not hold.
+    impact_bps = impact_coefficient_bps * sqrt(excess / displayed)
 
-**This is the first thing to chase in the next session.** Spec 2 §8 asked for the
-cost difference to be "consistent with the modelled costs" and it is not, which
-makes it either a real defect in the fill path or a misunderstanding of what the
-engine models — and both are worth knowing before anything is measured with it.
+at a coefficient of 10bps, on by default. The orders here have a median size of
+**306 shares against 100 displayed**, so two thirds of every order pays about
+14bps rather than 1. Running the fixture's own trades through that formula
+predicts **$1,136.02** against $1,122.29 measured — 1.2% apart, the residual
+being the two equity paths diverging slightly once costs are charged and the
+trade sizes with them.
+
+So the milestone did its job. It did not find a bug; it found that the two layers
+model different things, and now the difference is attributed to the line of code
+that causes it and predicted to within a couple of percent. The parity test
+asserts against the derived figure rather than a loose bound, and
+`research.parity.modelled_cost` computes both numbers so they move with the
+fixture.
+
+The standing implication for the research layer: it is frictionless, the engine
+charges spread *and* impact, and on orders of this size impact is an order of
+magnitude larger than the spread. Any research Sharpe compared against an engine
+run has to carry that.
 
 ### Also open
 

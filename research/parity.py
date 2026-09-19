@@ -311,6 +311,68 @@ def write_fixture(out_bars: Path = FIXTURE_BARS, out_equity: Path = FIXTURE_EQUI
     return out_bars, out_equity
 
 
+# The engine's fill model, for predicting what it will charge.
+DISPLAYED_AT_TOUCH = 100.0
+"""`CsvFeedOptions.quote_size`: what a synthesized quote shows on each side."""
+
+IMPACT_COEFFICIENT_BPS = 10.0
+"""`FillModelConfig.impact_coefficient_bps`. Impact is on by default."""
+
+
+def modelled_cost(bars: pd.DataFrame, config: ParityConfig | None = None) -> dict[str, float]:
+    """What the engine should charge for this run, from its own formula.
+
+    The research layer is frictionless and the engine is not, so the two disagree
+    by a quantity worth predicting rather than discovering. Crossing the spread
+    costs a basis point of what trades; everything beyond the size shown at the
+    touch also pays
+
+        impact_bps = impact_coefficient_bps * sqrt(excess / displayed)
+
+    which on orders of a few hundred shares against a hundred displayed is an
+    order of magnitude more than the spread. On the committed fixture the spread
+    alone comes to $85.84 and the full model to $1,136, against $1,122 measured
+    by the engine -- so the gap between the layers is explained, not merely
+    observed.
+    """
+    config = config or ParityConfig()
+    run = simulate(bars, ParityConfig(optimistic=True, **{
+        k: v for k, v in vars(config).items() if k != "optimistic"}))
+    closes = bars.pivot(index="date", columns="symbol", values="close")
+
+    half_spread = config.spread_bps / 10_000.0 / 2.0
+    spread_only = 0.0
+    with_impact = 0.0
+    sizes: list[float] = []
+
+    previous = None
+    for date, row in run.positions.iterrows():
+        delta = row - previous if previous is not None else row
+        previous = row
+        for symbol, change in delta.items():
+            quantity = abs(float(change))
+            if quantity < config.minimum_trade:
+                continue
+            price = float(closes.loc[date, symbol])
+            sizes.append(quantity)
+            spread_only += quantity * price * half_spread
+
+            touch = min(quantity, DISPLAYED_AT_TOUCH)
+            excess = max(quantity - DISPLAYED_AT_TOUCH, 0.0)
+            cost = touch * price * half_spread
+            if excess > 0.0:
+                impact = IMPACT_COEFFICIENT_BPS * math.sqrt(excess / DISPLAYED_AT_TOUCH) / 1e4
+                cost += excess * price * (half_spread + impact)
+            with_impact += cost
+
+    return {
+        "trades": float(len(sizes)),
+        "median_size": float(pd.Series(sizes).median()) if sizes else float("nan"),
+        "spread_only": spread_only,
+        "spread_plus_impact": with_impact,
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="M9 parity fixture and reference run")
     parser.add_argument("--write-fixture", action="store_true")
@@ -326,6 +388,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{panel.describe()}")
     print(f"reference run: {run.trades} trades, equity {start:,.2f} -> {end:,.2f} "
           f"({(end / (ParityConfig().starting_cash) - 1.0):+.2%})")
+
+    costs = modelled_cost(bars)
+    print(f"modelled cost: {int(costs['trades'])} trades, median "
+          f"{costs['median_size']:.0f} shares against {DISPLAYED_AT_TOUCH:.0f} displayed -- "
+          f"spread ${costs['spread_only']:,.2f}, "
+          f"spread+impact ${costs['spread_plus_impact']:,.2f}")
 
     if args.write_fixture:
         wrote = write_fixture()
