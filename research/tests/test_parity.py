@@ -101,33 +101,51 @@ def test_the_accounting_identity_holds_every_day(bars):
         assert equity == run.cash.loc[date] + marked
 
 
-def test_cash_moves_only_on_rebalance_dates_and_the_first_one_is_neutral(bars):
-    """Two properties, and the first draft of this test asserted a third that
-    was not true.
+def test_cash_moves_the_session_after_a_rebalance(bars):
+    """Two properties, and this test has now been wrong twice in different ways.
 
-    Cash can only change when the book trades, so between rebalances it is flat.
-    And the *opening* rebalance is cash-neutral to the micro-dollar, because
-    equal notional long and short at the same prices nets to nothing under
-    optimistic fills -- which is a sign check on the ledger that nothing else
-    here performs.
+    The recorded cash at session N is the cash held *during* session N, before
+    that session's rebalance -- because that is when the engine records it: a
+    cross-sectional strategy is handed session N while the first bar of N+1 is
+    being dispatched, so it holds the previous book through all of N. A trade on
+    session N therefore shows up in the record at N+1.
 
-    Later rebalances are *not* cash-neutral, which is what the original version
-    of this test got wrong: by then the old positions have drifted away from
-    equal notional, so closing them releases an unequal amount of cash.
+    The first draft asserted cash never moves at all, which is true only of the
+    opening rebalance. The second asserted it moves on rebalance dates, which was
+    true until the sampling instant was aligned with the engine's. What is
+    actually true is that it moves on the session *after* one.
     """
     config = ParityConfig()
     run = simulate(bars, config)
-    dates = list(run.cash.index)
 
     assert run.cash.iloc[0] == pytest.approx(100_000 * MICROS, abs=8)
 
-    for index, date in enumerate(dates):
-        if index == 0:
-            continue
-        if index % config.rebalance_sessions != 0:
-            assert run.cash.iloc[index] == run.cash.iloc[index - 1], f"cash moved on {date}"
+    for index in range(1, len(run.cash)):
+        traded_yesterday = (index - 1) % config.rebalance_sessions == 0
+        if not traded_yesterday:
+            assert run.cash.iloc[index] == run.cash.iloc[index - 1], (
+                f"cash moved at index {index} with no rebalance the session before")
 
     assert run.cash.nunique() > 1, "cash never moved at all; the book is not rebalancing"
+
+
+def test_the_recorded_book_is_the_one_held_through_the_session(bars):
+    """The sampling convention, asserted rather than left as a comment.
+
+    On a rebalance session the recorded positions are the *previous* book. The
+    opening session is the sharpest case: the reference trades on session 0, and
+    the record for session 0 still shows an empty book and full cash -- which is
+    exactly what the engine reports, because it has not acted yet.
+    """
+    run = simulate(bars, ParityConfig())
+    first = run.positions.iloc[0]
+
+    assert (first.abs() < 1e-12).all(), "session 0 recorded a book before the engine has one"
+    assert run.cash.iloc[0] == pytest.approx(100_000 * MICROS, abs=8)
+    assert run.equity.iloc[0] == run.cash.iloc[0]
+
+    # And by the next session the book is there.
+    assert (run.positions.iloc[1].abs() > 0).any()
 
 
 def test_crossing_the_spread_costs_money(bars):

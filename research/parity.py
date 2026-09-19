@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import argparse
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -142,8 +142,17 @@ class ParityRun:
 
     cash: pd.Series
     positions: pd.DataFrame
+    """Recorded **before** each session's rebalance, matching when the engine
+    records: it holds the previous book through all of session N and changes it
+    while the first bar of N+1 is dispatched."""
+
     trades: int
     commission: int
+
+    trade_log: list[tuple[pd.Timestamp, str, float, float]] = field(default_factory=list)
+    """(date, symbol, shares, price) per fill. Recorded rather than reconstructed
+    from position differences, which stopped being possible once the snapshots
+    moved to pre-trade."""
 
     def to_frame(self) -> pd.DataFrame:
         return pd.DataFrame({"equity_micros": self.equity.astype("int64"),
@@ -179,10 +188,32 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRu
     position_rows: dict[pd.Timestamp, dict[str, float]] = {}
     trades = 0
     commission_paid = 0
+    trade_log: list[tuple[pd.Timestamp, str, float, float]] = []
 
     for session, date in enumerate(closes.index):
         close_row = closes.loc[date].dropna()
         exposure_row = exposures.loc[date].reindex(close_row.index)
+
+        # Recorded BEFORE this session's rebalance, because that is when the
+        # engine records it.
+        #
+        # A CrossSectionalStrategy is handed session N at on_session_close, which
+        # the shim fires while the engine is dispatching the first bar of session
+        # N+1. So the engine holds the *previous* book through the whole of
+        # session N and changes it at the start of N+1. The prices it trades at
+        # are still session N's closes -- the economics are identical, and the
+        # final equity of the two implementations agrees to the micro-dollar --
+        # but the snapshot at a rebalance session is of a different book.
+        #
+        # Recording post-trade here was the last remaining parity divergence:
+        # one session in 126, one micro-dollar of rounding on a rebalance that
+        # is equity-neutral at the marks it uses. Caught by
+        # test_parity.cpp's "agree, exactly".
+        marked = sum(notional(float(close_row[symbol]), quantity)
+                     for symbol, quantity in shares.items() if symbol in close_row.index)
+        equity_by_date[date] = cash + marked
+        cash_by_date[date] = cash
+        position_rows[date] = dict(shares)
 
         if session % config.rebalance_sessions == 0 and not close_row.empty:
             # Descending by exposure, ties broken by symbol so that the decile
@@ -225,16 +256,11 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRu
                     charge = notional(config.commission_per_share, abs(delta))
                     cash -= charge
                     commission_paid += charge
+                    trade_log.append((date, symbol, delta, price))
                     shares[symbol] = shares.get(symbol, 0.0) + delta
                     if abs(shares[symbol]) < config.minimum_trade:
                         shares.pop(symbol)
                     trades += 1
-
-        marked = sum(notional(float(close_row[symbol]), quantity)
-                     for symbol, quantity in shares.items() if symbol in close_row.index)
-        equity_by_date[date] = cash + marked
-        cash_by_date[date] = cash
-        position_rows[date] = dict(shares)
 
     return ParityRun(
         equity=pd.Series(equity_by_date, dtype="int64").sort_index(),
@@ -242,6 +268,7 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRu
         positions=pd.DataFrame(position_rows).T.sort_index().fillna(0.0),
         trades=trades,
         commission=commission_paid,
+        trade_log=trade_log,
     )
 
 
@@ -339,34 +366,27 @@ def modelled_cost(bars: pd.DataFrame, config: ParityConfig | None = None) -> dic
     observed.
     """
     config = config or ParityConfig()
-    run = simulate(bars, ParityConfig(optimistic=True, **{
-        k: v for k, v in vars(config).items() if k != "optimistic"}))
-    closes = bars.pivot(index="date", columns="symbol", values="close")
+    run = simulate(bars, config)
 
     half_spread = config.spread_bps / 10_000.0 / 2.0
     spread_only = 0.0
     with_impact = 0.0
     sizes: list[float] = []
 
-    previous = None
-    for date, row in run.positions.iterrows():
-        delta = row - previous if previous is not None else row
-        previous = row
-        for symbol, change in delta.items():
-            quantity = abs(float(change))
-            if quantity < config.minimum_trade:
-                continue
-            price = float(closes.loc[date, symbol])
-            sizes.append(quantity)
-            spread_only += quantity * price * half_spread
+    for _, _symbol, change, price in run.trade_log:
+        quantity = abs(float(change))
+        if quantity < config.minimum_trade:
+            continue
+        sizes.append(quantity)
+        spread_only += quantity * price * half_spread
 
-            touch = min(quantity, DISPLAYED_AT_TOUCH)
-            excess = max(quantity - DISPLAYED_AT_TOUCH, 0.0)
-            cost = touch * price * half_spread
-            if excess > 0.0:
-                impact = IMPACT_COEFFICIENT_BPS * math.sqrt(excess / DISPLAYED_AT_TOUCH) / 1e4
-                cost += excess * price * (half_spread + impact)
-            with_impact += cost
+        touch = min(quantity, DISPLAYED_AT_TOUCH)
+        excess = max(quantity - DISPLAYED_AT_TOUCH, 0.0)
+        cost = touch * price * half_spread
+        if excess > 0.0:
+            impact = IMPACT_COEFFICIENT_BPS * math.sqrt(excess / DISPLAYED_AT_TOUCH) / 1e4
+            cost += excess * price * (half_spread + impact)
+        with_impact += cost
 
     return {
         "trades": float(len(sizes)),
