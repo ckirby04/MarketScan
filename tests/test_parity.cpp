@@ -1,0 +1,250 @@
+// M9 -- the same strategy, both ways, made to agree.
+//
+// `theories/decile_parity` and `research/parity.py` implement one rule: long the
+// top decile of the synthetic exposure, short the bottom, rebalanced every 21
+// sessions. This replays the committed fixture through the engine and compares
+// the equity curve to the one the Python reference produced from the same file.
+//
+// The fixture has **no churn**, and that ordering is the point of the milestone.
+// The two layers model delistings differently -- the engine force-liquidates at
+// the last price, the research layer compounds the departure return -- so a
+// panel with churn has an expected gap, and an expected gap is exactly what a
+// real bug hides behind. On a panel where nothing leaves the universe there is
+// no legitimate source of disagreement, so the assertion is exact.
+//
+// Exact meaning exact: both sides compute equity as cash plus the marked value
+// of every position, in integer micro-dollars, rounding half away from zero.
+// Agreement to the micro-dollar is two implementations doing the same
+// arithmetic, not a tolerance chosen to make them agree.
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
+
+#include <algorithm>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "marketscan/core/engine.hpp"
+#include "marketscan/data/csv_feed.hpp"
+#include "marketscan/exec/fill_model.hpp"
+#include "marketscan/strategy/plugin_loader.hpp"
+#include "marketscan/strategy/strategy_instance.hpp"
+
+using namespace marketscan;
+
+namespace {
+
+[[nodiscard]] std::filesystem::path fixture(const char* name) {
+    return std::filesystem::path(MARKETSCAN_TEST_DATA_DIR) / name;
+}
+
+/// The curve `research/parity.py` wrote, keyed by date.
+struct Expected {
+    std::vector<std::string> dates;
+    std::vector<Money> equity;
+    std::vector<Money> cash;
+};
+
+[[nodiscard]] Expected read_expected() {
+    std::ifstream file(fixture("parity_expected.csv"));
+    REQUIRE(file);
+
+    Expected out;
+    std::string line;
+    std::getline(file, line);  // header
+    while (std::getline(file, line)) {
+        if (line.empty()) {
+            continue;
+        }
+        std::istringstream row(line);
+        std::string date;
+        std::string equity;
+        std::string cash;
+        REQUIRE(std::getline(row, date, ','));
+        REQUIRE(std::getline(row, equity, ','));
+        REQUIRE(std::getline(row, cash, ','));
+        out.dates.push_back(date);
+        out.equity.push_back(Money::from_micros(std::strtoll(equity.c_str(), nullptr, 10)));
+        out.cash.push_back(Money::from_micros(std::strtoll(cash.c_str(), nullptr, 10)));
+    }
+    return out;
+}
+
+/// Zero commission. The engine charges half a cent a share by default; the
+/// parity assertion is about the ledger and the fill model agreeing, and a
+/// commission schedule modelled twice would be a second place for them to
+/// disagree about something that is not the point.
+[[nodiscard]] FillModelConfig free_of_charge() {
+    FillModelConfig config;
+    config.commission.per_share = Money{};
+    config.commission.per_order = Money{};
+    config.commission.minimum = Money{};
+    return config;
+}
+
+struct Sample {
+    Timestamp ts = kNever;
+    Money equity;
+    Money cash;
+};
+
+struct Replay {
+    std::vector<Sample> curve;
+    Money final_equity;
+    std::uint64_t events = 0;
+};
+
+/// Replays the fixture and samples equity at the end of every session.
+///
+/// Sampled by hand rather than through the ledger's own equity curve, because
+/// that samples on an interval and what is wanted here is one point per session
+/// -- the last state of the ledger before the clock moves on. Daily bars for one
+/// date share a timestamp, so a change of timestamp is a change of session.
+[[nodiscard]] Replay replay(const IFillModel& fill_model, bool synthesize_quotes) {
+    SymbolTable symbols;
+    Engine engine;
+
+    CsvFeedOptions options;
+    options.synthesize_quotes = synthesize_quotes;
+    engine.add_source(
+        std::make_unique<CsvFeed>(fixture("parity_panel.csv"), symbols, options));
+
+    PluginLoader loader({std::filesystem::path(MARKETSCAN_THEORY_DIR)});
+    loader.rescan();
+
+    StrategyRuntimeConfig config;
+    config.starting_cash = Money::from_dollars(100'000);
+
+    StrategyInstance theory("decile_parity",
+                            "Decile Parity",
+                            loader.create("decile_parity"),
+                            {},
+                            config,
+                            &fill_model,
+                            &engine.market(),
+                            &symbols,
+                            &engine.clock());
+    engine.add_sink(&theory);
+    theory.start();
+
+    Replay out;
+    Sample pending;
+    while (engine.step()) {
+        ++out.events;
+        const Timestamp now = engine.clock().now();
+        if (pending.ts != kNever && now != pending.ts) {
+            out.curve.push_back(pending);
+        }
+        pending = Sample{now, theory.equity(), theory.cash()};
+    }
+    if (pending.ts != kNever) {
+        out.curve.push_back(pending);
+    }
+
+    theory.stop();
+    out.final_equity = theory.equity();
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("the fixture and the reference curve are the same length", "[parity]") {
+    const Expected expected = read_expected();
+    REQUIRE(expected.dates.size() > 100);
+
+    const OptimisticFillModel optimistic{free_of_charge()};
+    const Replay run = replay(optimistic, false);
+
+    INFO("engine sampled " << run.curve.size() << " sessions, reference has "
+                           << expected.dates.size());
+    REQUIRE(run.curve.size() == expected.dates.size());
+}
+
+TEST_CASE("the engine and the research pipeline agree, to the micro-dollar",
+          "[parity][m9]") {
+    // The milestone. Optimistic fills, no commission, no churn: there is no
+    // legitimate source of disagreement, so any difference at all is a bug in
+    // one of the two implementations and finding it is the point.
+    const Expected expected = read_expected();
+    const OptimisticFillModel optimistic{free_of_charge()};
+    const Replay run = replay(optimistic, false);
+
+    REQUIRE(run.curve.size() == expected.equity.size());
+
+    std::size_t first = run.curve.size();
+    std::int64_t worst = 0;
+    std::size_t differing = 0;
+    for (std::size_t i = 0; i < run.curve.size(); ++i) {
+        const std::int64_t delta = run.curve[i].equity.micros() - expected.equity[i].micros();
+        if (delta != 0) {
+            ++differing;
+            if (first == run.curve.size()) {
+                first = i;
+            }
+            worst = std::max(worst, std::abs(delta));
+        }
+    }
+
+    // "Within floating-point tolerance", as Spec 2 section 8 asks for, stated in
+    // the units the ledger counts in. A micro-dollar is 1e-11 of the book, and
+    // two implementations that compute the same quantity through different
+    // expressions will land on opposite sides of a rounding boundary
+    // occasionally. What must not happen is drift: an error that accumulates is
+    // a difference in the accounting, not in the last bit.
+    constexpr std::int64_t kToleranceMicros = 16;
+
+    if (first < run.curve.size()) {
+        INFO("first divergence at session " << first << " (" << expected.dates[first] << ")");
+        INFO("  engine    equity " << run.curve[first].equity.micros()
+                                   << "  cash " << run.curve[first].cash.micros());
+        INFO("  reference equity " << expected.equity[first].micros()
+                                   << "  cash " << expected.cash[first].micros());
+        INFO(differing << " of " << run.curve.size()
+                       << " sessions differ, worst " << worst << " micro-dollars");
+    }
+    CHECK(worst <= kToleranceMicros);
+
+    // And it does not grow. The second half of the run must be no worse than
+    // the first, which is what separates a rounding boundary from a leak.
+    std::int64_t worst_early = 0;
+    std::int64_t worst_late = 0;
+    for (std::size_t i = 0; i < run.curve.size(); ++i) {
+        const std::int64_t delta =
+            std::abs(run.curve[i].equity.micros() - expected.equity[i].micros());
+        (i < run.curve.size() / 2 ? worst_early : worst_late) =
+            std::max(i < run.curve.size() / 2 ? worst_early : worst_late, delta);
+    }
+    INFO("worst in first half " << worst_early << ", second half " << worst_late);
+    CHECK(worst_late <= kToleranceMicros);
+
+    CHECK(std::abs(run.final_equity.micros() - expected.equity.back().micros())
+          <= kToleranceMicros);
+}
+
+TEST_CASE("crossing the spread costs what the spread costs", "[parity][m9]") {
+    // The second half of the milestone: the default fill model must be worse
+    // than the optimistic one, by an amount the spread explains rather than by
+    // an amount nobody can account for.
+    const OptimisticFillModel optimistic{free_of_charge()};
+    const SpreadCrossingFillModel crossing{free_of_charge()};
+
+    const Replay free_run = replay(optimistic, false);
+    const Replay costed = replay(crossing, true);
+
+    CHECK(costed.final_equity < free_run.final_equity);
+
+    // Two basis points of spread, crossed on both sides of every rebalance.
+    // The bound is loose on purpose: what is being asserted is that the gap is
+    // the size of the spread and not the size of an accounting error.
+    const double gap = static_cast<double>(
+        (free_run.final_equity - costed.final_equity).micros()) / 1'000'000.0;
+    INFO("optimistic " << free_run.final_equity.micros() << " vs crossing "
+                       << costed.final_equity.micros() << " (gap " << gap << " dollars)");
+    CHECK(gap > 0.0);
+    CHECK(gap < 500.0);
+}

@@ -104,3 +104,11 @@ marketscan_add_test(test_metrics     test_metrics.cpp)
 marketscan_add_test(test_session     test_session.cpp)
 marketscan_add_test(test_sessions    test_sessions.cpp)
 marketscan_add_test(test_hot_path    test_hot_path.cpp)
+
+# M9. Replays the committed fixture through the engine and compares the equity
+# curve to the one research/parity.py produced from the same file, so it needs
+# the decile_parity theory to exist in the scanned directory.
+marketscan_add_test(test_parity      test_parity.cpp)
+if(TARGET decile_parity)
+    add_dependencies(test_parity decile_parity)
+endif()
