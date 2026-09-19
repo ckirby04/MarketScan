@@ -254,45 +254,59 @@ fails every time.
 
 ## Next
 
-**Session C — Spec 2 M9, parity and integration.** Read
-`specs/BUILD_SPEC_2.md` §8 first.
+**Session C is part-done.** Parts 0–3 of `MARKETSCAN_SESSION_C.md` are complete
+except where noted; Parts 4–6 have not been started, which is the boundary that
+document itself nominates as clean.
 
-1. **The parity test.** One trivial strategy — long the top decile of the
-   synthetic exposure, short the bottom, monthly rebalance — implemented
-   *twice*: once in the Python pipeline and once as a C++ theory using
-   `CrossSectionalStrategy`. Same panel, both ways. Under optimistic fills and
-   zero costs the equity curves must match to floating-point tolerance; under
-   spread-crossing fills the C++ result must be worse by an amount consistent
-   with the modelled costs. If they disagree, one of them is wrong, and finding
-   out is the whole milestone.
+| | | |
+|---|---|---|
+| 0 | Commit Session B | done — five milestone commits, CI green |
+| 1 | M8b, empirical IC thresholds | done |
+| 2 | What moves the bar | done |
+| 3 | M9 parity | churn-free parity and the cost check done; **churn parity not run** |
+| 4 | Universe Inspector panel | not started |
+| 5 | M9b, the dual view | not started |
+| 6 | Close-out: README and this file | partly — this file is current, `README.md` is not |
 
-   The panel to run it on comes out of `python -m research.export`, which writes
-   bars and a membership history in the formats the engine already reads —
-   `scripts/csv_to_msb.py` converts the bars, and the round trip is exercised by
-   `research/tests/test_export.py` and by CI. What has **not** happened is an
-   actual replay: no C++ binary has read those files, because the machine this
-   session ran on has no vcpkg. Expect the first run to find something.
+### What Part 3 still owes
 
-2. **The Universe Inspector panel** — membership over time, current members,
-   add/drop events, forced exits.
+**Churn parity.** Only the churn-free case has been run, which is the ordering
+Session C asks for and the half that had to pass first. The churn case needs a
+second fixture with departures, a `Universe` built in the test so the engine's
+forced-exit path fires, and the gap quantified and attributed to names.
 
-3. **Documentation.** `README.md` still describes the project as of Spec 1. It
-   has one line about `research/` in the repository layout and nothing else: no
-   quickstart for it, no mention of what it measured, and a milestone table that
-   stops at Spec 1 M9. Spec 2 §8 puts that in this milestone, and the material
-   to draw on is [`research/README.md`](../research/README.md).
+Expect it to be *smaller* than it sounds, and be careful about why. The engine
+force-liquidates at the last price the book has, and in a synthetic panel the
+departure return **is** the final bar — so the engine captures it rather than
+missing it, and the two layers may agree for a reason that would not hold on real
+data where the drop is not in the file. That is worth confirming explicitly
+rather than reporting as a clean pass: what the churn case actually measures here
+is the *timing* of the exit, not the size of the assumed one.
 
-**Then M9b** (`specs/SPEC_VIEW_MODES.md`, dual GUI presentation modes, not
-started).
+**The one-symbol lookahead, predicted and not observed.** Reading the engine says
+an order submitted inside a callback fills immediately against the book as of that
+event, and `on_session_close` fires while the first bar of the *next* session is
+being dispatched — so one symbol per session should price at tomorrow's close.
+Four rebalances matched exactly, so either the reading is wrong or the effect is
+masked by the fixture. It wants a purpose-built probe: submit for every symbol at
+a session close, record the fill prices, compare each to that session's close and
+the next one's. An inference from a curve that happened to agree is not an answer.
 
-One thing to carry into it: the research layer's delisting handling and the
-engine's are **not the same model**. The pipeline compounds a departing name's
-final return, which is the real answer to what a holder experienced; the engine
-force-liquidates at the last price, which is optimistic. On a panel with
-departures the two will disagree, and the disagreement is not a bug in either —
-it is the known limitation below, showing up where it was always going to. Run
-the parity test on a panel with `delist_hazard=0` first, so that a real
-discrepancy is not hidden behind an expected one.
+### Parts 4–6
+
+Read `specs/SPEC_VIEW_MODES.md` in full before starting Part 5; it is binding as
+written. Both need the GUI stack, so the first step is `cmake --preset release`,
+which builds ImGui, ImPlot and GLFW from source and takes a while on a cold
+vcpkg cache. Everything in Parts 0–3 was done on the `ci` preset, which needs
+none of that.
+
+**A note on this machine.** Its endpoint security holds freshly built binaries in
+a kernel-mode wait — they start with one thread, zero CPU, and survive `Kill()`.
+An exclusion for the repository fixed it enough to run one binary at a time; a
+build that launches twenty at once for Catch2 test discovery still stalls, and
+stuck copies hold their own executables open and block the next link. CI builds
+and runs everything cleanly, so it is the verifier of last resort here. A reboot
+clears the stuck processes.
 
 ---
 

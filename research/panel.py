@@ -138,6 +138,11 @@ class PanelSpec:
     -30% is a made-up number of the right order for a real delisting, and the
     only claim made for it is that it is not zero. A backtest that liquidates at
     the last print assumes zero, which is how naive backtests hide their losses.
+
+    This is the research layer's half of **the assumed exit**, the project's name
+    for the fact that neither layer knows what a delisting actually cost: the
+    engine assumes the last price it saw, this assumes a planted number, and CRSP
+    delisting returns replace both in one change. See `docs/EXECUTION.md`.
     """
 
     volume_mean: float = 1_000_000.0

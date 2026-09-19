@@ -100,7 +100,14 @@ R², information coefficient, calibration slope, and the portfolio's Sharpe.
   the only signal this phase consumes; a named factor would invite the reading that
   recovering it said something about markets.
 - **No trading costs.** The engine owns execution and crosses the spread by
-  default. A second, approximate cost model here would be a second answer to a
-  question that already has one.
+  default — and also charges market impact, which on orders of a few hundred
+  shares against a hundred displayed is an order of magnitude the larger of the
+  two. A second, approximate cost model here would be a second answer to a
+  question that already has one. `research.parity.modelled_cost` predicts what
+  the engine will charge rather than duplicating it.
+- **No real delisting return.** `PanelSpec.delist_return` is a planted number and
+  the engine assumes the last price it saw. Both are instances of **the assumed
+  exit** — see [`docs/EXECUTION.md`](../docs/EXECUTION.md) — and CRSP delisting
+  returns replace both in one change.
 - **No real data.** `data/cache/` is gitignored, no test touches the network, and
   the committed fixtures are synthetic.

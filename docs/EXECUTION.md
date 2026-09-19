@@ -167,6 +167,42 @@ delivered.
 
 ---
 
+## The assumed exit
+
+A name that leaves the index has to be got out of, and neither layer of this
+project knows what that actually cost. Both substitute something, the
+substitutions are different, and the shared limitation has a name so that the two
+halves can point at the same thing:
+
+> **The assumed exit.** Nothing here models a real delisting return. The engine
+> assumes the last price it saw; the research layer assumes a configured number.
+> Both are stand-ins for a measurement this project does not have.
+
+Concretely:
+
+| | what it assumes |
+|---|---|
+| **Engine** | A held security that leaves the universe is force-liquidated at the **last price the book has for it**, logged in the blotter under `kForcedExitClientId` so it is never mistaken for a decision the strategy made. See [`IDENTITY.md`](IDENTITY.md). |
+| **Research layer** | `PanelSpec.delist_return` — a **planted** number, -30% by default and -100% in the delisting pathology. `labels.py` compounds it into the forward return of every row whose window reaches the departure. See [`research/README.md`](../research/README.md). |
+
+The engine's version is the optimistic one, and it is optimistic in a specific
+way rather than vaguely: a real delisting return is frequently -30% or
+everything, and the last price the book saw is by construction the price *before*
+whatever happened. That is where a naive backtest hides its losses, and
+[`PATHOLOGIES.md`](PATHOLOGIES.md) measures what the hiding is worth — dropping
+the truncated labels removes 82% of the average loss while leaving the worst
+single observation intact, so a study that checks its own worst case finds it
+present and concludes the delistings are counted.
+
+**CRSP delisting returns replace both in one change.** They are a measured
+return for the event itself, which makes the engine's last-price assumption
+unnecessary and the research layer's planted number unnecessary at the same time.
+Until then, any number either layer produces on a panel with departures carries
+this assumption, and the two layers carry *different* ones — so a comparison
+between them across a delisting is a comparison of two stand-ins.
+
+---
+
 ## A note on the numbers
 
 Turning latency on changes the results, and not always for the worse. On the
