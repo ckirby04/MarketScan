@@ -37,8 +37,8 @@ from scipy import stats
 
 MEASURED_ON = "2026-09-18"
 
-NULL_SHARPE_SKEW = -0.262
-NULL_SHARPE_KURTOSIS = 0.064
+NULL_SHARPE_SKEW = -0.231
+NULL_SHARPE_KURTOSIS = 0.004
 """Close enough to normal that the extreme-value machinery below is legitimate."""
 
 NULL_SWEEP_VARIANTS = 252
@@ -49,21 +49,21 @@ NULL_SWEEP_PANELS = 6
 
 NULL_SWEEP_RUNS = 1512
 
-NULL_SHARPE_SD = 0.5785
+NULL_SHARPE_SD = 0.5464
 """Standard deviation of the annualized Sharpe across all 1512 null runs."""
 
-NULL_SHARPE_MEAN = 0.0115
+NULL_SHARPE_MEAN = 0.0272
 """And its mean, which is zero to three decimal places. The first thing to check:
 a null sweep with a positive average Sharpe is not a null sweep."""
 
-NULL_EFFECTIVE_TRIES = 81
+NULL_EFFECTIVE_TRIES = 144
 """What 252 correlated variants are worth in independent ones.
 
 Calibrated from the observed mean best-of-252. Variants sharing
 a feature, a horizon or a model are not separate tries, and treating them as
 though they were would set the bar higher than the evidence supports."""
 
-NULL_SHARPE_THRESHOLD = 1.962
+NULL_SHARPE_THRESHOLD = 1.927
 """**The bar.** 95th percentile of the best-of-252 Sharpe under
 the null.
 
@@ -169,24 +169,24 @@ IC_SWEEP_PANELS = 6
 IC_SWEEP_RUNS = 1512
 
 IC_BARS: dict[int, IcBar] = {
-    1: IcBar(horizon=1, sd=0.00464, nominal=0.00745,
-            t_false_positive=0.0833, single_test=0.00818,
-            best_of_n=0.01448, n_effective=23.7, variants=42),
-    2: IcBar(horizon=2, sd=0.00575, nominal=0.00844,
-            t_false_positive=0.1230, single_test=0.01025,
-            best_of_n=0.01885, n_effective=49.1, variants=42),
-    5: IcBar(horizon=5, sd=0.00894, nominal=0.01172,
-            t_false_positive=0.1706, single_test=0.01564,
-            best_of_n=0.02818, n_effective=27.9, variants=42),
-    10: IcBar(horizon=10, sd=0.01209, nominal=0.01498,
-            t_false_positive=0.2063, single_test=0.02119,
-            best_of_n=0.04046, n_effective=66.8, variants=42),
-    20: IcBar(horizon=20, sd=0.01632, nominal=0.01801,
-            t_false_positive=0.2579, single_test=0.03149,
-            best_of_n=0.05461, n_effective=66.8, variants=42),
-    40: IcBar(horizon=40, sd=0.01916, nominal=0.02199,
-            t_false_positive=0.2183, single_test=0.03717,
-            best_of_n=0.06362, n_effective=59.7, variants=42),
+    1: IcBar(horizon=1, sd=0.00485, nominal=0.00750,
+            t_false_positive=0.1190, single_test=0.00879,
+            best_of_n=0.01525, n_effective=26.6, variants=42),
+    2: IcBar(horizon=2, sd=0.00612, nominal=0.00847,
+            t_false_positive=0.1468, single_test=0.01075,
+            best_of_n=0.01964, n_effective=36.4, variants=42),
+    5: IcBar(horizon=5, sd=0.00886, nominal=0.01177,
+            t_false_positive=0.1548, single_test=0.01631,
+            best_of_n=0.02834, n_effective=34.9, variants=42),
+    10: IcBar(horizon=10, sd=0.01246, nominal=0.01524,
+            t_false_positive=0.2183, single_test=0.02431,
+            best_of_n=0.04225, n_effective=80.7, variants=42),
+    20: IcBar(horizon=20, sd=0.01624, nominal=0.01830,
+            t_false_positive=0.2659, single_test=0.03243,
+            best_of_n=0.05348, n_effective=52.9, variants=42),
+    40: IcBar(horizon=40, sd=0.01762, nominal=0.02247,
+            t_false_positive=0.2143, single_test=0.03350,
+            best_of_n=0.05896, n_effective=66.8, variants=42),
 }
 """Measured at these horizons. Between them the bars are interpolated; outside
 them nothing is returned, because extrapolating a calibration is the thing this
