@@ -207,35 +207,22 @@ TEST_CASE("the engine and the research pipeline agree, exactly", "[parity][m9]")
     // session, and by how much -- was discarded before the assertion ran.
     if (differing != 0) {
         std::ostringstream message;
-        message << differing << " of " << run.curve.size()
-                << " sessions differ.
-                   "
-                << "  first at session " << first << " (" << expected.dates[first]
-                << ")
-                   "
+        message << differing << " of " << run.curve.size() << " sessions differ.\n"
+                << "  first at session " << first << " (" << expected.dates[first] << ")\n"
                 << "    engine    equity " << run.curve[first].equity.micros() << "  cash "
-                << run.curve[first].cash.micros()
-                << "
-                   "
+                << run.curve[first].cash.micros() << "\n"
                 << "    reference equity " << expected.equity[first].micros() << "  cash "
-                << expected.cash[first].micros()
-                << "
-                   "
+                << expected.cash[first].micros() << "\n"
                 << "    equity delta "
                 << (run.curve[first].equity.micros() - expected.equity[first].micros())
                 << "  cash delta "
-                << (run.curve[first].cash.micros() - expected.cash[first].micros())
-                << "
-                   "
-                << "  worst " << worst
-                << " micro-dollars
-                   "
+                << (run.curve[first].cash.micros() - expected.cash[first].micros()) << "\n"
+                << "  worst " << worst << " micro-dollars\n"
                 << "  final equity engine " << run.final_equity.micros() << " reference "
                 << expected.equity.back().micros();
         FAIL(message.str());
     }
 
-    CHECK(differing == 0);
     CHECK(run.final_equity == expected.equity.back());
 }
 
