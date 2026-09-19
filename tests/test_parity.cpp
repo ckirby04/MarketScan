@@ -164,10 +164,22 @@ TEST_CASE("the fixture and the reference curve are the same length", "[parity]")
     REQUIRE(run.curve.size() == expected.dates.size());
 }
 
-TEST_CASE("the engine and the research pipeline agree, to the micro-dollar", "[parity][m9]") {
-    // The milestone. Optimistic fills, no commission, no churn: there is no
-    // legitimate source of disagreement, so any difference at all is a bug in
-    // one of the two implementations and finding it is the point.
+TEST_CASE("the engine and the research pipeline agree, exactly", "[parity][m9]") {
+    // The milestone, and there is no tolerance parameter in this assertion.
+    //
+    // It used to allow sixteen micro-dollars. That was wrong in a way worth
+    // recording: the two layers agreed exactly for 84 sessions and then differed
+    // by one micro-dollar, which looked like float noise and was not. They were
+    // computing decision-time equity differently -- the C++ side called the
+    // engine's equity(), which marks each position at the last price its book
+    // holds, and on_session_close fires while the *next* session's first bar is
+    // already applied. One symbol was marked a day ahead.
+    //
+    // A different equity means a different share count, which means genuinely
+    // different positions from that rebalance onward. Tolerating a micro-dollar
+    // today is tolerating a real divergence later. docs/SIZING.md now specifies
+    // the rule and both layers implement it; this asserts they landed in the
+    // same place.
     const Expected expected = read_expected();
     const OptimisticFillModel optimistic{free_of_charge()};
     const Replay run = replay(optimistic, false);
@@ -175,8 +187,8 @@ TEST_CASE("the engine and the research pipeline agree, to the micro-dollar", "[p
     REQUIRE(run.curve.size() == expected.equity.size());
 
     std::size_t first = run.curve.size();
-    std::int64_t worst = 0;
     std::size_t differing = 0;
+    std::int64_t worst = 0;
     for (std::size_t i = 0; i < run.curve.size(); ++i) {
         const std::int64_t delta = run.curve[i].equity.micros() - expected.equity[i].micros();
         if (delta != 0) {
@@ -188,14 +200,6 @@ TEST_CASE("the engine and the research pipeline agree, to the micro-dollar", "[p
         }
     }
 
-    // "Within floating-point tolerance", as Spec 2 section 8 asks for, stated in
-    // the units the ledger counts in. A micro-dollar is 1e-11 of the book, and
-    // two implementations that compute the same quantity through different
-    // expressions will land on opposite sides of a rounding boundary
-    // occasionally. What must not happen is drift: an error that accumulates is
-    // a difference in the accounting, not in the last bit.
-    constexpr std::int64_t kToleranceMicros = 16;
-
     if (first < run.curve.size()) {
         INFO("first divergence at session " << first << " (" << expected.dates[first] << ")");
         INFO("  engine    equity " << run.curve[first].equity.micros() << "  cash "
@@ -205,23 +209,9 @@ TEST_CASE("the engine and the research pipeline agree, to the micro-dollar", "[p
         INFO(differing << " of " << run.curve.size() << " sessions differ, worst " << worst
                        << " micro-dollars");
     }
-    CHECK(worst <= kToleranceMicros);
 
-    // And it does not grow. The second half of the run must be no worse than
-    // the first, which is what separates a rounding boundary from a leak.
-    std::int64_t worst_early = 0;
-    std::int64_t worst_late = 0;
-    for (std::size_t i = 0; i < run.curve.size(); ++i) {
-        const std::int64_t delta =
-            std::abs(run.curve[i].equity.micros() - expected.equity[i].micros());
-        (i < run.curve.size() / 2 ? worst_early : worst_late) =
-            std::max(i < run.curve.size() / 2 ? worst_early : worst_late, delta);
-    }
-    INFO("worst in first half " << worst_early << ", second half " << worst_late);
-    CHECK(worst_late <= kToleranceMicros);
-
-    CHECK(std::abs(run.final_equity.micros() - expected.equity.back().micros()) <=
-          kToleranceMicros);
+    CHECK(differing == 0);
+    CHECK(run.final_equity == expected.equity.back());
 }
 
 TEST_CASE("crossing costs what the fill model says it costs", "[parity][m9]") {

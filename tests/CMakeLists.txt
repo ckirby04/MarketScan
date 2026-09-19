@@ -106,6 +106,10 @@ marketscan_add_test(test_session     test_session.cpp)
 marketscan_add_test(test_sessions    test_sessions.cpp)
 marketscan_add_test(test_hot_path    test_hot_path.cpp)
 
+# The sizing rule, cross-tested against research/sizing.py through one committed
+# grid of cases. docs/SIZING.md is the specification both implement.
+marketscan_add_test(test_sizing      test_sizing.cpp)
+
 # M9. Replays the committed fixture through the engine and compares the equity
 # curve to the one research/parity.py produced from the same file, so it needs
 # the decile_parity theory to exist in the scanned directory.

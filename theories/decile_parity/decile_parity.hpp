@@ -38,6 +38,7 @@
 #include <vector>
 
 #include "marketscan/strategy/istrategy.hpp"
+#include "marketscan/strategy/sizing.hpp"
 
 namespace decile_parity {
 
@@ -134,16 +135,34 @@ protected:
         });
 
         const auto count = static_cast<std::size_t>(ranked_.size());
-        const auto side =
-            static_cast<std::size_t>(std::floor(static_cast<double>(count) * decile_));
-        if (side == 0 || side * 2 > count) {
+        const auto side = static_cast<std::size_t>(
+            marketscan::sizing::side_count(static_cast<std::uint32_t>(count), decile_));
+        if (side == 0) {
             return;  // too few names to form two disjoint sides
         }
 
-        // Target notional per name. Equity is in micro-dollars; the arithmetic
-        // stays in dollars because a share count is a double either way.
-        const double book = static_cast<double>(equity()) / 1'000'000.0 * gross_;
-        const double per_name = book / static_cast<double>(2 * side);
+        // Decision-time equity, marked from THIS session's closes.
+        //
+        // Not equity(). The ledger marks each position at the last price its
+        // book holds, and on_session_close fires while the engine is dispatching
+        // the first bar of the *next* session -- which it has already applied.
+        // So one symbol, whichever bar rolled the date, is marked at tomorrow's
+        // close at the moment this decision is made.
+        //
+        // That was a disagreement with research/parity.py and a small lookahead
+        // at the same time: sizing from a price the strategy could not have
+        // known. Computing it here from the cross-section costs one pass over
+        // the session and removes both. See docs/SIZING.md.
+        std::int64_t equity_micros = static_cast<std::int64_t>(cash());
+        for (const Candidate& candidate : ranked_) {
+            const double held = position(candidate.symbol);
+            if (held != 0.0) {
+                equity_micros += marketscan::sizing::notional_micros(candidate.close, held);
+            }
+        }
+
+        const double per_name = marketscan::sizing::per_name_notional(
+            equity_micros, gross_, static_cast<std::uint32_t>(side));
 
         // Close first, open second. A rebalance that opens before it closes can
         // be refused for want of cash, and an order the fill model declines is a
@@ -153,10 +172,10 @@ protected:
             close_position(ranked_[i].symbol);
         }
         for (std::size_t i = 0; i < side; ++i) {
-            target_position(ranked_[i], +per_name);
+            target_position(ranked_[i], per_name, true);
         }
         for (std::size_t i = count - side; i < count; ++i) {
-            target_position(ranked_[i], -per_name);
+            target_position(ranked_[i], per_name, false);
         }
     }
 
@@ -176,13 +195,11 @@ private:
         }
     }
 
-    void target_position(const Candidate& candidate, double notional) {
-        const double target_shares = notional / candidate.close;
-        const double delta = target_shares - position(candidate.symbol);
-        // A trade smaller than this is rounding, and submitting it would make
-        // the two implementations disagree about how many fills happened while
-        // agreeing about everything that matters.
-        if (std::abs(delta) < 1e-9) {
+    void target_position(const Candidate& candidate, double per_name, bool long_side) {
+        const double target =
+            marketscan::sizing::target_shares(per_name, candidate.close, long_side);
+        const double delta = marketscan::sizing::trade_delta(target, position(candidate.symbol));
+        if (!marketscan::sizing::should_submit(delta)) {
             return;
         }
         if (delta > 0.0) {

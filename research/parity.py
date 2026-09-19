@@ -60,6 +60,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from research import sizing
 from research.panel import Panel, PanelSpec, generate_panel
 
 REPO = Path(__file__).resolve().parent.parent
@@ -101,14 +102,10 @@ def decode_exposure(volume: float | np.ndarray) -> np.ndarray:
 def notional(price: float, quantity: float) -> int:
     """Micro-dollars, rounded half away from zero. `Money::notional`, in Python.
 
-    `np.round` is banker's rounding and would disagree with `std::llround` on
-    every exact half. The difference is one micro-dollar, which is one more than
-    a parity test asserting exactness can tolerate.
+    Re-exported from `research.sizing` so this module has one name for it and
+    the rule has one implementation. See docs/SIZING.md.
     """
-    micros = price * quantity * MICROS
-    if not math.isfinite(micros):
-        raise ValueError(f"non-finite notional from price={price} quantity={quantity}")
-    return int(math.copysign(math.floor(abs(micros) + 0.5), micros))
+    return sizing.notional_micros(price, quantity)
 
 
 @dataclass(frozen=True)
@@ -195,17 +192,18 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRu
             order = sorted(close_row.index,
                            key=lambda symbol: (-exposure_row[symbol], symbol))
             count = len(order)
-            side = int(math.floor(count * config.decile))
+            side = sizing.side_count(count, config.decile)
 
-            if side > 0 and side * 2 <= count:
-                equity_now = cash + sum(
-                    notional(float(close_row[symbol]), quantity)
-                    for symbol, quantity in shares.items() if symbol in close_row.index)
-                per_name = (equity_now / MICROS) * config.gross / (2 * side)
+            if side > 0:
+                # Marked from this session's closes, per SIZING.md step 2 -- the
+                # step the C++ side used to get from the engine's live book, one
+                # symbol of which was already at the next session's price.
+                marks = {symbol: float(close_row[symbol]) for symbol in close_row.index}
+                equity_now = sizing.decision_equity(cash, marks, shares)
+                per_name = sizing.per_name_notional(equity_now, config.gross, side)
 
-                targets = {symbol: 0.0 for symbol in order[side:count - side]}
-                targets.update({symbol: +per_name for symbol in order[:side]})
-                targets.update({symbol: -per_name for symbol in order[count - side:]})
+                longs = set(order[:side])
+                shorts = set(order[count - side:])
 
                 # Closes first, then opens -- the same order as the theory, so
                 # that a cash-constrained rebalance is constrained identically.
@@ -213,9 +211,14 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRu
                            [s for s in order[:side]] + [s for s in order[count - side:]])
                 for symbol in ordered:
                     price = float(close_row[symbol])
-                    target_shares = targets[symbol] / price if targets[symbol] else 0.0
-                    delta = target_shares - shares.get(symbol, 0.0)
-                    if abs(delta) < config.minimum_trade:
+                    if symbol in longs:
+                        target = sizing.target_shares(per_name, price, True)
+                    elif symbol in shorts:
+                        target = sizing.target_shares(per_name, price, False)
+                    else:
+                        target = 0.0
+                    delta = sizing.trade_delta(target, shares.get(symbol, 0.0))
+                    if not sizing.should_submit(delta):
                         continue
                     fill = _fill_price(price, buying=delta > 0, config=config)
                     cash -= notional(fill, delta)
