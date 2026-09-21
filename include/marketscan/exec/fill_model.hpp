@@ -22,6 +22,23 @@ struct CommissionSchedule {
 };
 
 struct FillModelConfig {
+    /// Probability that an order is refused at submission, for its own sake.
+    ///
+    /// **Zero by default, and it must stay that way.** Every committed result in
+    /// this repository was measured with no rejections, and a non-zero default
+    /// would move all of them for no reason anybody asked for.
+    ///
+    /// It exists because ABI v2 added `on_order_status` for the sake of live
+    /// execution, where rejections are ordinary -- insufficient buying power, a
+    /// non-tradable symbol, a closed market. Against a fill simulator they are
+    /// nearly unreachable, which means the handling path is one a strategy would
+    /// meet for the first time with money on it. This makes it reachable in
+    /// replay.
+    ///
+    /// Drawn from the strategy's own seeded stream, so a run with rejections on
+    /// is exactly as reproducible as one without.
+    double simulated_reject_probability = 0.0;
+
     CommissionSchedule commission;
 
     /// Adverse slippage applied on top of the spread, in basis points.

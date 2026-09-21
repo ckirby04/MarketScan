@@ -134,6 +134,25 @@ public:
     virtual void on_session_close(MS_Nanos session_end) { (void)session_end; }
 
     /// Called once after the last event, before the instance is destroyed.
+    /// An order terminated, or was accepted, without a fill to say so.
+    ///
+    /// ABI v2. A cancel, a rejection and an expiry produce no `on_fill`, so
+    /// before this a strategy had no way to learn that an order it was waiting
+    /// on was dead -- and a strategy waiting on a fill that will never arrive
+    /// believes it holds a position it does not have.
+    ///
+    /// Against a fill simulator that is nearly unreachable, which is why this
+    /// waited for live execution. Against a real venue it is ordinary:
+    /// insufficient buying power, a non-tradable symbol, a closed market, a
+    /// cancel that loses its race to a fill.
+    ///
+    /// `status.reason` is valid for this call only. A strategy that wants to
+    /// keep it must copy it.
+    ///
+    /// Empty by default, so a theory written before v2 -- or one that simply
+    /// does not care -- is unaffected.
+    virtual void on_order_status(const MS_OrderStatus&) {}
+
     virtual void on_stop() {}
 
     // --- Parameters -----------------------------------------------------
@@ -1035,6 +1054,19 @@ void shim_on_fill(void* self, const MS_Fill* fill) noexcept {
 }
 
 template<typename T>
+void shim_on_order_status(void* self, const MS_OrderStatus* status) noexcept {
+    auto* instance = static_cast<T*>(self);
+    try {
+        if (status != nullptr) {
+            instance->advance_session(status->ts);
+            instance->on_order_status(*status);
+        }
+    } catch (...) {
+        instance->report_exception("on_order_status");
+    }
+}
+
+template<typename T>
 void shim_on_stop(void* self) noexcept {
     auto* instance = static_cast<T*>(self);
 
@@ -1086,6 +1118,11 @@ template<typename T>
     table.on_stop = &shim_on_stop<T>;
     table.set_param = &shim_set_param<T>;
     table.get_param = &shim_get_param<T>;
+    // ABI v2. A host older than this plugin never reads it -- it refuses the
+    // plugin on the declared version first, before create is called, because a
+    // plugin writing past the end of the host's vtable is silent memory
+    // corruption. See abi_compat.hpp.
+    table.on_order_status = &shim_on_order_status<T>;
     return table;
 }
 

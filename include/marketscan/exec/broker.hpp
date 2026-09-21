@@ -26,6 +26,18 @@ public:
     virtual ~IFillListener() = default;
 
     virtual void on_fill(const MS_Fill& fill) = 0;
+
+    /// An order was accepted, or ended without filling.
+    ///
+    /// ABI v2. Emitted by the simulator as well as by a live broker, so a
+    /// strategy sees the same lifecycle in a backtest as it does against a
+    /// venue. That symmetry is the point: a rejection path a strategy has never
+    /// experienced in replay is a path it will meet for the first time with
+    /// money on it.
+    ///
+    /// Defaulted to nothing rather than pure, because a listener that only cares
+    /// about fills is a reasonable thing to be.
+    virtual void on_order_status(const MS_OrderStatus&) {}
 };
 
 /// Order lifecycle and execution for one account.

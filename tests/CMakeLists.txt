@@ -45,6 +45,21 @@ marketscan_add_theory(test_plugin_order_lifecycle
     SOURCES plugins/order_lifecycle.cpp
     OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
 
+# The ABI v1 migration promise, as something that runs. Declares version 1 by
+# hand and fills exactly the nine slots v1 had; the host must keep loading it
+# and must never deliver the tenth callback. Source rather than a committed DLL,
+# because a binary nobody can rebuild is a fixture nobody can audit.
+marketscan_add_theory(test_plugin_v1_reference
+    SOURCES plugins/v1_reference.cpp
+    OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
+
+# Its twin at the current ABI. Same body, different declared version, so any
+# difference the tests measure is attributable to the version branch and to
+# nothing else.
+marketscan_add_theory(test_plugin_v2_reference
+    SOURCES plugins/v2_reference.cpp
+    OUTPUT_DIRECTORY "${MARKETSCAN_TEST_PLUGIN_DIR}")
+
 
 # Every test binary is registered with ctest through catch_discover_tests so a
 # failing assertion names the exact test case rather than just the executable.
@@ -115,6 +130,15 @@ marketscan_add_test(test_sizing      test_sizing.cpp)
 # Paper only, structurally. Scans the built binaries, which is the half a
 # source grep cannot do; scripts/check_no_live_endpoints.py does the tree.
 marketscan_add_test(test_paper_only  test_paper_only.cpp)
+
+# ABI v2, and the promise the version-tolerant loader was built to keep.
+marketscan_add_test(test_abi_v2      test_abi_v2.cpp)
+if(TARGET test_plugin_v1_reference)
+    add_dependencies(test_abi_v2 test_plugin_v1_reference)
+endif()
+if(TARGET test_plugin_v2_reference)
+    add_dependencies(test_abi_v2 test_plugin_v2_reference)
+endif()
 
 # M9. Replays the committed fixture through the engine and compares the equity
 # curve to the one research/parity.py produced from the same file, so it needs

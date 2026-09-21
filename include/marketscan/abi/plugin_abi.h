@@ -52,8 +52,20 @@
 extern "C" {
 #endif
 
-/* Bumped only for an incompatible change. The loader refuses any mismatch. */
-#define MS_ABI_VERSION 1u
+/*
+ * Bumped for any layout change.
+ *
+ * v2 appends on_order_status to the end of the vtable and adds MS_OrderStatus.
+ * Nothing that existed in v1 moved, changed size, or changed meaning -- which is
+ * what lets abi_compat.hpp keep loading a v1 plugin by trimming the vtable to
+ * the nine slots that version knows about. A v1 theory behaves byte-identically
+ * and simply never receives the new callback.
+ *
+ * Appending is the only safe shape of change here, and it is only safe because
+ * the host zeroes the vtable before create and trims it after. See
+ * abi_compat.hpp for the direction that is NOT safe.
+ */
+#define MS_ABI_VERSION 2u
 
 typedef int64_t MS_Nanos; /* nanoseconds since the Unix epoch, UTC */
 typedef int64_t MS_Money; /* micro-dollars: 1 USD == 1000000 */
@@ -177,6 +189,56 @@ typedef struct {
     uint32_t required_symbol_count;
 } MS_StrategyDesc;
 
+/* --- ABI v2: terminal order status ------------------------------------- */
+
+/*
+ * What happened to an order that did not fill.
+ *
+ * A cancel, a rejection and an expiry all produce no MS_Fill, so before v2 a
+ * strategy had no ABI-level way to learn that an order it submitted was dead. A
+ * strategy waiting on a fill that will never arrive holds a position it does not
+ * have, and against a fill simulator that almost never happens -- which is why
+ * this waited for live execution, where rejections are ordinary: insufficient
+ * buying power, a non-tradable symbol, a closed market, a cancel that loses a
+ * race to a fill.
+ */
+typedef enum {
+    /* The venue has the order. Not terminal. */
+    MS_ORDER_ACCEPTED = 0,
+    /* Refused, and it will never fill. Terminal. */
+    MS_ORDER_REJECTED = 1,
+    /* Cancelled, whether by the strategy or by the venue. Terminal. */
+    MS_ORDER_CANCELLED = 2,
+    /* Outlived its time in force. Terminal. */
+    MS_ORDER_EXPIRED = 3,
+    /* Replaced by another order, whose id is in replaced_by. Terminal. */
+    MS_ORDER_REPLACED = 4
+} MS_OrderState;
+
+typedef struct {
+    MS_Nanos ts;
+    uint64_t order_id;
+    uint64_t client_order_id;
+
+    /* MS_OrderState, as a fixed-width integer: an enum's underlying type is
+     * implementation-defined and this struct crosses a DLL boundary. */
+    uint32_t state;
+
+    /* Nonzero when no further event will arrive for this order. */
+    uint32_t terminal;
+
+    /* Filled before the order terminated. Zero for a rejection. */
+    double filled_quantity;
+
+    /* The order this one was replaced by, or zero. */
+    uint64_t replaced_by;
+
+    /* Why, in the venue's words or the simulator's. Valid for this call only;
+     * a strategy that wants to keep it must copy it. Never NULL -- an empty
+     * string rather than a null pointer, so a plugin need not check. */
+    const char* reason;
+} MS_OrderStatus;
+
 /*
  * Instance vtable. Any callback may be NULL if the strategy does not need it;
  * the host checks before calling. `self` is the pointer ms_plugin_create
@@ -192,6 +254,10 @@ typedef struct {
     void (*on_stop)(void* self);
     void (*set_param)(void* self, const char* name, double value);
     double (*get_param)(void* self, const char* name);
+
+    /* ABI v2. Appended, never inserted: a v1 plugin's vtable ends above, and
+     * the host trims this slot to null before calling anything. */
+    void (*on_order_status)(void* self, const MS_OrderStatus* status);
 } MS_StrategyVTable;
 
 /* --- The three symbols every plugin DLL must export --- */
@@ -222,6 +288,7 @@ static_assert(sizeof(MS_Quote) == 48, "MS_Quote layout changed; bump MS_ABI_VERS
 static_assert(sizeof(MS_Trade) == 40, "MS_Trade layout changed; bump MS_ABI_VERSION");
 static_assert(sizeof(MS_Fill) == 64, "MS_Fill layout changed; bump MS_ABI_VERSION");
 static_assert(sizeof(MS_OrderRequest) == 40, "MS_OrderRequest layout changed; bump MS_ABI_VERSION");
+static_assert(sizeof(MS_OrderStatus) == 56, "MS_OrderStatus layout changed; bump MS_ABI_VERSION");
 static_assert(sizeof(MS_Nanos) == 8, "MS_Nanos must be 64-bit");
 static_assert(sizeof(MS_Money) == 8, "MS_Money must be 64-bit");
 

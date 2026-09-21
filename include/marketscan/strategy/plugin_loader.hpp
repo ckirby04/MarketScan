@@ -107,6 +107,10 @@ public:
     void quote(const MS_Quote& quote);
     void trade(const MS_Trade& trade);
     void fill(const MS_Fill& fill);
+
+    /// ABI v2. A no-op on a v1 plugin, whose vtable slot the loader trimmed to
+    /// null -- which is the migration working rather than a failure to deliver.
+    void order_status(const MS_OrderStatus& status);
     void stop();
     void set_param(const char* name, double value);
     [[nodiscard]] double get_param(const char* name) const;

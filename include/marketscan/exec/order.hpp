@@ -73,6 +73,12 @@ enum class RejectReason : std::uint8_t {
     InsufficientCash,
     /// An immediate-or-cancel order that could not be filled at all.
     NotMarketable,
+    /// The simulator refused it on purpose, because it was configured to.
+    ///
+    /// Its own reason rather than borrowing one, so a rejection that was
+    /// *arranged* can never be mistaken in a blotter for one the market caused.
+    /// See FillModelConfig::simulated_reject_probability.
+    SimulatedRejection,
 };
 
 [[nodiscard]] constexpr std::string_view to_string(RejectReason r) noexcept {

@@ -104,6 +104,7 @@ public:
     // --- IFillListener --------------------------------------------------
 
     void on_fill(const MS_Fill& fill) override;
+    void on_order_status(const MS_OrderStatus& status) override;
 
     // --- HostServices ---------------------------------------------------
 
@@ -183,6 +184,15 @@ public:
 
     /// Securities force-liquidated because they left the universe while held.
     [[nodiscard]] std::uint64_t forced_exits() const noexcept { return forced_exits_; }
+
+    /// Order status events delivered to the plugin.
+    ///
+    /// Zero on a v1 theory, always: it has no slot to deliver them to. Counted
+    /// so that "the strategy ignored the rejection" and "the host never sent
+    /// one" are distinguishable, which they are not from the outside.
+    [[nodiscard]] std::uint64_t order_status_events() const noexcept {
+        return order_status_events_;
+    }
 
     // --- The assumed exit ------------------------------------------------
     //
@@ -320,6 +330,7 @@ private:
     /// decision, so a vector rather than a map.
     std::vector<Timestamp> shown_;
     std::uint64_t events_withheld_ = 0;
+    std::uint64_t order_status_events_ = 0;
 
     /// Members as of the last event, so a removal is noticed on the event that
     /// makes it true rather than by rescanning the whole ledger every tick.

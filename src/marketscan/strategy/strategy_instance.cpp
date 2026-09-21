@@ -293,6 +293,17 @@ void StrategyInstance::on_fill(const MS_Fill& fill) {
     }
 }
 
+void StrategyInstance::on_order_status(const MS_OrderStatus& status) {
+    if (!started_ || stopped_) {
+        return;
+    }
+    // Counted before the delivery attempt, not after: the count is of events
+    // the host produced. Whether the plugin has a slot to receive them is
+    // PluginInstance's business, and a v1 theory legitimately has none.
+    ++order_status_events_;
+    plugin_.order_status(status);
+}
+
 // --- HostServices ----------------------------------------------------------
 
 std::uint64_t StrategyInstance::submit_order(const MS_OrderRequest& request) {

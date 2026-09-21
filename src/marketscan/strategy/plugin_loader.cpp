@@ -400,6 +400,16 @@ void PluginInstance::fill(const MS_Fill& value) {
     }
 }
 
+void PluginInstance::order_status(const MS_OrderStatus& value) {
+    // The null check is the whole of v1 compatibility at this level: the loader
+    // trimmed this slot for a plugin that declared version 1, so the callback
+    // simply never happens and the theory behaves exactly as it did before v2
+    // existed.
+    if (self_ != nullptr && vtable_.on_order_status != nullptr) {
+        vtable_.on_order_status(self_, &value);
+    }
+}
+
 void PluginInstance::stop() {
     if (self_ != nullptr && started_ && vtable_.on_stop != nullptr) {
         vtable_.on_stop(self_);

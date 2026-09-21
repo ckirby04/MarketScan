@@ -30,6 +30,37 @@ Broker::Broker(Money starting_cash,
       market_(market),
       order_id_base_(order_id_base) {}
 
+namespace {
+
+/// Builds and delivers one status event.
+///
+/// Every terminal transition in this file goes through here, so a state that
+/// forgets to notify is a state that does not compile rather than one a strategy
+/// silently never hears about.
+void notify_status(IFillListener* listener,
+                   const Order& order,
+                   Timestamp ts,
+                   MS_OrderState state,
+                   const char* reason) {
+    if (listener == nullptr) {
+        return;
+    }
+    MS_OrderStatus status{};
+    status.ts = ts;
+    status.order_id = order.id;
+    status.client_order_id = order.request.client_order_id;
+    status.state = static_cast<std::uint32_t>(state);
+    status.terminal = state == MS_ORDER_ACCEPTED ? 0U : 1U;
+    status.filled_quantity = order.filled_quantity;
+    status.replaced_by = 0;
+    // Never null: a plugin should not have to check, and an empty string is
+    // what "no further detail" looks like.
+    status.reason = reason != nullptr ? reason : "";
+    listener->on_order_status(status);
+}
+
+}  // namespace
+
 OrderId Broker::submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts) {
     Order order;
     order.id = order_id_base_ + next_sequence_++;
@@ -46,6 +77,11 @@ OrderId Broker::submit(const MS_OrderRequest& request, Timestamp now, Timestamp 
         order.reject_reason = reason;
         ++rejected_count_;
         orders_.push_back(order);
+        // Before returning: a strategy that submitted and got kInvalidOrderId
+        // back knows the call failed, but a strategy that stores order ids and
+        // waits needs the event too, and live it is the only notification there
+        // is.
+        notify_status(listener_, orders_.back(), now, MS_ORDER_REJECTED, to_string(reason).data());
         return kInvalidOrderId;
     };
 
@@ -65,6 +101,21 @@ OrderId Broker::submit(const MS_OrderRequest& request, Timestamp now, Timestamp 
         // to trade against. Common on the very first event of a run, and a
         // strategy that acts before the market has spoken should be told.
         return reject(RejectReason::NoMarketData);
+    }
+
+    // A rejection the configuration asked for.
+    //
+    // After the validity checks and before anything is charged for, which is
+    // where a venue refuses: the order was well formed and the venue said no
+    // anyway. Drawn from the strategy's seeded stream, so this is reproducible.
+    //
+    // The draw happens only when the feature is on. A draw taken unconditionally
+    // would consume a number from the stream and shift every later draw, which
+    // would make turning the feature on change results that have nothing to do
+    // with rejections.
+    if (fill_model_->config().simulated_reject_probability > 0.0 && jitter_ != nullptr &&
+        jitter_->uniform() < fill_model_->config().simulated_reject_probability) {
+        return reject(RejectReason::SimulatedRejection);
     }
 
     // What the strategy could see when it decided. The blotter measures
@@ -215,6 +266,8 @@ void Broker::finalise_immediate(Order& order, Timestamp now, RejectReason model_
         order.status = OrderStatus::Rejected;
         order.reject_reason =
             model_reason != RejectReason::None ? model_reason : RejectReason::NotMarketable;
+        notify_status(
+            listener_, order, now, MS_ORDER_REJECTED, to_string(order.reject_reason).data());
         return;
     }
     if (order.request.type == MS_ORD_MARKET && fill_model_->config().models_partial_fills()) {
@@ -244,6 +297,11 @@ bool Broker::cancel(OrderId id, Timestamp now) {
         // instruction sent afterwards makes it not have happened.
         order.status = OrderStatus::Cancelled;
         order.last_update_ts = now;
+        notify_status(listener_,
+                      order,
+                      now,
+                      MS_ORDER_CANCELLED,
+                      order.filled_quantity > 0.0 ? "cancelled after a partial fill" : "cancelled");
         drop_from_working(id);
         return true;
     }
@@ -317,6 +375,8 @@ void Broker::expire_day_orders(Timestamp now) {
             order.submitted_day != session_day(zone_, now)) {
             order.status = OrderStatus::Expired;
             order.last_update_ts = now;
+            notify_status(
+                listener_, order, now, MS_ORDER_EXPIRED, "a DAY order outlived its session");
         }
     }
     working_.erase(
