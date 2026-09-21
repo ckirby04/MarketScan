@@ -121,6 +121,12 @@ void StrategyInstance::on_bar(const MS_Bar& bar) {
         // dispatch overhead.
         const ScopedLatency timer(latency_);
         plugin_.bar(bar);
+        // After the callback, and that ordering is the whole point. A
+        // cross-sectional strategy is handed session N's cross-section from
+        // inside the dispatch of session N+1's first bar; crediting it with N+1's
+        // bar there would say it knew a price it had not been shown. See the
+        // lookahead probe in strategy_instance.hpp.
+        note_shown(bar.symbol, bar.ts);
     }
 }
 
@@ -135,6 +141,9 @@ void StrategyInstance::on_quote(const MS_Quote& quote) {
         // dispatch overhead.
         const ScopedLatency timer(latency_);
         plugin_.quote(quote);
+        // After the callback: an order submitted inside it was decided on what
+        // the strategy knew before this quote. See the lookahead probe.
+        note_shown(quote.symbol, quote.ts);
     }
 }
 
@@ -149,6 +158,7 @@ void StrategyInstance::on_trade(const MS_Trade& trade) {
         // dispatch overhead.
         const ScopedLatency timer(latency_);
         plugin_.trade(trade);
+        note_shown(trade.symbol, trade.ts);
     }
 }
 
@@ -286,7 +296,44 @@ void StrategyInstance::on_fill(const MS_Fill& fill) {
 // --- HostServices ----------------------------------------------------------
 
 std::uint64_t StrategyInstance::submit_order(const MS_OrderRequest& request) {
-    return broker_.submit(request, now());
+    return broker_.submit(request, now(), shown_ts(request.symbol));
+}
+
+StrategyInstance::InstantAudit StrategyInstance::audit_instants() const {
+    InstantAudit out;
+    for (const TradeRecord& row : broker_.ledger().blotter()) {
+        if (row.client_order_id == kForcedExitClientId) {
+            ++out.forced_exits;
+        } else if (row.decision_ts == kNever || row.price_ts == kNever) {
+            ++out.unrecorded;
+        } else if (row.price_ts > row.decision_ts) {
+            ++out.honest;
+        } else if (row.price_ts == row.decision_ts) {
+            ++out.simultaneous;
+        } else {
+            ++out.stale;
+        }
+    }
+    return out;
+}
+
+Timestamp StrategyInstance::shown_ts(SymbolId symbol) const noexcept {
+    const auto index = static_cast<std::size_t>(symbol);
+    if (symbol == kInvalidSymbol || index > shown_.size()) {
+        return kNever;
+    }
+    return shown_[index - 1];
+}
+
+void StrategyInstance::note_shown(SymbolId symbol, Timestamp ts) {
+    if (symbol == kInvalidSymbol) {
+        return;
+    }
+    const auto index = static_cast<std::size_t>(symbol);
+    if (index > shown_.size()) {
+        shown_.resize(index, kNever);
+    }
+    shown_[index - 1] = ts;
 }
 
 void StrategyInstance::cancel_order(std::uint64_t order_id) {

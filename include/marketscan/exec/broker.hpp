@@ -95,7 +95,13 @@ public:
     /// Returns the engine order id, or kInvalidOrderId if the order was
     /// refused outright. A refused order still appears in orders() with its
     /// reason, so nothing disappears silently.
-    OrderId submit(const MS_OrderRequest& request, Timestamp now);
+    ///
+    /// `decision_ts` is the information horizon of the decision that produced
+    /// this order -- see `Order::decision_ts`. It is recorded on every fill and
+    /// never acted on: the broker does not refuse a lookahead, it makes one
+    /// visible, and a fill model that refused one would hide the defect instead
+    /// of reporting it. kNever means unrecorded.
+    OrderId submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts = kNever);
 
     /// Cancels a working order. Returns false if the id is unknown or the
     /// order already reached a terminal state.

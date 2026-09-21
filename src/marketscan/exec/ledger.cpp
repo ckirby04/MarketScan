@@ -32,7 +32,9 @@ const TradeRecord& Ledger::apply_fill(Timestamp ts,
                                       Quantity quantity,
                                       Price fill_price,
                                       Price reference_price,
-                                      Money commission) {
+                                      Money commission,
+                                      Timestamp decision_ts,
+                                      Timestamp price_ts) {
     Position& position = position_for(symbol);
 
     // Positive when units come in, negative when they go out.
@@ -109,6 +111,8 @@ const TradeRecord& Ledger::apply_fill(Timestamp ts,
     record.commission = commission;
     record.cash_delta = -trade_notional - commission;
     record.realized_pnl = realized_delta;
+    record.decision_ts = decision_ts;
+    record.price_ts = price_ts;
 
     blotter_.push_back(record);
     return blotter_.back();

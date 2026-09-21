@@ -714,6 +714,12 @@ struct CrossSection {
 ///
 /// The last bar seen for a symbol in a session is the one that represents it,
 /// which for daily data is the only one and for intraday data is the close.
+/// Smallest trade a target book will ask for.
+///
+/// Must match `marketscan::sizing::kMinimumTrade`; `decile_parity.hpp`
+/// static_asserts it, being the one place both headers are visible.
+inline constexpr double kMinimumTargetTrade = 1e-9;
+
 class CrossSectionalStrategy : public IStrategy {
 public:
     /// Sealed. Override on_session_bar to see bars as they arrive as well.
@@ -723,16 +729,27 @@ public:
             // Grows to the symbol count and then never again. A strategy that
             // wants no allocation at all after the first session can call
             // reserve_symbols() in on_start.
-            latest_.resize(index + 1);
-            present_.resize(index + 1, 0);
+            grow(index + 1);
         }
         latest_[index] = bar;
         present_[index] = 1;
         on_session_bar(bar);
+
+        // After the strategy has seen the bar, and this is the whole of the fix
+        // for the lookahead: a target set from session N's closes becomes an
+        // order here, against the first price the symbol printed afterwards.
+        release_target(bar.symbol);
     }
 
     /// Sealed. Override on_cross_section.
     void on_session_close(MS_Nanos session_end) final {
+        // Anything still outstanding never got a print and is dropped rather than
+        // carried: a target from two sessions ago, filled now, is a decision
+        // acting on information it no longer has. Counted, because a strategy
+        // whose targets routinely expire is one whose universe is leaving under
+        // it -- which is a finding, not a detail.
+        abandon_targets();
+
         section_.clear();
         for (std::size_t i = 0; i < present_.size(); ++i) {
             if (present_[i] != 0) {
@@ -759,17 +776,120 @@ protected:
     /// Individual bars, as they arrive. Empty by default.
     virtual void on_session_bar(const MS_Bar&) {}
 
+    // --- The target book ------------------------------------------------
+    //
+    // A cross-sectional decision is taken from a session's closing
+    // cross-section, and the earliest price it can honestly trade at is the next
+    // one the instrument prints. So `on_cross_section` states a target book and
+    // this turns each name's target into an order when that name next prints.
+    //
+    // WHY NOT JUST SUBMIT FROM on_cross_section
+    //
+    // Because the order would fill at the price the decision was made from, and
+    // that is free money that does not exist. The engine applies a bar to its
+    // book before dispatching it, so that a strategy reacting to a print and the
+    // fill model pricing its order see the same market -- right for a strategy
+    // reacting to a print, wrong here, because `advance_session` fires
+    // `on_session_close(N)` from inside the dispatch of the first bar of session
+    // N+1. Submitting there prices against session N's book for every symbol
+    // except the one whose bar rolled the session, which prices against N+1's.
+    //
+    // Measured before this existed, on both committed parity fixtures: **every
+    // strategy fill had `decision_ts == price_ts`** -- 56 of 56 and 55 of 55.
+    // See `StrategyInstance::audit_instants` and the lookahead invariant in
+    // `docs/EXECUTION.md`.
+    //
+    // A strategy may still call `submit_market` from `on_cross_section`. Nothing
+    // stops it, and nothing should pretend to: the ABI is frozen and the host
+    // cannot tell such an order from one submitted out of `on_bar`. What it will
+    // get is a fill the audit reports as simultaneous, which is the point of
+    // recording the triple rather than policing it.
+
+    /// Asks for `shares` of `symbol` as of the next price it prints.
+    ///
+    /// Not an order. Replaces any target already outstanding for that symbol,
+    /// because two targets for one name is not a thing a book can mean.
+    void set_target(MS_SymbolId symbol, double shares) {
+        const auto index = static_cast<std::size_t>(symbol);
+        if (index >= target_.size()) {
+            grow(index + 1);
+        }
+        target_[index] = shares;
+        has_target_[index] = 1;
+    }
+
+    /// Asks to be flat in `symbol` as of its next print.
+    void set_flat(MS_SymbolId symbol) { set_target(symbol, 0.0); }
+
+    /// Targets set and not yet released.
+    [[nodiscard]] uint32_t targets_outstanding() const noexcept {
+        uint32_t count = 0;
+        for (unsigned char flag : has_target_) {
+            count += flag != 0 ? 1u : 0u;
+        }
+        return count;
+    }
+
+    /// Targets that reached a price and became an order or a no-op.
+    [[nodiscard]] uint64_t targets_released() const noexcept { return released_; }
+
+    /// Targets dropped because the symbol never printed again.
+    [[nodiscard]] uint64_t targets_abandoned() const noexcept { return abandoned_; }
+
     /// Sizes the buffers up front, so no session allocates.
     void reserve_symbols(uint32_t count) {
-        latest_.resize(count + 1);
-        present_.resize(count + 1, 0);
-        section_.reserve(count + 1);
+        grow(static_cast<std::size_t>(count) + 1);
+        section_.reserve(static_cast<std::size_t>(count) + 1);
     }
 
 private:
+    void grow(std::size_t size) {
+        latest_.resize(size);
+        present_.resize(size, 0);
+        target_.resize(size, 0.0);
+        has_target_.resize(size, 0);
+    }
+
+    void release_target(MS_SymbolId symbol) {
+        const auto index = static_cast<std::size_t>(symbol);
+        if (index >= has_target_.size() || has_target_[index] == 0) {
+            return;
+        }
+        const double target = target_[index];
+        has_target_[index] = 0;
+        ++released_;
+
+        // Against the position as it stands now, not as it stood when the target
+        // was set. For one symbol those are the same number -- only this symbol's
+        // own fills move it -- but reading it now is what makes that true rather
+        // than assumed.
+        const double delta = target - position(symbol);
+        if (!(delta > kMinimumTargetTrade) && !(delta < -kMinimumTargetTrade)) {
+            return;
+        }
+        if (delta > 0.0) {
+            submit_market(symbol, MS_SIDE_BUY, delta);
+        } else {
+            submit_market(symbol, MS_SIDE_SELL, -delta);
+        }
+    }
+
+    void abandon_targets() {
+        for (std::size_t i = 0; i < has_target_.size(); ++i) {
+            if (has_target_[i] != 0) {
+                has_target_[i] = 0;
+                ++abandoned_;
+            }
+        }
+    }
+
     std::vector<MS_Bar> latest_;
     std::vector<unsigned char> present_;
     std::vector<MS_Bar> section_;
+    std::vector<double> target_;
+    std::vector<unsigned char> has_target_;
+    uint64_t released_ = 0;
+    uint64_t abandoned_ = 0;
 };
 
 // ---------------------------------------------------------------------------

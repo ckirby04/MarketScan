@@ -30,10 +30,11 @@ Broker::Broker(Money starting_cash,
       market_(market),
       order_id_base_(order_id_base) {}
 
-OrderId Broker::submit(const MS_OrderRequest& request, Timestamp now) {
+OrderId Broker::submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts) {
     Order order;
     order.id = order_id_base_ + next_sequence_++;
     order.request = request;
+    order.decision_ts = decision_ts;
     order.submitted_ts = now;
     order.last_update_ts = now;
     order.eligible_ts = now;
@@ -130,6 +131,11 @@ std::size_t Broker::in_flight_count(Timestamp now) const noexcept {
 RejectReason Broker::try_fill(Order& order, Timestamp now) {
     const OrderBook& book = market_->book(order.request.symbol);
 
+    // The market state this fill comes out of, read before the fill model runs
+    // so that it is the state the price was actually computed from rather than
+    // whatever the book holds by the time the row is written.
+    const Timestamp price_ts = book.last_update();
+
     FillRequest request;
     request.order = &order;
     request.book = &book;
@@ -168,7 +174,9 @@ RejectReason Broker::try_fill(Order& order, Timestamp now) {
                        result.quantity,
                        result.price,
                        order.reference_price,
-                       result.commission);
+                       result.commission,
+                       order.decision_ts,
+                       price_ts);
 
     // Quantity-weighted, so a limit order filled across several events reports
     // the average it actually achieved.

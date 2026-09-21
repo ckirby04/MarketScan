@@ -128,6 +128,21 @@ struct Order {
     /// against this: it is what the strategy could see when it decided.
     Price reference_price = 0.0;
 
+    /// The information horizon of the decision that produced this order: the
+    /// timestamp of the last event in **this symbol** that the strategy had
+    /// finished being shown when it submitted.
+    ///
+    /// Recorded rather than inferred, because the alternative is arguing about
+    /// it. `StrategyInstance` is the only path a plugin has to this broker and
+    /// keeps the per-symbol bookkeeping; see the lookahead invariant in
+    /// `docs/EXECUTION.md`.
+    ///
+    /// kNever means nothing recorded one: a test driving the broker directly, or
+    /// a liquidation the host performed on the strategy's behalf. The invariant
+    /// is asserted where it was recorded and skipped where it was not, which is
+    /// honest in both directions -- an unrecorded order is not a passing one.
+    Timestamp decision_ts = kNever;
+
     /// UTC day number at submission, for DAY expiry.
     std::int64_t submitted_day = 0;
 
@@ -178,6 +193,35 @@ struct TradeRecord {
     /// fill was worse than what the strategy saw.
     Money slippage;
     Money commission;
+
+    // --- The lookahead triple -------------------------------------------
+    //
+    // `ts` above is the third leg: the instant the fill happened. These two are
+    // the other two, and together they make the question answerable by looking
+    // rather than by reading the code and arguing.
+    //
+    //     decision_ts < price_ts        no lookahead
+    //     decision_ts == price_ts       the strategy traded at a price it had
+    //                                   already been shown
+    //     decision_ts > price_ts        the fill priced off a stale book
+    //
+    // See `Order::decision_ts` for what the horizon means and why it is
+    // per-symbol.
+
+    /// Information horizon of the decision. Copied from the order.
+    Timestamp decision_ts = kNever;
+
+    /// `OrderBook::last_update` for this symbol at the instant the fill model
+    /// priced it -- the timestamp of the market state the price came out of.
+    Timestamp price_ts = kNever;
+
+    /// Whether this fill is later than everything the decision could see.
+    ///
+    /// False when either timestamp is unrecorded: an unverified fill is not a
+    /// verified one.
+    [[nodiscard]] bool honest_instant() const noexcept {
+        return decision_ts != kNever && price_ts != kNever && price_ts > decision_ts;
+    }
 
     /// Change in cash from this fill, commission included.
     Money cash_delta;

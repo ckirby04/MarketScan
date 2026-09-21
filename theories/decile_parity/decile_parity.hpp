@@ -50,6 +50,11 @@ inline constexpr double kExposureScale = 1'000'000.0;
 /// down rather than ranking on whatever it found.
 inline constexpr double kExposureLimit = 9.0;
 
+// The shim's target-book epsilon and the sizing rule's have to be the same
+// number, and this is the one place both headers are in scope.
+static_assert(marketscan::kMinimumTargetTrade == marketscan::sizing::kMinimumTrade,
+              "the target book and docs/SIZING.md disagree about the smallest trade");
+
 [[nodiscard]] inline double decode_exposure(double volume) noexcept {
     return volume / kExposureScale - kExposureOffset;
 }
@@ -100,8 +105,19 @@ public:
         ranked_.reserve(symbol_count() + 1);
     }
 
+    /// The target book's own counters, published so the host can see them.
+    ///
+    /// They live on the base class as protected state, which is the right place
+    /// for them and the wrong side of the plugin boundary -- `publish_metric` is
+    /// the channel a strategy has for a scalar, and the lookahead tests read them
+    /// back through `StrategyInstance::metrics`. Published on every cross-section
+    /// as well as at stop, so a run that is inspected part way through has them.
+    void on_stop() override { publish_targets(); }
+
 protected:
     void on_cross_section(const marketscan::CrossSection& section) override {
+        publish_targets();
+
         // Sessions are counted rather than timestamps differenced, so that a
         // holiday does not shift the schedule and put the two implementations
         // on different rebalance dates.
@@ -164,12 +180,19 @@ protected:
         const double per_name = marketscan::sizing::per_name_notional(
             equity_micros, gross_, static_cast<std::uint32_t>(side));
 
-        // Close first, open second. A rebalance that opens before it closes can
-        // be refused for want of cash, and an order the fill model declines is a
-        // divergence between the two implementations that has nothing to do
-        // with the strategy.
+        // A target book, not orders. Each name's target becomes an order when
+        // that name next prints, which is the earliest price this decision can
+        // honestly trade at -- see the target book in istrategy.hpp.
+        //
+        // The old code closed the middle before opening the sides, so that a
+        // cash-constrained rebalance could not be refused halfway. That ordering
+        // is gone and cannot come back: releases happen in whatever order the
+        // session's bars arrive, which is symbol-id order for a daily file. On a
+        // dollar-neutral book of this size cash never binds; a strategy where it
+        // would has to hold gross back rather than rely on a sequence it no
+        // longer controls.
         for (std::size_t i = side; i + side < count; ++i) {
-            close_position(ranked_[i].symbol);
+            set_flat(ranked_[i].symbol);
         }
         for (std::size_t i = 0; i < side; ++i) {
             target_position(ranked_[i], per_name, true);
@@ -186,27 +209,20 @@ private:
         double close;
     };
 
-    void close_position(MS_SymbolId symbol) {
-        const double held = position(symbol);
-        if (held > 0.0) {
-            submit_market(symbol, MS_SIDE_SELL, held);
-        } else if (held < 0.0) {
-            submit_market(symbol, MS_SIDE_BUY, -held);
-        }
+    void publish_targets() const {
+        publish_metric("targets_released", static_cast<double>(targets_released()));
+        publish_metric("targets_abandoned", static_cast<double>(targets_abandoned()));
+        publish_metric("targets_outstanding", static_cast<double>(targets_outstanding()));
     }
 
     void target_position(const Candidate& candidate, double per_name, bool long_side) {
-        const double target =
-            marketscan::sizing::target_shares(per_name, candidate.close, long_side);
-        const double delta = marketscan::sizing::trade_delta(target, position(candidate.symbol));
-        if (!marketscan::sizing::should_submit(delta)) {
-            return;
-        }
-        if (delta > 0.0) {
-            submit_market(candidate.symbol, MS_SIDE_BUY, delta);
-        } else {
-            submit_market(candidate.symbol, MS_SIDE_SELL, -delta);
-        }
+        // Sized against THIS session's close, which is the price the ranking came
+        // from. The order fills at the next one, so the share count and the fill
+        // price deliberately differ -- that gap is the cost of not being able to
+        // trade at a close you are still looking at, and pretending it is zero is
+        // what the lookahead was.
+        set_target(candidate.symbol,
+                   marketscan::sizing::target_shares(per_name, candidate.close, long_side));
     }
 
     double decile_ = 0.1;

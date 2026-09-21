@@ -126,12 +126,29 @@ micro-dollar produces a delta of about 1e-12 shares.
 
 ---
 
-## Order of operations, and why closes come before opens
+## Order of operations: closes no longer come before opens
 
-Positions being closed are submitted first, then the long leg, then the short
-leg. A rebalance that opens before it closes can be refused for want of cash, and
-an order the fill model declines is a divergence between the two implementations
-that has nothing to do with sizing.
+They used to, and the reason was good: a rebalance that opens before it closes
+can be refused for want of cash, and an order the fill model declines is a
+divergence between the two implementations that has nothing to do with sizing.
+
+Session D Part 3 removed the ordering, because it removed the orders. A
+cross-sectional decision now states a **target book** and each name's target
+becomes an order when that name next prints — so the sequence is whatever order
+the session's bars arrive in, which for a daily file is symbol-id order, and no
+strategy controls it. See *the assumed instant* in [`EXECUTION.md`](EXECUTION.md).
+
+What that costs: a strategy for which cash genuinely binds has to hold gross back
+rather than rely on a sequence it no longer has. On a dollar-neutral book of the
+fixture's size cash never binds — the long and short legs cancel to the
+micro-dollar by construction, because `notional(close, per_name / close)` is
+`per_name` on both sides.
+
+**Step 5 still sizes against the session's own close.** The target is
+`per_name / close` where `close` is the price the ranking came from; the order
+fills at the *next* price. The share count and the fill price differ on purpose,
+and that gap is the cost of not being able to trade at a close you are still
+looking at.
 
 ---
 

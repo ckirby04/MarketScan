@@ -254,7 +254,29 @@ struct ChurnReplay {
     std::size_t membership_periods = 0;
     std::size_t delisting_rows = 0;
     bool invariant_holds = false;
+
+    /// The lookahead triple, tallied over the blotter.
+    StrategyInstance::InstantAudit audit;
+    std::vector<TradeRecord> blotter;
+
+    /// The target book's counters, read back out of the published metrics --
+    /// they are protected state on `CrossSectionalStrategy`, which is the right
+    /// place for them and the wrong side of the plugin boundary.
+    double targets_released = 0.0;
+    double targets_abandoned = 0.0;
+    double targets_outstanding = 0.0;
 };
+
+/// A metric the strategy published, or `missing` if it never did.
+[[nodiscard]] double
+published(const StrategyInstance& theory, std::string_view name, double missing = -1.0) {
+    for (const PublishedMetric& metric : theory.metrics()) {
+        if (metric.name == name) {
+            return metric.value;
+        }
+    }
+    return missing;
+}
 
 /// Replays the churn fixture with a universe installed and a delisting model
 /// selected.
@@ -339,6 +361,11 @@ struct ChurnReplay {
     out.delisting_pnl = theory.ledger().delisting_pnl();
     out.adjustments = theory.ledger().delisting_adjustments();
     out.invariant_holds = theory.ledger().check_invariant();
+    out.audit = theory.audit_instants();
+    out.blotter = theory.ledger().blotter();
+    out.targets_released = published(theory, "targets_released");
+    out.targets_abandoned = published(theory, "targets_abandoned");
+    out.targets_outstanding = published(theory, "targets_outstanding");
     for (const DelistingAdjustment& adjustment : out.adjustments) {
         out.adjustment_symbols.emplace_back(symbols.c_name(adjustment.symbol));
     }
@@ -499,8 +526,8 @@ TEST_CASE("crossing costs what the fill model says it costs", "[parity][m9]") {
 
     // Derived from the fixture's own trades through the fill model's formula;
     // see research/parity.py, which computes both figures.
-    constexpr double kSpreadOnly = 85.84;
-    constexpr double kSpreadPlusImpact = 1136.02;
+    constexpr double kSpreadOnly = 84.74;
+    constexpr double kSpreadPlusImpact = 1114.27;
 
     INFO("gap $" << gap << " against $" << kSpreadOnly << " of spread and $" << kSpreadPlusImpact
                  << " of spread-plus-impact");
@@ -854,4 +881,145 @@ TEST_CASE("a delisting table row that cannot be used is reported, not dropped", 
         load_delisting_returns(std::filesystem::path("no_such_delistings.csv"), symbols);
     CHECK(missing.returns.empty());
     CHECK(missing.rejected.size() == 1);
+}
+
+// --- The lookahead invariant ----------------------------------------------
+//
+// Session D Part 3, and the whole of it is "record, do not infer".
+//
+// Every fill carries three timestamps now: the information horizon of the
+// decision that produced it, the market state its price came out of, and the
+// fill itself. The invariant is that the price is stamped **later** than the
+// horizon -- a decision taken from session N's closes cannot trade at session N's
+// closes, because that is trading on information simultaneously with acting on
+// it, which is free money that does not exist.
+//
+// WHAT IT MEASURED BEFORE THE FIX
+//
+// On both committed fixtures, with the triple recorded and the target book not
+// yet written: **every single strategy fill was simultaneous** -- 56 of 56 on the
+// churn-free panel, 55 of 55 on the churn panel, `decision_ts == price_ts` in
+// every case. Not one honest fill in either run.
+//
+// This file's own churn-parity case is what forced the question. STATUS.md had
+// the effect down as "predicted and not observed", and the reasoning was right
+// but the evidence was a curve that happened to agree.
+
+TEST_CASE("no fill uses a price its decision had already seen", "[parity][lookahead][m9]") {
+    // The invariant, on both fixtures, with no tolerance and no exemption beyond
+    // the one named below.
+    const OptimisticFillModel optimistic{free_of_charge()};
+
+    SECTION("the churn-free fixture") {
+        SymbolTable symbols;
+        Engine engine;
+        CsvFeedOptions options;
+        options.synthesize_quotes = false;
+        engine.add_source(std::make_unique<CsvFeed>(fixture("parity_panel.csv"), symbols, options));
+
+        PluginLoader loader({std::filesystem::path(MARKETSCAN_PARITY_THEORY_DIR)});
+        loader.rescan();
+
+        StrategyRuntimeConfig config;
+        config.starting_cash = Money::from_dollars(100'000);
+        StrategyInstance theory("decile_parity",
+                                "Decile Parity",
+                                loader.create("decile_parity"),
+                                {},
+                                config,
+                                &optimistic,
+                                &engine.market(),
+                                &symbols,
+                                &engine.clock());
+        engine.add_sink(&theory);
+        theory.start();
+        while (engine.step()) {
+        }
+        theory.stop();
+
+        const StrategyInstance::InstantAudit audit = theory.audit_instants();
+        INFO("total " << audit.total() << " honest " << audit.honest << " simultaneous "
+                      << audit.simultaneous << " stale " << audit.stale << " unrecorded "
+                      << audit.unrecorded << " forced " << audit.forced_exits);
+
+        // The run has to have traded, or the invariant holds vacuously.
+        REQUIRE(audit.total() > 20);
+        CHECK(audit.honest == audit.total());
+        CHECK(audit.simultaneous == 0);
+        CHECK(audit.stale == 0);
+        CHECK(audit.unrecorded == 0);
+        CHECK(audit.holds());
+    }
+
+    SECTION("the churn fixture, with forced exits in it") {
+        const ChurnReplay run = replay_churn(optimistic, DelistingReturnModel::ApplyTrueReturn);
+        INFO("total " << run.audit.total() << " honest " << run.audit.honest << " simultaneous "
+                      << run.audit.simultaneous << " stale " << run.audit.stale << " unrecorded "
+                      << run.audit.unrecorded << " forced " << run.audit.forced_exits);
+
+        REQUIRE(run.audit.total() > 20);
+        CHECK(run.audit.holds());
+
+        // Forced exits are excluded from the invariant and are not zero here, so
+        // the exclusion is load-bearing rather than theoretical. A forced exit is
+        // not a decision, and the security has stopped printing -- there is no
+        // later price for it to fill against. That is **the assumed exit**, named
+        // and measured in its own right; see exec/delisting.hpp.
+        CHECK(run.audit.forced_exits >= 5);
+        CHECK(run.audit.honest + run.audit.forced_exits == run.audit.total());
+    }
+}
+
+TEST_CASE("every fill is stamped with the triple", "[parity][lookahead]") {
+    // Recorded, not inferred. Each row carries the three instants, so the question
+    // is answered by reading the blotter rather than by reading the engine.
+    const OptimisticFillModel optimistic{free_of_charge()};
+    const ChurnReplay run = replay_churn(optimistic, DelistingReturnModel::LastPrice);
+
+    REQUIRE(!run.blotter.empty());
+    for (const TradeRecord& row : run.blotter) {
+        INFO("order " << row.order_id << " client " << row.client_order_id << " decision "
+                      << row.decision_ts << " price " << row.price_ts << " fill " << row.ts);
+
+        // The price a fill came out of is a market state that really existed.
+        CHECK(row.price_ts != kNever);
+
+        if (row.client_order_id == kForcedExitClientId) {
+            // The host's own liquidation. It prices off the last book the name
+            // ever had, which is by construction not later than anything.
+            CHECK(row.price_ts <= row.ts);
+            continue;
+        }
+
+        CHECK(row.decision_ts != kNever);
+        CHECK(row.honest_instant());
+
+        // And the fill is never *before* the price it used. The engine fills a
+        // target on the bar that released it, so these are the same instant.
+        CHECK(row.ts >= row.price_ts);
+        CHECK(row.price_ts == row.ts);
+    }
+}
+
+TEST_CASE("a target waits for a price and is abandoned if none comes", "[parity][lookahead]") {
+    // The mechanism behind the invariant, asserted where it is observable.
+    //
+    // A target set from session N's cross-section becomes an order when its symbol
+    // next prints. A name that leaves the universe never prints again, so its
+    // target expires rather than filling at a stale price -- which is the
+    // behaviour that makes "abandoned" a number worth having: a strategy whose
+    // targets routinely expire is one whose universe is leaving under it.
+    const OptimisticFillModel optimistic{free_of_charge()};
+    const ChurnReplay churning = replay_churn(optimistic, DelistingReturnModel::ApplyTrueReturn);
+
+    // The churn fixture has 29 departures, and a departing name is in the
+    // cross-section of its final session -- so it gets a target it can never
+    // reach whenever that session is a rebalance one.
+    INFO("released " << churning.targets_released << ", abandoned " << churning.targets_abandoned);
+    CHECK(churning.targets_released > 0);
+    CHECK(churning.targets_abandoned > 0);
+
+    // Every target either released or was abandoned. Nothing is still outstanding
+    // at the end of a run, because the final session close clears them.
+    CHECK(churning.targets_outstanding == 0);
 }

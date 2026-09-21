@@ -243,8 +243,8 @@ the change.
 
 The engine reaches the same conclusion independently, on its own fixture and
 through its own ledger: `tests/test_parity.cpp` runs the decile rule over a
-panel with departures under both settings and measures 30.10 points of return
-and 3.55 of Sharpe. Nothing in *this* file has run that path -- the two
+panel with departures under both settings and measures 29.42 points of return
+and 3.14 of Sharpe. Nothing in *this* file has run that path -- the two
 measurements are separate by construction, which is what makes them a
 cross-check rather than a restatement.
 

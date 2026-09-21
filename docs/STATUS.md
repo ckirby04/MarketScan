@@ -181,8 +181,10 @@ micro-dollar, onto the number the engine had been reporting throughout.
 
 ### What this cost in committed numbers
 
-One micro-dollar, on one session, in `data/samples/parity_expected.csv`. Caught
-by the equality assertion itself.
+Fix one: one micro-dollar, on one session, in `data/samples/parity_expected.csv`,
+caught by the equality assertion itself. Fix two: five rows of cash and one of
+equity, same file. Fix three moved every row of every parity curve — the table is
+in *the assumed instant*.
 
 ### Churn parity, added in Session D Part 2
 
@@ -195,18 +197,19 @@ agreement about the *timing* of a forced exit from agreement about its
 departure return used to be the departing name's final bar. See *What Part 3
 owed* below.
 
-### Still open, and it is Session D Part 3
+### Three: the fill used the price the decision was made from
 
-The sizing-side lookahead is gone. The **fill-side** one is now measured — churn
-parity caught it, at $606.07 on one symbol at session 1 of 126 — but not fixed.
-Both layers fill a decision taken from session N's close *at* session N's close
-for every symbol but one, which is trading on information simultaneously with
-acting on it; the one exception fills a session late, which is the only fill in
-the run that is actually defensible. Resolving it means the decision/price/fill
-timestamp triple, the invariant asserted in CI, and a change to
-`CrossSectionalStrategy` so that every fill lands a session after the decision.
-Expect it to move committed results. Detail in *What Part 3 owed, and what it
-got*.
+Session D Part 3, and churn parity is what caught it. Both layers filled a
+decision taken from session N's close *at* session N's close, for every symbol but
+the one whose bar rolled the session. Measured with the triple, before anything was
+changed: **56 of 56 fills on the churn-free fixture and 55 of 55 on the churn
+fixture had `decision_ts == price_ts`.** Not one honest fill in either run.
+
+`CrossSectionalStrategy` now states a target book and each name's target becomes an
+order when that name next prints, so every fill lands at the first price its symbol
+printed after the decision. Both layers do it and every committed curve moved; see
+*the assumed instant* in [`EXECUTION.md`](EXECUTION.md) for the table, and *What
+Part 3 owed* below for what it cost.
 
 ---
 
@@ -217,7 +220,7 @@ got*.
 | 0 | Housekeeping, reboot, baseline | **done** — baseline below |
 | 1 | Bit-identical sizing | **done**, CI green |
 | 2 | Make delisting returns real | **done** — both layers, churn parity exact |
-| 3 | The lookahead probe | not started; the sizing half landed in Part 1, and Part 2 **measured** the fill-timing half |
+| 3 | The lookahead probe | **done** — triple recorded, invariant asserted, fill-timing lookahead found and fixed |
 | 4 | Toolchain gate (GUI stack) | not reached |
 | 5–7 | Inspector, dual view, close-out | not started |
 
@@ -245,11 +248,25 @@ Baseline, taken before anything in Part 2 was changed:
 The one skipped test is the identity classifier's calibration case, which needs
 cached Stooq bars; see *Stooq is gated* below.
 
-Part 2 then moved them, and the movement is accounted for: **343 C++** (+9 cases,
-all in `test_parity.cpp` — the churn fixture, the two curve comparisons, the
-row-for-row reconciliation, the flattery gate, the rolling-symbol property and the
-two loader cases) and **199 Python** (+14, all in `research/tests/test_parity.py`).
-`clang-format` 19.1.1 clean across the tree. No existing test changed its result.
+Parts 2 and 3 then moved them, and the movement is accounted for:
+
+| | C++ | Python |
+|---|---|---|
+| baseline | 334 | 185 |
+| after Part 2 | 343 (+9) | 199 (+14) |
+| after Part 3 | 346 (+3) | 202 (+3) |
+
+Part 2's additions are all in `test_parity.cpp` — the churn fixture, the two curve
+comparisons, the row-for-row reconciliation, the flattery gate, the rolling-symbol
+property and the two loader cases. Part 3's are the invariant, the triple and the target
+book's release-or-abandon behaviour on the C++ side, and the release instant, the
+release order and abandonment on the Python side. `clang-format` 19.1.1 clean across the
+tree throughout.
+
+**Part 3 moved committed results**, which Session D said to expect: every parity
+curve, and the two cost constants in `test_parity.cpp`. The numbers and the
+assertion that caught them are in *What Part 3 owed* below. No test changed from
+passing to failing.
 
 ---
 
@@ -344,56 +361,90 @@ splits the two questions:
 - and the two runs are required to differ materially, so neither passes by the
   switch having done nothing.
 
-What the assumption is worth on that fixture: **30.10 points of return and 3.55 of
-Sharpe** (+11.74% and +2.41 assuming a zero delisting return, −18.36% and −1.14
-applying it). +2.41 clears the 1.927 null-Sharpe threshold that
-`FALSE_DISCOVERY.md` derived from a 1,512-run sweep, so under the optimistic
-assumption this rule looks distinguishable from noise after adjusting for the size
-of the search, and under the honest one it loses money. Full detail in **the
+What the assumption is worth on that fixture: **29.42 points of return and 3.14 of
+Sharpe** (+8.63% and +1.81 assuming a zero delisting return, −20.78% and −1.33
+applying it). It does not move the result, it flips its sign. Full detail in **the
 assumed exit** in `EXECUTION.md`.
 
-**The one-symbol lookahead: observed, and measured.** This file previously said it
-was *predicted and not observed*, and that an inference from a curve that happened
-to agree is not an answer. It is observed now, and it was churn parity that caught
-it rather than a probe built to look for it.
+(Those are post-Part-3 figures. Before the fill-timing fix they were 30.10 points
+and 3.55 of Sharpe, on a `last_price` Sharpe of +2.41 — see below.)
 
-The reading was correct. `Engine::step` applies an event to the book before
-dispatching it, so that a strategy and the fill model pricing its order see the
-same market — right for a strategy reacting to a print. But
+**The one-symbol lookahead: observed, measured, and fixed.** This file previously
+said it was *predicted and not observed*, and that an inference from a curve that
+happened to agree is not an answer. Both halves of that are now discharged, and it
+was churn parity that caught it rather than a probe built to look for it.
+
+The reading was correct and incomplete. `Engine::step` applies an event to the
+book before dispatching it, so a strategy reacting to a print and the fill model
+pricing its order see the same market — right for that case. But
 `IStrategy::advance_session` fires `on_session_close(N)` from inside the dispatch
-of the **first bar of session N+1**, so at the instant a session-N decision is
-priced, exactly one symbol's book is already a session ahead. An order in that
-symbol is sized against session N's close and filled at N+1's.
+of the **first bar of session N+1**, so at the instant a session-N decision was
+priced, exactly one symbol's book was already a session ahead.
 
-Measured, on the churn fixture before it carried a dedicated roll symbol: the
-short leg held SY0000, which sorts first on every session. It was sized against a
-close of 148.6207 and filled at 143.216 — **$606.07 apart at session 1 of 126,
-growing to $942 by the end**. Caught by
-`tests/test_parity.cpp`'s "under last_price the two layers agree about timing,
-exactly", which is not a test anybody wrote to look for a lookahead.
+What the reading missed is *which* fills that made wrong. The anomalous symbol was
+the **only defensible one** — it filled a session after the decision. The other
+twenty-nine filled at the close they were sized from, which is the larger error.
 
-Why the churn-free fixture never showed it: SY0000 sorts first there too and
-**never once lands in either decile**. That is luck, not a property anybody chose,
-and the parity suite depended on it silently. It no longer does —
+Two measurements, in the order they arrived.
+
+*One, from churn parity.* On the churn fixture before it carried a dedicated roll
+symbol, the short leg held SY0000, which sorts first on every session: sized
+against a close of 148.6207 and filled at 143.216 — **$606.07 apart at session 1
+of 126, growing to $942 by the end.** Caught by `tests/test_parity.cpp`'s "under
+last_price the two layers agree about timing, exactly", which nobody wrote to look
+for a lookahead.
+
+*Two, from the triple.* With `decision_ts` and `price_ts` recorded per fill and
+nothing else changed: **56 of 56 strategy fills on the churn-free fixture and 55
+of 55 on the churn fixture were simultaneous** — `decision_ts == price_ts`, and
+not one honest fill in either run.
+
+Why the churn-free fixture never showed the first of those: SY0000 sorts first
+there too and **never once lands in either decile**. That is luck, not a property
+anybody chose, and the parity suite depended on it silently. It no longer does —
 `the symbol that rolls each session is never in a traded leg` asserts it on both
 fixtures, and the churn fixture satisfies it deliberately with a `ROLL` symbol
 whose exposure is pinned mid-rank.
 
-**So Part 3's remaining work is the fix, not the diagnosis.** The timestamp triple
-and the invariant are still owed: record, per fill, the decision's information
-horizon, the timestamp of the price used, and the fill's own, then assert that a
-decision taken from bar N can only fill against a price timestamped later than bar
-N's close. Note what that invariant says about the engine as it stands — the one
-anomalous symbol is the only one that *satisfies* it. The other 29 fill at the
-close they were sized from, which is the larger lookahead and the one that will
-move committed results when it is fixed.
-
-The fix cannot be "fire the session-close callback earlier": `plugin_abi.h` is
+**The fix.** Not "fire the session-close callback earlier": `plugin_abi.h` is
 frozen at v1 and its vtable has no session hook, so the shim can only learn a
-session ended by being handed the next one's first bar. It belongs in
-`CrossSectionalStrategy` — compute targets on session N's cross-section, submit
-each symbol's order when that symbol's next bar arrives — which needs no ABI
-change and makes every fill a session later than the decision, uniformly.
+session ended by being handed the next one's first bar. So
+`CrossSectionalStrategy` carries a **target book** — `on_cross_section` states
+what it wants to hold, and each name's target becomes an order when that name next
+prints. Every fill lands at the first price its symbol printed after the decision,
+uniformly, no symbol special, no ABI change. A target whose symbol never prints
+again is abandoned rather than carried.
+
+Two things went with it. The close-then-open ordering in `SIZING.md` is gone,
+because releases happen in bar order and no strategy controls it; a strategy for
+which cash binds has to hold gross back instead. And the reference's equity
+snapshot moved from pre-trade to post-release, because a session's trades are now
+the previous session's targets landing *inside* it.
+
+**What it cost, with the assertion that caught it.**
+
+| | equity before | after | Sharpe before | after |
+|---|---|---|---|---|
+| `parity_expected.csv` | $106,660.71 | $107,038.64 | +1.313 | +1.414 |
+| churn, `last_price` | $111,739.45 | $108,633.80 | +2.414 | **+1.810** |
+| churn, `apply_true_return` | $81,635.69 | $79,216.37 | −1.140 | −1.326 |
+
+Plus the two cost constants in `test_parity.cpp`: spread $85.84 to $84.74, and
+spread-plus-impact $1,136.02 to $1,114.27.
+
+The sign is not uniform — the churn-free path got $377.92 *better* without the
+lookahead. Trading a decile ranking a session later is a different strategy, not a
+strictly worse one, and on one synthetic path the noise can go either way; the same
+caveat as *A note on the numbers* in `EXECUTION.md`. What the lookahead bought was
+not a uniform edge, it was a systematic misstatement.
+
+**What is not ambiguous is the Sharpe on the churn fixture.** +2.414 cleared the
+1.927 null-Sharpe threshold from the 1,512-run sweep; +1.810 does not. On this
+fixture the lookahead was worth 0.60 of Sharpe, and it was the whole difference
+between a rule that looks distinguishable from noise after adjusting for the size
+of the search and one that does not. That is the closest thing this project has
+produced to a demonstration of why the threshold is there.
+
 ### Parts 4–6
 
 Read `specs/SPEC_VIEW_MODES.md` in full before starting Part 5; it is binding as
@@ -418,8 +469,8 @@ Not bugs. Things this cannot do, written down so they are not rediscovered.
 
 | | |
 |---|---|
-| **The assumed exit** | The biggest one, and now named on both sides rather than merely known. `DelistingReturnModel` selects between liquidating at the last price (`last_price`, the default) and applying a supplied delisting return (`apply_true_return`). On real data there is nothing to apply until CRSP delisting returns arrive, so every number over a universe with departures in it carries `last_price` — worth **30.10 points of return and 3.55 of Sharpe** on the churn parity fixture. See *the assumed exit* in [`EXECUTION.md`](EXECUTION.md). |
-| **One fill per session is priced a session early, and the rest a session late** | Measured, not fixed. A cross-sectional decision on session N fills at session N's own close for every symbol but the one whose bar rolled the session, which fills at N+1's. Session D Part 3. |
+| **The assumed exit** | The biggest one, and now named on both sides rather than merely known. `DelistingReturnModel` selects between liquidating at the last price (`last_price`, the default) and applying a supplied delisting return (`apply_true_return`). On real data there is nothing to apply until CRSP delisting returns arrive, so every number over a universe with departures in it carries `last_price` — worth **29.42 points of return and 3.14 of Sharpe** on the churn parity fixture. See *the assumed exit* in [`EXECUTION.md`](EXECUTION.md). |
+| **A fill is the next close, not a real next price** | Fixed as far as a daily bar allows. A cross-sectional decision on session N now fills at each symbol's session N+1 close, asserted by the lookahead invariant. A real order sent after a close fills *somewhere in* the next session, not at its close, and nothing here models where. See *the assumed instant* in [`EXECUTION.md`](EXECUTION.md). |
 | **Renames are not inferred** | From ticker-keyed data a rename is indistinguishable from one name leaving and another arriving. `add_ticker` declares one; nothing populates it. |
 | **No corporate actions** | No spin-offs, mergers, rights issues or share classes. |
 | **No point-in-time restatements** | Prices are as they are today, adjustments included. |

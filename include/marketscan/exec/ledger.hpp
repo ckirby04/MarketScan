@@ -106,7 +106,9 @@ public:
                                   Quantity quantity,
                                   Price fill_price,
                                   Price reference_price,
-                                  Money commission);
+                                  Money commission,
+                                  Timestamp decision_ts = kNever,
+                                  Timestamp price_ts = kNever);
 
     /// Books a delisting return against a position that has left the universe.
     ///

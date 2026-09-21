@@ -114,18 +114,19 @@ def test_the_accounting_identity_holds_every_day(bars):
 
 
 def test_cash_moves_the_session_after_a_rebalance(bars):
-    """Two properties, and this test has now been wrong twice in different ways.
+    """A rebalance on session N moves cash at N+1, and this has been right for two
+    different reasons.
 
-    The recorded cash at session N is the cash held *during* session N, before
-    that session's rebalance -- because that is when the engine records it: a
-    cross-sectional strategy is handed session N while the first bar of N+1 is
-    being dispatched, so it holds the previous book through all of N. A trade on
-    session N therefore shows up in the record at N+1.
+    It used to be a *sampling* fact: the decision on session N filled at session
+    N's prices while the engine was dispatching N+1's first bar, and the snapshot
+    was taken pre-trade, so the trade surfaced one row later. Since Session D Part
+    3 it is an *economic* fact: session N's cross-section sets targets, and those
+    targets do not become orders until each name next prints, which is session
+    N+1. The observable is identical and the mechanism is not.
 
-    The first draft asserted cash never moves at all, which is true only of the
-    opening rebalance. The second asserted it moves on rebalance dates, which was
-    true until the sampling instant was aligned with the engine's. What is
-    actually true is that it moves on the session *after* one.
+    Two earlier drafts of this test asserted cash never moves at all (true only of
+    the opening rebalance) and that it moves on rebalance dates (true until the
+    sampling instant was aligned with the engine's).
     """
     config = ParityConfig()
     run = simulate(bars, config)
@@ -141,13 +142,14 @@ def test_cash_moves_the_session_after_a_rebalance(bars):
     assert run.cash.nunique() > 1, "cash never moved at all; the book is not rebalancing"
 
 
-def test_the_recorded_book_is_the_one_held_through_the_session(bars):
-    """The sampling convention, asserted rather than left as a comment.
+def test_nothing_is_held_on_the_opening_session(bars):
+    """The sharpest case for the release convention.
 
-    On a rebalance session the recorded positions are the *previous* book. The
-    opening session is the sharpest case: the reference trades on session 0, and
-    the record for session 0 still shows an empty book and full cash -- which is
-    exactly what the engine reports, because it has not acted yet.
+    Session 0 is the first cross-section, so it can only *set* targets; the
+    earliest price any of them can trade at is session 1's. The record for session
+    0 is therefore an empty book and full cash, which is exactly what the engine
+    reports -- it has not acted yet, and under the old semantics it had, at prices
+    it was still looking at.
     """
     run = simulate(bars, ParityConfig())
     first = run.positions.iloc[0]
@@ -486,3 +488,106 @@ def test_applied_returns_is_empty_under_the_default(churn_panel):
     assert applied_returns(churn_panel.delistings) == {}, "the default is not last_price"
     assert len(applied_returns(churn_panel.delistings, APPLY_TRUE_RETURN)) == len(
         churn_panel.delistings)
+# ---------------------------------------------------------------------------
+# The target book
+# ---------------------------------------------------------------------------
+#
+# Session D Part 3. A cross-sectional decision is taken from a session's closes
+# and cannot honestly trade at them, so both layers state a target book and each
+# name's target becomes an order when that name next prints.
+#
+# The committed-curve tests above are the strong check -- they hold this reference
+# against an engine that implements the same rule independently. These assert the
+# rule itself, so that a failure says which part of it broke.
+
+
+def test_a_target_is_filled_at_the_next_session_not_the_one_it_was_sized_from(bars):
+    """The whole of the fix, in one assertion.
+
+    The first rebalance is session 0. Nothing trades on session 0 -- the earliest
+    price the decision can reach is session 1's -- and every one of the session-1
+    fills is at a session-1 close.
+    """
+    run = simulate(bars, ParityConfig())
+    closes = bars.pivot(index="date", columns="symbol", values="close")
+    sessions = list(closes.index)
+
+    traded_on = sorted({date for date, _, _, _ in run.trade_log})
+    assert sessions[0] not in traded_on, (
+        "something traded on the opening session, which is the session the first "
+        "decision was made from")
+    assert sessions[1] in traded_on
+
+    # Every logged price is that session's close for that symbol, never the
+    # previous session's.
+    for date, symbol, _shares, price in run.trade_log:
+        assert price == pytest.approx(float(closes.loc[date, symbol]), abs=0.0)
+
+    # And the share counts were sized against the *previous* session's close, so
+    # the two genuinely differ -- if they did not, this test would be passing
+    # because the prices happened to be equal.
+    first = [row for row in run.trade_log if row[0] == sessions[1]]
+    assert first
+    differed = sum(1 for _d, symbol, _s, price in first
+                   if price != float(closes.loc[sessions[0], symbol]))
+    assert differed == len(first), (
+        "every fill price equalled the close it was sized from; the release is not "
+        "happening a session later")
+
+
+def test_targets_are_released_in_symbol_order(bars):
+    """The order the engine's bars arrive in, which is the order it releases in.
+
+    It matters only if cash binds -- it does not on a dollar-neutral book of this
+    size -- but the two layers have to agree about it, so it is asserted rather
+    than assumed.
+    """
+    run = simulate(bars, ParityConfig())
+    by_session: dict[object, list[str]] = {}
+    for date, symbol, _shares, _price in run.trade_log:
+        by_session.setdefault(date, []).append(symbol)
+
+    assert by_session
+    for date, symbols in by_session.items():
+        assert symbols == sorted(symbols), f"releases out of symbol order on {date}"
+
+
+def test_a_target_whose_name_never_prints_again_is_abandoned(churn_bars, churn_panel):
+    """A target from two sessions ago, filled now, is a decision acting on
+    information it no longer has.
+
+    A departing name is in the cross-section of its final session, so it collects a
+    target it can never reach whenever that session is a rebalance one. The engine
+    drops it in `CrossSectionalStrategy::abandon_targets`; this drops it too, and
+    the count is what makes the two comparable.
+    """
+    run = simulate(churn_bars,
+                   delisting_returns=applied_returns(churn_panel.delistings,
+                                                     APPLY_TRUE_RETURN))
+    assert run.targets_abandoned > 0
+
+    # Nothing but the sweep trades in a name after its last bar.
+    #
+    # The sweep itself does, necessarily: a forced exit is the host liquidating at
+    # the last price the book held, which happens on the first session the name is
+    # no longer a member. So the count of trades dated after a name's final bar has
+    # to be exactly the count of forced exits -- one more than that would be a
+    # target released against a price that no longer exists, which is the failure
+    # this abandonment exists to prevent.
+    last_bar = churn_bars.groupby("symbol")["date"].max()
+    after_the_end = [(date, symbol) for date, symbol, _s, _p in run.trade_log
+                     if date > last_bar[symbol]]
+    assert len(after_the_end) == run.forced_exits, (
+        f"{len(after_the_end)} trades landed after their name's last bar against "
+        f"{run.forced_exits} forced exits: {after_the_end}")
+
+    # And each one is a liquidation, priced at that name's final close.
+    closes = churn_bars.pivot(index="date", columns="symbol", values="close")
+    for date, symbol, shares, price in run.trade_log:
+        if date <= last_bar[symbol]:
+            continue
+        assert price == pytest.approx(float(closes.loc[last_bar[symbol], symbol]), abs=0.0)
+        assert shares != 0.0
+
+    # The churn-free fixture abandons nothing, because nobody leaves it.
+    assert simulate(fixture_bars()).targets_abandoned == 0

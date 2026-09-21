@@ -189,9 +189,12 @@ class ParityRun:
 
     cash: pd.Series
     positions: pd.DataFrame
-    """Recorded **before** each session's rebalance, matching when the engine
-    records: it holds the previous book through all of session N and changes it
-    while the first bar of N+1 is dispatched."""
+    """The book at the **end** of each session, which is when the engine's own
+    sample is taken.
+
+    A session's trades are the previous session's targets being released, so by
+    the last bar of session N the book is whatever session N-1's cross-section
+    asked for. Targets set from session N's own closes have not traded yet."""
 
     trades: int
     commission: int
@@ -214,6 +217,10 @@ class ParityRun:
     """Micro-dollars booked by delisting returns rather than by fills. Zero under
     `last_price`, which is the whole of that model."""
 
+    targets_abandoned: int = 0
+    """Targets dropped because the symbol never printed again. The engine's
+    `CrossSectionalStrategy::targets_abandoned`."""
+
     def to_frame(self) -> pd.DataFrame:
         return pd.DataFrame({"equity_micros": self.equity.astype("int64"),
                              "cash_micros": self.cash.astype("int64")})
@@ -235,16 +242,40 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None,
     sort, the same decile boundary, closes before opens, the same epsilon on a
     trade too small to bother with.
 
-    CHURN, AND WHY THE SWEEP IS AT THE TOP OF THE LOOP
+    A TARGET BOOK, NOT ORDERS, AND WHY THE ORDER OF THE LOOP IS THE SPEC
 
-    A name whose bars stop is force-liquidated, and where the loop puts that is not
-    a matter of taste -- it is what makes the two layers comparable. The engine
-    runs `sweep_removals` from `on_event_complete`, on the first event of the first
-    session the name is no longer a member, and the shim fires `on_session_close`
-    for session N while the engine dispatches the first bar of N+1. So the engine's
-    order within that one event is: rebalance on session N's cross-section, then
-    sweep. Here, the session-N rebalance is at the *end* of iteration N and the
-    sweep is at the *top* of iteration N+1, which is the same order.
+    Session D Part 3. A cross-sectional decision is taken from a session's closes
+    and cannot honestly trade at them, so `on_cross_section` states a target book
+    and the shim turns each name's target into an order when that name **next
+    prints**. Both layers now do that, so each session of this loop does four
+    things in this order, and each one mirrors something the engine does:
+
+    1. **Sweep.** A held name whose bars have ended is liquidated at the last price
+       this table showed for it, then the delisting return the data supplies -- if
+       any, and there is none under `last_price` -- is booked against the position
+       that was closed. The engine does this from `on_event_complete` on the first
+       event of the first session the name is no longer a member.
+
+    2. **Release.** Every target set by the previous session's cross-section
+       becomes a trade at **this** session's close, in ascending symbol order,
+       which is the order a daily file's bars arrive in. A target whose symbol does
+       not print is abandoned, not carried: a target from two sessions ago, filled
+       now, is a decision acting on information it no longer has.
+
+    3. **Record.** The book, cash and equity as of this session's closes. This is
+       post-release and it has to be: the engine's own sample is the last state of
+       the ledger before the clock moves on, and by then the session's releases
+       have happened.
+
+    4. **Decide.** On a rebalance session, rank this session's cross-section and
+       set targets. No trade happens here.
+
+    Steps 1 and 2 are written sweep-first, and the engine interleaves them -- it
+    releases the session's *first* symbol before the sweep runs, because the sweep
+    hangs off the first event's completion. The two orderings are identical only
+    because the first symbol of every session is never traded, which is not an
+    accident and not luck either: see `ROLL_SYMBOL` and
+    `assert_roll_symbol_never_trades`.
 
     `delisting_returns` is what `research.delisting.applied_returns` produced, so
     it is empty under `last_price` and this function does not branch on the model.
@@ -268,6 +299,11 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None,
     forced_exits = 0
     delisting_log: list[tuple[pd.Timestamp, str, float, float, float, int]] = []
     delisting_pnl = 0
+
+    # Targets waiting for their symbol to print. `CrossSectionalStrategy`'s
+    # target book, in Python.
+    pending: dict[str, float] = {}
+    abandoned = 0
 
     # The last close each name printed, and the last session it printed one.
     # Membership is read off the bar table rather than taken as a second input:
@@ -323,24 +359,53 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None,
             delisting_pnl += amount
             delisting_log.append((date, symbol, quantity, mark, applied, amount))
 
+        # --- Release ------------------------------------------------------
+        #
+        # Ascending symbol order, because that is the order the engine's bars
+        # arrive in and therefore the order its targets are released in. It
+        # matters only if cash binds -- it does not on a dollar-neutral book of
+        # this size -- but the two layers have to agree about it regardless.
+        for symbol in sorted(pending):
+            if symbol not in close_row.index:
+                continue  # no print; abandoned below
+            price = float(close_row[symbol])
+            delta = sizing.trade_delta(pending[symbol], shares.get(symbol, 0.0))
+            if not sizing.should_submit(delta):
+                continue
+            fill = _fill_price(price, buying=delta > 0, config=config)
+            cash -= notional(fill, delta)
+            charge = notional(config.commission_per_share, abs(delta))
+            cash -= charge
+            commission_paid += charge
+            trade_log.append((date, symbol, delta, price))
+            shares[symbol] = shares.get(symbol, 0.0) + delta
+            if abs(shares[symbol]) < config.minimum_trade:
+                shares.pop(symbol)
+            trades += 1
+
+        # Whatever is left never printed. Dropped, not carried, and counted --
+        # `CrossSectionalStrategy::abandon_targets` does this at the top of every
+        # session close, so a target lives exactly one session.
+        abandoned += sum(1 for symbol in pending if symbol not in close_row.index)
+        pending = {}
+
         for symbol, price in close_row.items():
             last_close[str(symbol)] = float(price)
 
-        # Recorded BEFORE this session's rebalance, because that is when the
-        # engine records it.
+        # --- Record -------------------------------------------------------
         #
-        # A CrossSectionalStrategy is handed session N at on_session_close, which
-        # the shim fires while the engine is dispatching the first bar of session
-        # N+1. So the engine holds the *previous* book through the whole of
-        # session N and changes it at the start of N+1. The prices it trades at
-        # are still session N's closes -- the economics are identical, and the
-        # final equity of the two implementations agrees to the micro-dollar --
-        # but the snapshot at a rebalance session is of a different book.
+        # After this session's releases and before its targets are set, because
+        # that is the state the engine samples: one point per session, the last
+        # state of the ledger before the clock moves on. By the last bar of a
+        # session its releases have happened, and the targets this session's own
+        # cross-section is about to produce have not traded.
         #
-        # Recording post-trade here was the last remaining parity divergence:
-        # one session in 126, one micro-dollar of rounding on a rebalance that
-        # is equity-neutral at the marks it uses. Caught by
-        # test_parity.cpp's "agree, exactly".
+        # This moved with Session D Part 3. It used to be pre-trade, which was
+        # right when the previous session's decision *filled* at the previous
+        # session's prices; now that decision fills at this session's prices and
+        # the snapshot has to sit after it. The whole committed curve moved with
+        # it, which is the cost of the fix and is recorded in docs/STATUS.md.
+        #
         # Marked from the last close each name printed, not from today's row.
         # The two are the same number for every name that printed today, which is
         # every name in a panel with no gaps -- but the engine marks from its
@@ -373,31 +438,21 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None,
                 longs = set(order[:side])
                 shorts = set(order[count - side:])
 
-                # Closes first, then opens -- the same order as the theory, so
-                # that a cash-constrained rebalance is constrained identically.
-                ordered = ([s for s in order[side:count - side]] +
-                           [s for s in order[:side]] + [s for s in order[count - side:]])
-                for symbol in ordered:
+                # Targets, not trades. Sized against this session's close, which
+                # is the price the ranking came from; filled at the next one. That
+                # gap is the cost of not being able to trade at a close you are
+                # still looking at, and assuming it away was the lookahead.
+                #
+                # Every name in the cross-section gets one, the middle included at
+                # zero, exactly as the theory calls `set_flat` on them.
+                for symbol in order:
                     price = float(close_row[symbol])
                     if symbol in longs:
-                        target = sizing.target_shares(per_name, price, True)
+                        pending[symbol] = sizing.target_shares(per_name, price, True)
                     elif symbol in shorts:
-                        target = sizing.target_shares(per_name, price, False)
+                        pending[symbol] = sizing.target_shares(per_name, price, False)
                     else:
-                        target = 0.0
-                    delta = sizing.trade_delta(target, shares.get(symbol, 0.0))
-                    if not sizing.should_submit(delta):
-                        continue
-                    fill = _fill_price(price, buying=delta > 0, config=config)
-                    cash -= notional(fill, delta)
-                    charge = notional(config.commission_per_share, abs(delta))
-                    cash -= charge
-                    commission_paid += charge
-                    trade_log.append((date, symbol, delta, price))
-                    shares[symbol] = shares.get(symbol, 0.0) + delta
-                    if abs(shares[symbol]) < config.minimum_trade:
-                        shares.pop(symbol)
-                    trades += 1
+                        pending[symbol] = 0.0
 
     return ParityRun(
         equity=pd.Series(equity_by_date, dtype="int64").sort_index(),
@@ -409,6 +464,7 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None,
         forced_exits=forced_exits,
         delisting_log=delisting_log,
         delisting_pnl=delisting_pnl,
+        targets_abandoned=abandoned,
     )
 
 

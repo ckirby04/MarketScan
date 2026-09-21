@@ -207,24 +207,19 @@ returns are known by construction:
 
 | | `last_price` | `apply_true_return` |
 |---|---|---|
-| total return | **+11.74%** | **-18.36%** |
-| Sharpe | **+2.41** | **-1.14** |
-| delisting returns booked | $0.00 | -$30,008.25 |
+| total return | **+8.63%** | **-20.78%** |
+| Sharpe | **+1.81** | **-1.33** |
+| delisting returns booked | $0.00 | -$29,400.58 |
 
-The assumption is worth **30.10 points of return and 3.55 of Sharpe** on this
-fixture, and it does not merely flip the sign of the result. +2.41 clears the
-`NULL_SHARPE_THRESHOLD` of 1.927 that
-[`FALSE_DISCOVERY.md`](FALSE_DISCOVERY.md) derived from a 1,512-run null sweep —
-so under the optimistic assumption this rule looks distinguishable from noise
-after adjusting for the size of the search, and under the honest one it loses
-money.
+The assumption is worth **29.42 points of return and 3.14 of Sharpe** on this
+fixture, and it does not merely move the result — it flips its sign.
 
-The gap is larger than the adjustments themselves ($30,103.77 against
-$30,008.25). The extra $95.51 is compounding: a delisting return moves cash,
+The gap is larger than the adjustments themselves ($29,417.43 against
+$29,400.58). The extra $16.85 is compounding: a delisting return moves cash,
 decision-time equity is cash plus the marked book, and every rebalance after the
 first booked loss sizes a smaller book. Small on six months because most of the
 loss lands in the final month; it is the larger of the two terms over a long
-panel.
+panel, and the assertion is therefore the inequality rather than the figure.
 
 [`PATHOLOGIES.md`](PATHOLOGIES.md) measures the same assumption from the research
 layer alone, on its own panel, and reports it independently.
@@ -256,6 +251,106 @@ measurement above possible and also what limits it: the bimodal draw by cause �
 distress with mass near total loss, voluntary exits at a small premium — is a
 modelling choice, not an estimate of anything.
 
+---
+
+## The assumed instant
+
+A decision is taken from some information and acted on at some price, and the two
+cannot be the same instant. Session D Part 3; the shorthand for the limitation
+**and** for the check that now enforces its absence.
+
+### The triple
+
+Every fill records three timestamps, and `TradeRecord` carries all three:
+
+| | |
+|---|---|
+| `decision_ts` | The information horizon of the decision: the timestamp of the last event **in that symbol** that the strategy had *finished* being shown when it submitted. `StrategyInstance` keeps the per-symbol bookkeeping and records it after the plugin callback returns, so an order submitted from inside `on_bar(E)` is credited with what the strategy knew before E. |
+| `price_ts` | `OrderBook::last_update` for that symbol at the instant the fill model priced it — the market state the price came out of. |
+| `ts` | The fill. |
+
+Per symbol, not per session, because no notion of a session is needed: what makes
+a fill dishonest is that the strategy had already been shown the price it traded
+at, in that instrument.
+
+> **The invariant.** `price_ts > decision_ts` for every fill the strategy asked
+> for. `StrategyInstance::audit_instants` tallies the blotter into honest,
+> **simultaneous** (the lookahead), stale, unrecorded and forced-exit, and
+> `tests/test_parity.cpp` asserts it on both committed fixtures.
+
+An unrecorded triple counts as its own category rather than as honest: an
+unverified fill is not a verified one. **Forced exits are excluded**, and the
+exclusion is named rather than quiet — a forced exit is not a decision, the
+security has stopped printing, and there is no later price for it to fill
+against. That is *the assumed exit*, above, measured in its own right.
+
+### What it found
+
+Recorded, not argued. With the triple in place and nothing else changed:
+
+| | fills | honest | simultaneous |
+|---|---|---|---|
+| `parity_panel.csv` | 56 | **0** | **56** |
+| `parity_churn_panel.csv` | 55 | **0** | **55** |
+
+Every strategy fill in both committed fixtures traded at exactly the price its
+decision was made from. `STATUS.md` had this down as *predicted and not observed*
+— the reading of the engine was right, and the evidence had been a curve that
+happened to agree.
+
+The mechanism: `Engine::step` applies an event to the book before dispatching it,
+so a strategy reacting to a print and the fill model pricing its order see the
+same market. That is right for a strategy reacting to a print. But
+`IStrategy::advance_session` fires `on_session_close(N)` from inside the dispatch
+of the **first bar of session N+1**, so an order submitted there prices against
+session N's book for every symbol except the one whose bar rolled the session —
+which prices against N+1's. One symbol early, twenty-nine simultaneous.
+
+### The fix, and what it cost
+
+`CrossSectionalStrategy` now carries a **target book**: `on_cross_section` states
+what it wants to hold, and each name's target becomes an order when that name next
+prints. Every fill therefore lands at the first price its symbol printed after the
+decision, uniformly, with no symbol special. A target whose symbol never prints
+again is abandoned rather than carried — a target from two sessions ago, filled
+now, is a decision acting on information it no longer has.
+
+No ABI change: `plugin_abi.h` is frozen at v1 and its vtable has no session hook,
+so the shim can only learn that a session ended by being handed the next one's
+first bar. The fix belongs on the strategy side of that boundary, and that is
+where it is.
+
+It moved every committed parity number:
+
+| | equity before | after | Sharpe before | after |
+|---|---|---|---|---|
+| `parity_expected.csv` | $106,660.71 | $107,038.64 | +1.313 | +1.414 |
+| churn, `last_price` | $111,739.45 | $108,633.80 | +2.414 | **+1.810** |
+| churn, `apply_true_return` | $81,635.69 | $79,216.37 | -1.140 | -1.326 |
+
+Caught by the invariant above, and by `tests/test_parity.cpp`'s churn-parity case
+before that.
+
+**The sign is not uniform, and that is not a defect.** The churn-free path got
+$377.92 *better* without the lookahead. Trading a decile ranking one session later
+is a different strategy, not a strictly worse one, and on a single synthetic path
+the noise can go either way — the same caveat as *A note on the numbers* below.
+What the lookahead bought was not a uniform edge; it was a systematic
+misstatement.
+
+**What is not ambiguous is the Sharpe on the churn fixture.** +2.414 cleared the
+`NULL_SHARPE_THRESHOLD` of 1.927 that [`FALSE_DISCOVERY.md`](FALSE_DISCOVERY.md)
+derived from a 1,512-run null sweep; +1.810 does not. On this fixture the
+lookahead was worth 0.60 of Sharpe and it was the whole difference between a rule
+that looks distinguishable from noise after adjusting for the size of the search
+and one that does not.
+
+### What is still assumed about the instant
+
+A daily bar is one price, so "the next price this symbol printed" is the next
+session's close. A real order sent after a close fills somewhere in the next
+session, not at its close, and nothing here models where. The invariant says the
+fill is *later* than the decision; it does not say it is *realistic*.
 ---
 
 ## A note on the numbers

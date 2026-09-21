@@ -212,6 +212,67 @@ public:
         return delisting_returns_;
     }
 
+    // --- The lookahead probe --------------------------------------------
+    //
+    // Session D Part 3. Every fill records three timestamps -- the decision's
+    // information horizon, the market state the price came out of, and the fill
+    // itself -- and this is where the first of the three comes from, because it
+    // is the only one the engine cannot read off a book.
+    //
+    // The horizon is PER SYMBOL and it is "the last event in this symbol that the
+    // strategy had *finished* being shown". Finished matters: the host records it
+    // after the plugin callback returns, so an order submitted from inside
+    // `on_bar(E)` is credited with the information the strategy had before E.
+    // That is what makes the invariant target the defect it is meant to target --
+    // a cross-sectional decision taken from session N's closes and filled at
+    // session N's closes -- while leaving alone the legitimate case of a strategy
+    // reacting to a print and trading into it.
+    //
+    // Per symbol rather than per session because no notion of a session is
+    // needed: what makes a fill dishonest is that the strategy had already been
+    // shown the price it traded at, in that instrument.
+
+    /// The last event in `symbol` this strategy finished being shown, or kNever.
+    [[nodiscard]] Timestamp shown_ts(SymbolId symbol) const noexcept;
+
+    /// How the fills in this run divide up against the invariant.
+    ///
+    /// Counted from the blotter rather than tallied as fills arrive, so there is
+    /// one source of truth and no counter to drift from it.
+    struct InstantAudit {
+        /// Fills whose price was stamped **later** than the decision. Honest.
+        std::uint64_t honest = 0;
+
+        /// Fills whose price was stamped at the same instant as the decision: the
+        /// strategy traded at a price it had already been shown. **The lookahead.**
+        std::uint64_t simultaneous = 0;
+
+        /// Fills priced off a book older than the decision. Not a lookahead --
+        /// the opposite -- but not right either, and worth its own column.
+        std::uint64_t stale = 0;
+
+        /// Fills with no recorded horizon. An unverified fill is not a verified
+        /// one, so these are named rather than folded into `honest`.
+        std::uint64_t unrecorded = 0;
+
+        /// Forced exits. Excluded from the invariant: a forced exit is not a
+        /// decision, and the security has stopped printing, so there is no later
+        /// price for it to fill against. That is **the assumed exit**, named and
+        /// measured in its own right -- see exec/delisting.hpp.
+        std::uint64_t forced_exits = 0;
+
+        [[nodiscard]] std::uint64_t total() const noexcept {
+            return honest + simultaneous + stale + unrecorded + forced_exits;
+        }
+
+        /// The invariant: every strategy fill is later than what produced it.
+        [[nodiscard]] bool holds() const noexcept {
+            return simultaneous == 0 && stale == 0 && unrecorded == 0;
+        }
+    };
+
+    [[nodiscard]] InstantAudit audit_instants() const;
+
     /// Forced exits that found a delisting return in the table and booked it.
     ///
     /// Counted separately from `forced_exits` so that a run configured for
@@ -234,6 +295,9 @@ private:
     /// Force-liquidates anything held that has left the universe.
     void sweep_removals(Timestamp ts);
 
+    /// Records that the plugin has finished being shown `ts` for `symbol`.
+    void note_shown(SymbolId symbol, Timestamp ts);
+
     std::string id_;
     std::string display_name_;
     PluginInstance plugin_;
@@ -251,6 +315,10 @@ private:
     DelistingReturnModel delisting_model_ = kDefaultDelistingReturnModel;
     const DelistingReturns* delisting_returns_ = nullptr;
     std::uint64_t delistings_applied_ = 0;
+
+    /// Index is symbol id - 1. Dense by construction and never iterated into a
+    /// decision, so a vector rather than a map.
+    std::vector<Timestamp> shown_;
     std::uint64_t events_withheld_ = 0;
 
     /// Members as of the last event, so a removal is noticed on the event that
