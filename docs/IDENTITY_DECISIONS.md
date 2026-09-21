@@ -10,6 +10,21 @@ return that never existed, usually an enormous one.
 The source here is ticker-keyed and cannot express identity, so it has to be inferred.
 This file is every inference, including the ones that went the other way.
 
+> ## Not one of these has been validated
+>
+> **Every row below is inferred from the 730-day threshold, and none has
+> been checked against price data.** 0 of 53 gaps carry a measurement.
+>
+> That is not a gap in the build. The identity probe is written, unit-tested and
+> waiting; what it needs is the price history of securities that may have stopped
+> trading decades ago, and no source this project is permitted to use carries it.
+> See [`DATA_POLICY.md`](DATA_POLICY.md) for why, and [`STATUS.md`](STATUS.md) for the
+> reclassification of this work as CRSP-dependent.
+>
+> Over-splitting is the safe direction, so the failure mode here is lost history
+> rather than a fabricated price series. That is a real defence and it is not the
+> same thing as being right.
+
 ## The rule
 
 | | |

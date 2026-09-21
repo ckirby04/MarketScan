@@ -223,7 +223,68 @@ Part 3 owed* below for what it cost.
 | 3 | The lookahead probe | **done** — triple recorded, invariant asserted, fill-timing lookahead found and fixed |
 | 4 | Toolchain gate (GUI stack) | **passed** — vswhere 17.14.37710.0, full GUI build from source |
 | 5 | Universe Inspector | **done** — panel, snapshot, five tests, screenshot committed |
-| 6–7 | Dual view, close-out | not started |
+| 6–7 | Dual view, close-out | carried into Session E |
+
+## Session E: where it stands
+
+| | | |
+|---|---|---|
+| 0 | Verify Session D Part 2 | **verified**, nothing missing — see below |
+| 1 | `DATA_POLICY.md` | **done** |
+| 2 | Reclassify M3b, label identity honestly | **done** |
+| 3 | Make skips loud | **done** — and it found a worse bug than the skip |
+| 4 | The dual view | in progress |
+| 5 | Close-out | not started |
+
+### Part 0: Session D Part 2, verified
+
+Checked item by item rather than taken on trust, because it was never reported:
+
+| | |
+|---|---|
+| Generator emits a delisting return separate from the final bar, bimodal by cause | Present. Worst final bar among departures −3.9%; worst delisting return −100%. `PanelSpec.delist_return` is gone. |
+| Both layers carry the named model, `last_price` default | Present. `research/delisting.py` and `include/marketscan/exec/delisting.hpp`, spelled identically. |
+| `PATHOLOGIES.md` carries the flattery measurement | Present. §4: +54.64% against +32.84% total return, +4.30 against +1.91 Sharpe. |
+| Churn parity asserted under `apply_true_return` | Present. Exact equality, plus every booked adjustment reconciled row for row. |
+
+Nothing needed building.
+
+### Part 3: making skips loud found something worse than a skip
+
+The brief was to stop a skipped test reading as a pass. Doing it surfaced a
+failure one step further down.
+
+The calibration test gated on `std::filesystem::exists("data/cache/stooq")`. That
+directory got created during this session — empty, as a side effect of
+regenerating the identity report. With it present the test no longer skipped: it
+built the membership history, measured against an empty cache, found every case
+unresolved, **made zero assertions, and reported green.** "0 verified, 10
+coverage-limited", in a `WARN` nobody reads.
+
+A skipped test at least announces itself. A vacuous pass does not, and this is
+the test whose entire job is to say whether the identity classifier has ever been
+right about anything.
+
+Both halves are fixed:
+
+- **The test gates on data, not on a directory.** If it verifies zero cases it
+  `SKIP`s with the count in the reason, so the state is legible whether or not
+  somebody has an empty folder lying around.
+- **CI runs ctest through `scripts/check_skips.py`.** Every skip is named in the
+  job summary with its reason; any skip not in `tests/allowed_skips.txt` fails the
+  job. The allowlist requires a written justification per entry and the parser
+  refuses one without it.
+
+`ctest --output-junit` turned out to be useless for this: a run with 351 passes
+and one skip writes 351 testcases, every one `status="run"`, and `skipped="0"` on
+the suite. Trusting it would have rebuilt the exact blindness the script exists to
+remove, so the skips are parsed from ctest's console block instead. Ten tests
+cover the parser and the allowlist.
+
+**The one allowlisted skip** is the identity calibration case, with the
+justification that it is CRSP-dependent — see above. It is the only entry, and
+deleting it is the acceptance test for a vendor with delisted coverage.
+
 
 ### Part 0: the baseline, and what it cost to get
 
@@ -250,8 +311,8 @@ Baseline, taken before anything in Part 2 was changed:
 calibration case, and it has skipped in every run this file reports because the
 price data it needs has never been fetched — so the measurement that was supposed
 to resolve forty-one identity splits has never executed. A green suite with a
-skip in it is how that stayed invisible. See *Stooq is gated, and M3b has
-therefore never run*, below.
+skip in it is how that stayed invisible. See *M3b is CRSP-dependent, not blocked on
+Stooq*, below.
 
 Parts 2 and 3 then moved them, and the movement is accounted for:
 
@@ -261,6 +322,7 @@ Parts 2 and 3 then moved them, and the movement is accounted for:
 | after Part 2 | 343 (+9) | 199 (+14) |
 | after Part 3 | 346 (+3) | 202 (+3) |
 | after Part 5 | 351 (+5) | 203 (+1) |
+| after Session E Part 3 | 351, **1 skipped and allowlisted** | 213 (+10) |
 
 Part 2's additions are all in `test_parity.cpp` — the churn fixture, the two curve
 comparisons, the row-for-row reconciliation, the flattery gate, the rolling-symbol
@@ -351,7 +413,26 @@ reproducible rather than arranged.
 
 ## Blocked — needs a decision
 
-### 1. Stooq is gated, and M3b has therefore never run
+### 1. M3b is CRSP-dependent, not blocked on Stooq
+
+**This was misfiled, and the misfiling cost sessions.** M3b has been recorded as
+*blocked on Stooq* — as though one vendor came back and the milestone resumed.
+That is wrong, and it invited the wrong kind of work: hunting for a way through a
+gate, or waiting for it to lift.
+
+M3b measures **price continuity across a membership gap**, for securities that
+may have stopped trading decades ago. The input it needs is the price history of
+dead tickers. Free vendors do not carry that — not Stooq, and not the free tiers
+of the vendors that would replace it. A source carrying only currently-listed
+names cannot answer this question **at any price**, because the names the
+question is about are exactly the ones it is missing.
+
+So M3b is not a free-data milestone and not an engineering problem. It is
+**CRSP-dependent**, and it waits for data rather than for effort. CRSP settles it
+by deleting it: PERMNO *is* the identity, and the entire inference heuristic gets
+removed rather than validated.
+
+That reclassification is the point. What follows is why the free path closed.
 
 **The gate, diagnosed rather than inferred.** Probed 2026-09-21 from this
 machine:
@@ -435,14 +516,19 @@ fixtures, and the Universe Inspector draws real membership from them.
 | | |
 |---|---|
 | Wait | Now looks wrong. A proof-of-work gate is a decision by the operator, not an outage, and there is no reason to expect it to lapse. |
-| Another free source | Every one comes with a key, an account, or terms nobody here has read. Spec 1 forbids keys and accounts; Spec 2 named Stooq specifically. **This is a spec change, not a fix.** |
-| A licensed source | CRSP deletes this problem entirely — PERMNO *is* the identity, and the whole inference heuristic gets deleted rather than adapted. It also deletes the assumed exit. |
+| Another free source | Would restore *a* price feed, and would **not** restore M3b. Delisted coverage is the binding constraint and free tiers do not have it. Tiingo and EODHD both grant API access in their terms, which clears [`DATA_POLICY.md`](DATA_POLICY.md) §3 — but the question to ask either is "do you carry names that are no longer listed", and if the answer is no, the money buys nothing this milestone needs. |
+| A licensed source | CRSP deletes this problem entirely — PERMNO *is* the identity, and the whole inference heuristic gets deleted rather than adapted. It also deletes the assumed exit. **This is the only option that actually finishes M3b.** |
 | Ship without it | Legitimate, and it is what has happened so far. The splits stay inferences, the report says so, and over-splitting is the safe direction. What is **not** legitimate is letting the skipped test read as a passing suite. |
 
-**This is a Session E item.** It is not close-out material for Part 7: the
-measurement that was supposed to resolve forty-one splits has never executed, and
-writing the project up as finished without saying so in the README would be the
-single most misleading thing in it.
+**Where this is written down now.** The unvalidated status is stated at the top of
+[`IDENTITY_DECISIONS.md`](IDENTITY_DECISIONS.md) — generated from the measured
+count, so the sentence changes the day the count does — in the Universe
+Inspector's Identity tab, and in [`IDENTITY.md`](IDENTITY.md), which previously
+said the classifier was "calibrated by" the ten known cases. It is not: those
+cases have never been scored. That word is gone.
+
+The policy that governs the source decision is
+[`DATA_POLICY.md`](DATA_POLICY.md).
 
 ### 2. Forty-one identity splits want a human
 
@@ -481,24 +567,22 @@ document itself nominates as clean.
 | 5 | M9b, the dual view | not started |
 | 6 | Close-out: README and this file | partly — this file is current, `README.md` is not |
 
-### Session E: what must not be closed out
+### The identity model, and what is owed to the next phase
 
-One item, and it is the reason Part 7 cannot simply declare the project written
-up. **M3b — the price-continuity measurement that was built to resolve the
-forty-one identity splits — has never executed on real data.** Not deferred, not
-partially done: zero of fifty-three gaps measured, zero of ten ground-truth cases
-scored, and the test that would have said so skips.
+**M3b — the price-continuity measurement built to resolve the forty-one identity
+splits — has never executed on real data.** Not deferred, not partially done:
+zero of fifty-three gaps measured, zero of ten ground-truth cases scored.
 
-Stooq put a proof-of-work gate in front of the endpoint, which is a decision by
-the operator rather than an outage, so waiting is not a plan. The detail and the
-options are in *Stooq is gated, and M3b has therefore never run* above; the
-decision — another source, a licensed one, or shipping with the splits as
-declared inferences — belongs to a human, and belongs in Session E.
+It is now filed as **CRSP-dependent** rather than blocked, because that is what it
+is: the measurement needs delisted price history, and no source this project may
+use carries it. See *M3b is CRSP-dependent* above. Waiting is not a plan and
+neither is a free substitute.
 
-Whatever is decided, the README has to say that the identity model rests on a
-730-day threshold that has never been checked against a real price series.
-Writing this up as finished without that sentence would be the single most
-misleading thing in the repository.
+What that leaves standing: the 730-day threshold governs all 41 splits,
+over-splitting is the safe direction, and every artefact that reports an identity
+decision now says so on its face rather than implying it. That is a defensible
+place to ship from. It is not the same thing as being right, and the README says
+so too.
 
 ### What Part 3 owed, and what it got
 

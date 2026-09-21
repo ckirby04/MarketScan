@@ -125,13 +125,23 @@ Two further rules, both of which exist to stop the instrument overreaching:
   vendor data as a different company. Flagged cases get their own section of
   the report and keep whatever verdict they earned.
 
-> **Currently unmeasurable.** Stooq has put its CSV endpoint behind a
-> JavaScript check, so there is no price cache to measure against and all 53
-> gaps read `unresolved: no price data`. The classifier is built, unit-tested
-> offline against synthetic series, and calibrated by
-> `data/identity_calibration.csv` — ten cases whose status is known — which runs
-> and reports the moment data exists. Until then **the 730-day threshold
-> governs and all 41 splits remain inferences.** See [`DATA.md`](DATA.md).
+> **Never measured, and not measurable from any source this project may use.**
+> Stooq put a proof-of-work challenge in front of its endpoint and is excluded
+> — see [`DATA_POLICY.md`](DATA_POLICY.md) — so there is no price cache, all 53
+> gaps read `unresolved: no price data`, and **the 730-day threshold governs
+> all 41 splits.**
+>
+> Be precise about the classifier's status, because "calibrated" would be the
+> wrong word: it is built and unit-tested offline against synthetic series, and
+> the ten known cases in `data/identity_calibration.csv` are a calibration set
+> that **has never been scored**. The test that would score them skips, and has
+> skipped in every run this project has reported. Nothing about this heuristic
+> has been checked against a real price series.
+>
+> This is not a queued engineering task. The measurement needs the price history
+> of securities that may have stopped trading decades ago; delisted coverage is
+> the binding constraint, and it is what makes this **CRSP-dependent** rather
+> than a free-data milestone. See [`STATUS.md`](STATUS.md).
 
 ### Decisions that are not measurements
 

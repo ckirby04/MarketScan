@@ -1,0 +1,21 @@
+# Tests allowed to skip, and why.
+#
+# A skip is a test that did not run. "351 passed, 1 skipped" reads like a pass
+# and is not one -- and this project has the scar to prove it: the calibration
+# case below skipped across four reported counts (334, 343, 346, 351), was read
+# each time as cosmetic, and was the only test that would have revealed the
+# identity classifier had never been validated against anything.
+#
+# So skips are enumerated in the CI summary, and any skip not listed here fails
+# the job. Adding a line is a deliberate act and needs a reason somebody would
+# accept out loud.
+#
+# Format: one entry per test, `name :: reason`. Blank lines and # comments are
+# ignored. The name must match the ctest test name exactly.
+#
+# Before adding an entry, ask whether the test should skip at all. A test that
+# cannot run because the machine lacks something is a legitimate skip. A test
+# that "passes" while asserting nothing is not a skip, it is a bug -- fix it to
+# skip loudly first, then come here.
+
+the classifier agrees with the cases we are sure of :: Needs the price history of securities that may have stopped trading decades ago, to measure continuity across a membership gap. No source this project is permitted to use carries delisted coverage (docs/DATA_POLICY.md), so this is CRSP-dependent rather than blocked or unfinished -- see docs/STATUS.md. While it skips, all 41 identity splits are threshold inferences that have never been checked against a price series, and docs/IDENTITY_DECISIONS.md says so on its face. Remove this entry the day a vendor with delisted coverage arrives; the test is written and will run unchanged.

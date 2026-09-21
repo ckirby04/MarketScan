@@ -100,6 +100,7 @@ marketscan.exe --headless --daily data/cache/stooq --universe data/cache/univers
 
 | | |
 |---|---|
+| [`docs/DATA_POLICY.md`](docs/DATA_POLICY.md) | **How this project acquires data, and what it will not do to get it.** No circumvention, licensed data never committed, approved sources and why Stooq is excluded |
 | [`docs/DATA.md`](docs/DATA.md) | Where the bars come from, the binary cache format, and a list of what this data is missing |
 | [`docs/IDENTITY.md`](docs/IDENTITY.md) | Why a ticker is not an identity, and how the survivorship guard is enforced |
 | [`docs/IDENTITY_DECISIONS.md`](docs/IDENTITY_DECISIONS.md) | Every identity call the engine made on the real index, including the ones that went the other way |
@@ -108,6 +109,13 @@ marketscan.exe --headless --daily data/cache/stooq --universe data/cache/univers
 > conclusions.** No delisting returns, no point-in-time restatements, no
 > corporate actions. Every number derived from it is a statement about this
 > pipeline. Nothing here is committed: `data/cache/` is gitignored.
+
+> **The price source is currently excluded, not broken.** Stooq put a
+> proof-of-work challenge in front of its free endpoint; this project does not
+> solve it, and the triviality of the challenge made no difference to that
+> decision. See [`docs/DATA_POLICY.md`](docs/DATA_POLICY.md) — rule one, with the
+> Stooq case as its worked example. The `fetch_stooq.py` script is kept because
+> it detects and reports the gate correctly, not because it gets past it.
 
 ---
 

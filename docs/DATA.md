@@ -39,10 +39,17 @@ marketscan.exe --headless --cache-info data/cache/stooq
 > against committed synthetic fixtures. What is blocked is **measuring** real
 > identity — see [`IDENTITY.md`](IDENTITY.md).
 >
-> Restoring it means either Stooq lifting the gate, a different free daily
-> source, or a licensed one. Substituting a source is a decision, not a fix:
-> the specification names Stooq, and every other free vendor comes with either
-> a key, an account, or terms this project has not read.
+> Restoring it means a different source, not this one. The gate is a
+> **proof-of-work challenge served unconditionally on a cold request** — a
+> deliberate configuration, not an outage, so waiting is not a plan. This project
+> does not solve it, and the fact that it would take a dozen lines made no
+> difference to that: see [`DATA_POLICY.md`](DATA_POLICY.md), rule one, where the
+> Stooq case is the worked example.
+>
+> Substituting a source is a decision, not a fix. The bar is an API key and
+> documented terms; **silence is not consent**. And the constraint that actually
+> governs the choice is *delisted coverage* — a vendor carrying only live tickers
+> cannot answer the question the price data is wanted for, at any price.
 
 [Stooq](https://stooq.com) publishes end-of-day US equity history as CSV over
 plain HTTP. No API key, no account, no paid tier — which is the entire reason

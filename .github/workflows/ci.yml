@@ -43,6 +43,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # For scripts/check_skips.py, which wraps ctest. Pinned rather than
+      # relying on whatever the runner image ships, so the skip gate cannot stop
+      # working because an image changed.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Pin vcpkg to the manifest baseline
         shell: pwsh
         run: |
@@ -89,10 +96,18 @@ jobs:
       # The preset carries a per-test timeout; this is the belt to its braces,
       # so a test that wedges the whole ctest driver still fails the step
       # rather than the job.
+      #
+      # Through check_skips.py rather than ctest directly, because ctest's own
+      # summary reports "N passed" and mentions the skips in a footnote nobody
+      # reads. One skipped test survived four reported counts here -- 334, 343,
+      # 346, 351 -- and it was the only test that would have revealed the
+      # identity classifier had never been validated against anything. The
+      # wrapper names every skip in the job summary and fails on any that is not
+      # in tests/allowed_skips.txt with a written reason.
       - name: Test
         timeout-minutes: 20
         shell: pwsh
-        run: ./scripts/dev-env.ps1 ctest --preset ${{ matrix.preset }}
+        run: ./scripts/dev-env.ps1 python scripts/check_skips.py --preset ${{ matrix.preset }}
 
       - name: Upload build log on failure
         if: failure()

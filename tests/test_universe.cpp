@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -937,9 +938,18 @@ TEST_CASE("the classifier agrees with the cases we are sure of",
     const std::filesystem::path price_cache("data/cache/stooq");
     const std::filesystem::path calibration_path("data/identity_calibration.csv");
 
-    if (!std::filesystem::exists(history_path) || !std::filesystem::exists(price_cache)) {
-        SKIP("no membership history or price cache; run scripts/fetch_sp500.py and "
-             "scripts/fetch_stooq.py --symbols-file <the gap tickers>");
+    // Gated on the history only. Whether there is anything to measure is decided
+    // at the bottom, on the count of cases actually verified -- not here, on
+    // whether a directory exists.
+    //
+    // That distinction is not pedantry. `data/cache/stooq` existing and being
+    // empty used to satisfy this check, after which the test measured nothing,
+    // asserted nothing, and reported **green**: "0 verified, 10
+    // coverage-limited". A skipped test at least announces itself. A vacuous pass
+    // does not, and this is the test whose whole job is to say whether the
+    // identity classifier has ever been right about anything.
+    if (!std::filesystem::exists(history_path)) {
+        SKIP("no membership history; run scripts/fetch_sp500.py");
     }
 
     // ticker -> expected verdict.
@@ -994,6 +1004,21 @@ TEST_CASE("the classifier agrees with the cases we are sure of",
             ++checked;
             break;
         }
+    }
+
+    // Nothing verified is not a pass.
+    //
+    // Skipped, loudly, with the count in the reason, so it lands in the CI skip
+    // enumeration and has to be allowlisted deliberately rather than scrolling
+    // past as "N passed". See scripts/check_skips.py and tests/allowed_skips.txt.
+    if (checked == 0) {
+        std::ostringstream reason;
+        reason << "0 of " << expected.size()
+               << " calibration cases could be verified: no price data for any of them ("
+               << coverage_limited << " coverage-limited). The identity classifier has never "
+               << "been checked against a real price series. This needs delisted price "
+               << "history, which no permitted source carries -- see docs/DATA_POLICY.md.";
+        SKIP(reason.str());
     }
 
     WARN("calibration: " << checked << " verified, " << coverage_limited << " coverage-limited, of "

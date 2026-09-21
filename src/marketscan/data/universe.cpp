@@ -761,6 +761,42 @@ void write_decision_report(const std::filesystem::path& path,
            "inferred.\nThis file is every inference, including the ones that went the other "
            "way.\n\n";
 
+    // The banner, stated before any table rather than implied by the word
+    // "inference" somewhere below it.
+    //
+    // A reader who skims this file needs to leave knowing one thing: not a single
+    // row here has been checked against a price series. `measured` counts the
+    // decisions where the identity probe actually ran, and on every report this
+    // project has produced it is zero -- so the sentence is generated from the
+    // count rather than asserted, and it will start reading differently the day
+    // the count changes.
+    std::size_t measured_gaps = 0;
+    for (const IdentityDecision& decision : history.decisions) {
+        measured_gaps += decision.measured.resolved() ? std::size_t{1} : std::size_t{0};
+    }
+
+    out << "> ## Not one of these has been validated\n>\n";
+    if (measured_gaps == 0) {
+        out << "> **Every row below is inferred from the " << days_of(rules.split_gap)
+            << "-day threshold, and none has\n> been checked against price data.** "
+            << measured_gaps << " of " << history.decisions.size()
+            << " gaps carry a measurement.\n>\n";
+        out << "> That is not a gap in the build. The identity probe is written, unit-tested "
+               "and\n> waiting; what it needs is the price history of securities that may have "
+               "stopped\n> trading decades ago, and no source this project is permitted to use "
+               "carries it.\n> See [`DATA_POLICY.md`](DATA_POLICY.md) for why, and "
+               "[`STATUS.md`](STATUS.md) for the\n> reclassification of this work as "
+               "CRSP-dependent.\n>\n";
+        out << "> Over-splitting is the safe direction, so the failure mode here is lost "
+               "history\n> rather than a fabricated price series. That is a real defence and "
+               "it is not the\n> same thing as being right.\n\n";
+    } else {
+        out << "> " << measured_gaps << " of " << history.decisions.size()
+            << " gaps carry a measurement against price data; the rest are\n> inferred from the "
+            << days_of(rules.split_gap)
+            << "-day threshold alone. A row's provenance is in its own\n> line below.\n\n";
+    }
+
     out << "## The rule\n\n";
     out << "| | |\n|---|---|\n";
     out << "| Split threshold | " << days_of(rules.split_gap) << " days |\n";

@@ -233,6 +233,26 @@ void draw_identity(const UniverseSnapshot& universe) {
                 "Every decision the heuristic made is here with the rule that made it, "
                 "so a call that nearly went the other way is visible rather than magic.");
 
+    // What `not measured` means, said in the panel rather than left for a reader
+    // to infer from an empty column. The distinction the whole Identity tab turns
+    // on: the column is reporting a real state of the world, not a part of the
+    // build that was never finished.
+    if (universe.measured_count == 0 && !universe.decisions.empty()) {
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(theme::colors().warning),
+                           "! none of these has been validated against price data");
+        ImGui::SameLine();
+        help_marker("Every row below was decided by the 730-day threshold or by a hand-written "
+                    "override. The measurement column reads 'not measured' for all of them.\n\n"
+                    "That is a real state, not an unfinished panel. The identity probe is written "
+                    "and unit-tested; what it needs is the price history of securities that may "
+                    "have stopped trading decades ago, and no source this project is permitted to "
+                    "use carries it.\n\n"
+                    "What would change it: a vendor with delisted coverage. CRSP is the one that "
+                    "settles it outright -- PERMNO is the identity, and this entire heuristic gets "
+                    "deleted rather than validated. See docs/DATA_POLICY.md.");
+        ImGui::Spacing();
+    }
+
     if (universe.decisions.empty()) {
         ImGui::TextColored(
             ImGui::ColorConvertU32ToFloat4(theme::colors().text_faint),
