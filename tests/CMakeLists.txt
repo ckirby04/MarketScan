@@ -60,6 +60,7 @@ function(marketscan_add_test name)
     target_compile_definitions(${name} PRIVATE
         MARKETSCAN_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/data/samples"
         MARKETSCAN_THEORY_DIR="${MARKETSCAN_RUNTIME_DIR}/theories"
+        MARKETSCAN_RUNTIME_DIR="${MARKETSCAN_RUNTIME_DIR}"
         MARKETSCAN_TEST_PLUGIN_DIR="${MARKETSCAN_TEST_PLUGIN_DIR}"
         MARKETSCAN_TEMPLATE_DLL="${CMAKE_BINARY_DIR}/theory_template/my_theory.dll"
         MARKETSCAN_PARITY_THEORY_DIR="${CMAKE_BINARY_DIR}/parity_theory")
@@ -110,6 +111,10 @@ marketscan_add_test(test_hot_path    test_hot_path.cpp)
 # The sizing rule, cross-tested against research/sizing.py through one committed
 # grid of cases. docs/SIZING.md is the specification both implement.
 marketscan_add_test(test_sizing      test_sizing.cpp)
+
+# Paper only, structurally. Scans the built binaries, which is the half a
+# source grep cannot do; scripts/check_no_live_endpoints.py does the tree.
+marketscan_add_test(test_paper_only  test_paper_only.cpp)
 
 # M9. Replays the committed fixture through the engine and compares the equity
 # curve to the one research/parity.py produced from the same file, so it needs

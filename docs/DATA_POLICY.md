@@ -134,6 +134,81 @@ milestone stays CRSP-dependent — see
 
 ---
 
+## 7. Broker access
+
+Everything above governs market data. It governs a broker identically, and a
+broker adds two rules of its own, because a mistake here moves money.
+
+### Paper only, and structurally rather than by configuration
+
+**The live-money trading host does not appear anywhere in this repository.** Not
+in a constant, not in a comment, not in a config example, not behind a flag.
+There is no value any setting could take that reaches a live account, because the
+string is not present to be reached.
+
+That is deliberately stronger than a safe default. A default can be changed by
+somebody who does not know what it protects — including a future session of an
+assistant reading a config key and helpfully making it configurable. An absent
+string cannot.
+
+Enforced in two places, both of which fail the build:
+
+| | |
+|---|---|
+| `scripts/check_no_live_endpoints.py` | Scans the source tree. Runs in CI before anything is built. |
+| `tests/test_paper_only.cpp` | Scans the **built binaries**, which a source grep cannot: a string can reach a binary through a header, a generated file or a dependency without appearing in any source file a reviewer would read. |
+
+**Both check an allowlist, not a blocklist**, and the reason is worth stating
+because the obvious implementation is wrong. The live trading host is the paper
+host with a prefix removed, so searching for the live host *also matches the
+paper host*, and searching for it while excluding the paper host misses anything
+spelled slightly differently. So neither guard looks for a forbidden string.
+Each finds every host in the broker's domain and requires it to be one that is
+allowed — which fails on an endpoint nobody anticipated, and which means the
+forbidden hostname never has to be written down. A guard that names the thing it
+forbids has put the thing it forbids in the repository.
+
+### Credentials come from the environment and nowhere else
+
+No file, no config key, no command-line argument, no default. `APCA_API_KEY_ID`
+and `APCA_API_SECRET_KEY`, read at the point of use.
+
+- **Absent credentials are an error, not a fallback.** A missing key names the
+  variable that is missing. It does not quietly fall back to a simulator, a
+  read-only mode, or a different account — a run that looks live, reports
+  numbers, and was never connected to anything is the same class of bug as a test
+  that passes without measuring.
+- **A secret is never logged, printed or put in an error message.** `redact()`
+  returns the first four characters of a key id and nothing else: enough to tell
+  two accounts apart in a log, not enough to be one.
+- **The gitignore entries were added before the first key existed**, which is the
+  only time adding them is free.
+- `scripts/check_no_secrets.py` fails on anything shaped like a key or secret
+  beside a credential word, because a gitignore is a convenience that one
+  `git add -f` defeats.
+
+Both scanners have been run against a deliberate violation and observed to fail.
+A guard that has only ever seen clean input is an assertion that has never been
+tested — the same rule the rest of this project's tests are held to.
+
+### Rate limits are respected, not worked around
+
+§1 and §2 apply to a broker exactly as they apply to a data vendor. A rate limit
+is backed off from and logged. It is not evaded by rotating identifiers, opening
+parallel connections, or retrying faster. If a limit makes something impossible,
+that is a finding to report, not an obstacle to route around.
+
+### What paper trading is not
+
+Paper fills are the venue's simulation, not the venue's book. They are better
+than a local fill simulator for exercising the *order lifecycle* — rejections,
+partials, cancels that lose a race — and they are **not** evidence about fill
+quality, queue position, or what an order would have done to a real book.
+
+Nothing measured against paper is a statement about execution.
+
+---
+
 ## Why this file exists
 
 A closed door invites a workaround, and the workaround is usually easy. The

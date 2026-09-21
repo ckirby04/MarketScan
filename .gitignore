@@ -27,12 +27,23 @@ imgui.ini
 logs/
 
 # --- Secrets: never commit ---
+#
+# Added BEFORE the first credential existed, which is the only time adding them
+# is free. Broker keys come from the environment and from nowhere else; see
+# docs/DATA_POLICY.md and include/marketscan/live/credentials.hpp.
+#
+# scripts/check_no_secrets.py enforces this in CI, because a gitignore is a
+# convenience that one `git add -f` defeats.
 .env
 .env.*
 *.key
 *.pem
 secrets.json
 credentials.json
+alpaca.json
+alpaca.toml
+broker.json
+*.credentials
 
 # --- Market data: never commit anything but the curated samples ---
 data/*

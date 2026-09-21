@@ -109,6 +109,13 @@ jobs:
         shell: pwsh
         run: ./scripts/dev-env.ps1 python scripts/check_skips.py --preset ${{ matrix.preset }}
 
+      # The binaries, which a source grep cannot reach. tests/test_paper_only.cpp
+      # asserts the same thing from inside the suite; this is the belt to its
+      # braces and it runs even if that test is filtered out.
+      - name: No live-money endpoints in the built binaries
+        shell: pwsh
+        run: python scripts/check_no_live_endpoints.py --binaries out/build/${{ matrix.preset }}/bin
+
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -135,6 +142,14 @@ jobs:
       # an unpinned binary turns a green branch red for no reason at all.
       - name: Install clang-format
         run: pip install "clang-format==${{ env.CLANG_FORMAT_VERSION }}"
+
+      # Both run in the format job because neither needs a build, so a violation
+      # fails in seconds rather than after a twenty-minute Windows build.
+      - name: No live-money broker endpoints
+        run: python scripts/check_no_live_endpoints.py
+
+      - name: No credentials in the tree
+        run: python scripts/check_no_secrets.py
 
       - name: Check formatting
         run: |
