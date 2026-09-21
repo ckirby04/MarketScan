@@ -25,6 +25,13 @@
     scripts\capture_screenshot.ps1 -Preset release -Seconds 10
 
 .EXAMPLE
+    # Both view modes, which is what the README shows.
+    scripts\capture_screenshot.ps1 -Output docs/screenshots/overview.png `
+        -ExtraArgs @('--view', 'overview')
+    scripts\capture_screenshot.ps1 -Output docs/screenshots/operator.png `
+        -ExtraArgs @('--view', 'operator')
+
+.EXAMPLE
     # One panel, over a universe that churns.
     scripts\capture_screenshot.ps1 -Data data/cache/synthetic/bars.csv `
         -Output docs/screenshots/universe.png -ExtraArgs @(
@@ -33,7 +40,7 @@
 [CmdletBinding()]
 param(
     [string] $Preset = "release",
-    [string] $Output = "docs/screenshots/dashboard.png",
+    [string] $Output = "docs/screenshots/operator.png",
     [int] $Seconds = 8,
     [string] $Data = "data/samples/synthetic_spy_1min.csv",
 

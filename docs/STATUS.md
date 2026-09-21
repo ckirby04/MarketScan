@@ -1,8 +1,42 @@
 # Status
 
-Where the project is, what to do next, and what is blocked.
+A handoff, not a changelog. What is proven and by which measurement, what is
+approximated and where, what is unresolved, and what the next phase needs.
 
-**Last updated:** 2026-09-18, end of Session B. CI green.
+**Last updated:** 2026-09-21, end of Session E. CI green. 367 C++ tests (one
+skipped, allowlisted), 213 Python.
+
+---
+
+## The result this project is for
+
+A strategy in this repository measured a **Sharpe of 2.414**, above the **1.927**
+threshold that a 1,512-run null sweep produced as the bar a result must clear
+before it can be called distinguishable from noise.
+
+It was an artefact. Every one of its fills — **56 of 56** on one fixture and
+**55 of 55** on the other — had taken its price from the very bar its own
+decision was made on. Corrected, the same strategy measures **1.810**, below the
+threshold.
+
+**The apparent result was the lookahead.** The effect was worth 0.60 of Sharpe
+here and it was the whole distance between "this looks real" and "this does not".
+
+Three instruments caught it, and none of them was looking for it:
+
+| | |
+|---|---|
+| **The bit-exact parity assertion** | Two independent implementations of the same strategy, compared with no tolerance. They diverged by $606.07 at session 1 of 126 on one symbol, which is a number small enough to have been waved away by any tolerance at all. |
+| **The per-fill timestamp triple** | Decision horizon, price timestamp, fill timestamp, recorded on every fill. It turned an argument about the engine into a count: zero honest fills in either run. |
+| **The empirical null from M8** | Without a measured threshold, 2.414 and 1.810 are both just numbers. The threshold is what makes the correction mean something, and it is why the sweep was worth 1,512 runs. |
+
+**The 0.60 is not a constant.** It is one effect, on one small synthetic fixture,
+under one rebalance rule. What transfers is the shape of the thing: a lookahead
+does not announce itself as a bug, it announces itself as a *result*, and the
+only defence is instruments built before you need them.
+
+That is the artefact this project is handing over. It is a better thing to hand
+someone than a result it found.
 
 ---
 
@@ -21,16 +55,21 @@ git clone https://github.com/microsoft/vcpkg.git $env:USERPROFILE\vcpkg
 #    takes a while; later ones are cached.
 ./scripts/dev-env.ps1 cmake --preset release
 ./scripts/dev-env.ps1 cmake --build --preset release
-./scripts/dev-env.ps1 ctest --preset release          # 327 tests
 
-# 3. The index membership history. This one still works.
+# 3. Test. Through check_skips.py rather than ctest directly -- a skipped test
+#    is not a pass, and this project has the scar to prove it.
+./scripts/dev-env.ps1 python scripts/check_skips.py --preset release
+
+# 4. The index membership history. This one still works.
 python scripts/fetch_sp500.py
 marketscan.exe --headless --build-universe data/cache/universe/sp500_history.csv
 
-# 4. Price data. This one does NOT work -- see the blocker below.
+# 5. Price data. This one does NOT work, and is not going to -- see
+#    docs/DATA_POLICY.md. The script is kept because it reports the gate
+#    correctly, not because it gets past it.
 python scripts/fetch_stooq.py --symbols AAPL
 
-# 5. The research layer. Pure Python, no vcpkg, no MSVC, no engine.
+# 6. The research layer. Pure Python, no vcpkg, no MSVC, no engine.
 pip install -r research/requirements.txt
 pytest
 ```
@@ -42,6 +81,12 @@ The research layer is worth knowing about separately: it needs none of the C++
 toolchain. On a machine with Python and no vcpkg -- which is a normal state for
 a machine that has only ever run the analysis -- `pytest` and
 `python -m research.sweep` both work from a fresh clone.
+
+**On this machine specifically:** Norton intercepts TLS and holds freshly built
+binaries. Both need a SONAR/Auto-Protect exclusion, which is a different setting
+from the scan exclusion, and the build still wants `-j 3` — twenty binaries
+linked and launched at once will stall regardless.
+
 
 ---
 
@@ -56,7 +101,7 @@ a machine that has only ever run the analysis -- `pytest` and
 | **Data** | daily bars, binary cache, one merged feed | [`DATA.md`](DATA.md) |
 | **Identity** | `SecurityId`, dated resolution, dateless overload deleted | [`IDENTITY.md`](IDENTITY.md) |
 | **Universe** | structural survivorship guard | a strategy has no API that returns a non-member |
-| **GUI** | twelve panels, ImGui + ImPlot | `docs/screenshots/dashboard.png` |
+| **GUI** | two view modes over one snapshot; thirteen panels in Operator | `docs/screenshots/overview.png`, `operator.png` |
 | **Python** | pybind11 over the same `run_backtest` | `bindings/python/examples/quickstart.ipynb` |
 | **Research** | synthetic panels, purged CV, constrained portfolios | [`research/README.md`](../research/README.md) |
 | **Calibration** | the pipeline recovers a planted signal, is fooled by injected biases, and has a measured false-discovery rate | [`PATHOLOGIES.md`](PATHOLOGIES.md), [`FALSE_DISCOVERY.md`](FALSE_DISCOVERY.md) |
@@ -71,6 +116,140 @@ Linux -- deliberately, because the research layer depends on nothing in the C++
 toolchain and the first import that changes that turns the job red.
 
 ---
+
+---
+
+## What is proven, and by which measurement
+
+Nothing in this column rests on an argument. Each row names the assertion that
+holds it, and every one of them runs in CI.
+
+| Claim | Measurement |
+|---|---|
+| **The ledger cannot create or destroy value.** | `equity == starting + realized - commission + unrealized`, exactly, in integer micro-dollars. Checked after every fill, including across the delisting path. |
+| **Two independent implementations of one strategy agree to the micro-dollar.** | `tests/test_parity.cpp`, no tolerance parameter anywhere. A C++ theory and a Python reference over the same committed bytes. |
+| **No fill uses a price its decision had already seen.** | The per-fill timestamp triple, with `price_ts > decision_ts` asserted on both fixtures. Forced exits excluded, and the exclusion is named rather than quiet. |
+| **Position sizing is bit-identical across the two layers.** | 54 adversarial cases in `data/samples/sizing_cases.csv`, read by both suites, asserted equal. |
+| **A strategy is never shown a bar for a non-member.** | Structural: `StrategyInstance` is the only path from an event to a plugin, and the host context exposes no way to ask about a non-member. 336 events withheld on the committed synthetic universe, counted rather than claimed. |
+| **A search of 252 variants over three years needs a Sharpe of 1.927 to mean anything.** | 1,512 null runs, Gumbel fit, effective-tries calibration. `docs/FALSE_DISCOVERY.md`. |
+| **A lookahead is worth more than it looks.** | 2.414 → 1.810 on the churn fixture. See the top of this file. |
+| **Assuming a zero delisting return flatters a backtest.** | 29.42 points of return and 3.14 of Sharpe, measured by running one strategy under both settings of `DelistingReturnModel`. Measured independently in the research layer as well, on its own panel. |
+| **The two view modes cannot disagree.** | `tests/test_view_modes.cpp`: same series, same arrays, same entity colours across densities; hiding a series repaints nothing. |
+| **No test skips silently.** | `scripts/check_skips.py` enumerates every skip and fails on any not allowlisted with a written reason. |
+
+---
+
+## What is approximated, and where
+
+Each of these is a substitution for a measurement this project does not have.
+They are named in code, not just in documentation, so a result carries its
+assumption with it.
+
+### The assumed exit
+
+A held position in a name that leaves the index is liquidated at the last price
+the book had. `DelistingReturnModel` names that assumption on both sides and the
+alternative beside it; `last_price` is the default, so no committed number moved
+when the switch appeared.
+
+**Worth 29.42 points of return and 3.14 of Sharpe** on the churn fixture — enough
+to flip its sign. On real data `apply_true_return` has nothing to apply, so every
+number over a universe with departures in it carries `last_price`. CRSP deletes
+this.
+
+### Identity inference
+
+Forty-one splits of a ticker into two securities, **every one of them inferred
+from a 730-day threshold and none checked against a price series.** Over-splitting
+is the safe direction — it costs history rather than fabricating a series — and
+that is a real defence, not a claim of correctness. See below.
+
+### The fill model
+
+A fill is the next close. A real order sent after a close fills *somewhere in*
+the next session and nothing here models where. There is no queue position, no
+partial-fill ladder, no borrow cost and no locate. Market impact is a square-root
+law with a coefficient nobody measured.
+
+### The research layer is frictionless
+
+By design: the engine owns execution, and a second cost model would be a second
+answer to a question that already has one. Every Sharpe in `research/` reads
+better than anything tradeable.
+
+### The null is Gaussian
+
+The false-discovery threshold was measured against a market factor plus normal
+noise. Real returns have fat tails, volatility clustering and cross-sectional
+structure that panel does not contain, all of which give a search *more* to find.
+**The measured threshold is a floor.**
+
+---
+
+## What is unresolved
+
+| | |
+|---|---|
+| **M3b has never run.** | Zero of 53 gaps measured, zero of 10 ground-truth cases scored. CRSP-dependent, not blocked — see below. |
+| **Forty-one splits want a human.** | The threshold decided them; a person should review the ones it nearly went the other way on. Four overrides exist and are hand-written company facts, not measurements. |
+| **One transient test failure, unexplained.** | Seen once, never reproduced. Recorded rather than closed. |
+| **No real market data has ever entered this pipeline.** | Not one number in this repository is a statement about markets. |
+
+---
+
+## What the next phase needs
+
+**Data, and it is not close.** This is the conclusion Session C Part 2 measured
+rather than assumed, and it decides what is worth doing next.
+
+The false-discovery bar is the spread of null Sharpes times an extreme-value
+factor. The spread falls as `1/sqrt(sample length)`. The factor grows as roughly
+`sqrt(2 ln n)` in the number of independent tries. Square root against logarithm:
+
+| sample | bar, 25 variants | bar, 252 variants |
+|---|---|---|
+| 3 years | 1.78 | 2.03 |
+| 8 years | 1.15 | 1.34 |
+| 20 years | **0.68** | **0.77** |
+
+**Twenty years with the full sweep gives a more usable bar than three years with
+a tenth of the variants.** Discipline about what you test is worth something;
+sample length is worth more, and it is not close. A realistic equity factor
+Sharpe of 0.3–0.8 is not detectable *at all* on three years, at any level of
+restraint about the size of the search.
+
+That makes the data source a **research-design constraint rather than a
+convenience**, and it is why CRSP back to 1926 matters more than any modelling
+improvement currently available:
+
+1. **It makes results possible at all.** Long samples move the bar below the
+   effect size a real factor has.
+2. **It deletes the identity heuristic.** PERMNO *is* the identity. The 730-day
+   threshold, the 41 inferences and the whole of M3b are removed rather than
+   validated.
+3. **It deletes the assumed exit.** CRSP carries measured delisting returns, so
+   `apply_true_return` stops being a synthetic-only setting.
+4. **It carries delisted names**, which is the binding constraint no free source
+   and no free tier satisfies. A vendor with only live tickers cannot answer these
+   questions at any price.
+
+Before any of that: `docs/DATA_POLICY.md` §4 governs what happens when licensed
+data arrives — extracts outside the repository, cache gitignored, published
+results aggregate rather than reconstructible. It is written while the question
+is hypothetical so that it is already settled when it is not.
+
+**What does not need doing:** more modelling. The engine, the research pipeline,
+the guards and the instruments are built and measured. Pointing them at three
+years of free daily bars would produce more numbers and no more knowledge.
+
+---
+
+## How it got here
+
+The rest of this file is the record: what each session changed, what it cost in
+committed numbers, and which assertion caught each mistake. It is kept because
+several of the corrections are more instructive than the code that resulted, and
+because a number that moved without an explanation is a number nobody can trust.
 
 ## What Session B measured
 
@@ -234,7 +413,7 @@ Part 3 owed* below for what it cost.
 | 2 | Reclassify M3b, label identity honestly | **done** |
 | 3 | Make skips loud | **done** — and it found a worse bug than the skip |
 | 4 | The dual view | **done** |
-| 5 | Close-out | not started |
+| 5 | Close-out | **done** |
 
 ### Part 0: Session D Part 2, verified
 
@@ -462,7 +641,10 @@ no field that could introduce one.
 
 ---
 
-## Blocked — needs a decision
+## The open items, in detail
+
+The summary of these is above, under *What is unresolved*. This is the working
+out: what was diagnosed, what it cost, and which options are actually available.
 
 ### 1. M3b is CRSP-dependent, not blocked on Stooq
 
@@ -602,7 +784,7 @@ fails every time.
 
 ---
 
-## Next
+## What each session owed, and what it delivered
 
 **Session C is part-done.** Parts 0–3 of `MARKETSCAN_SESSION_C.md` are complete
 except where noted; Parts 4–6 have not been started, which is the boundary that
@@ -615,8 +797,8 @@ document itself nominates as clean.
 | 2 | What moves the bar | done |
 | 3 | M9 parity | done — churn-free parity, the cost check, and (in Session D Part 2) **churn parity, exact under both delisting models** |
 | 4 | Universe Inspector panel | done in Session D Part 5 |
-| 5 | M9b, the dual view | not started |
-| 6 | Close-out: README and this file | partly — this file is current, `README.md` is not |
+| 5 | M9b, the dual view | done in Session E Part 4 |
+| 6 | Close-out: README and this file | done in Session E Part 5 |
 
 ### The identity model, and what is owed to the next phase
 
@@ -748,23 +930,20 @@ between a rule that looks distinguishable from noise after adjusting for the siz
 of the search and one that does not. That is the closest thing this project has
 produced to a demonstration of why the threshold is there.
 
-### Parts 4–6
+### Parts 4–6, as delivered
 
-Read `specs/SPEC_VIEW_MODES.md` in full before starting Part 5; it is binding as
-written. Both need the GUI stack, so the first step is `cmake --preset release`,
-which builds ImGui, ImPlot and GLFW from source and takes a while on a cold
-vcpkg cache. Everything in Parts 0–3 was done on the `ci` preset, which needs
-none of that.
+All three landed in Sessions D and E. Part 4 became the Universe Inspector, Part 5
+the dual view, Part 6 this file and the README.
 
-**A note on this machine.** Its endpoint security holds freshly built binaries in
-a kernel-mode wait — they start with one thread, zero CPU, and survive `Kill()`.
-An exclusion for the repository fixed it enough to run one binary at a time; a
-build that launches twenty at once for Catch2 test discovery still stalls, and
-stuck copies hold their own executables open and block the next link. CI builds
-and runs everything cleanly, so it is the verifier of last resort here. A reboot
-clears the stuck processes.
-
----
+**A note on this machine, kept because it will bite the next person.** Norton
+holds freshly built binaries in a kernel-mode wait — one thread, zero CPU,
+surviving `Kill()` — and it intercepts TLS, presenting its own root for every
+host. Neither is a MarketScan problem and both look like one. The binary hold
+needs a **SONAR / Auto-Protect** exclusion, which is a different setting from the
+scan exclusion; with that in place a build that links and launches twenty
+binaries at once for Catch2 discovery *still* stalls, so `-j 3`. The TLS
+interception matters only when diagnosing a network failure, where it will make
+any certificate look wrong.
 
 ## Known limitations, by name
 

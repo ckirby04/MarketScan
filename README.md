@@ -11,11 +11,71 @@ The second idea is the `theories/` folder as a **USB port**: a compiled strategy
 into it is discovered at runtime, loaded, given its own virtual account, and shown in the GUI —
 with no recompile of the host and no changes to host code.
 
-![The MarketScan dashboard](docs/screenshots/dashboard.png)
+---
 
-> This repository deliberately contains **no real trading strategies**, no data scrapers, no API
-> clients and no network code. It ships two reference plugins — a buy-and-hold benchmark and a
-> moving-average crossover whose job is to be *calibrated against*, not traded.
+## What this project actually produced
+
+A strategy in this repository measured a **Sharpe of 2.414**, against a **1.927** bar that a
+1,512-run null sweep had established as the threshold a result must clear before it can be
+called distinguishable from noise.
+
+It was an artefact. Every one of its fills — 56 of 56 on one fixture, 55 of 55 on another — had
+taken its price from the very bar its own decision was made on. Corrected, the same strategy
+measures **1.810**. Below the bar.
+
+**The apparent result was the lookahead**, and three instruments caught it: a bit-exact parity
+assertion between two independent implementations, a per-fill timestamp triple, and an
+empirically measured null threshold. None of them was built to look for it.
+
+That is the thing worth handing over. Not a result — a set of instruments that can tell you when
+you do not have one. The full account is in [`docs/STATUS.md`](docs/STATUS.md).
+
+> **No real market data has ever entered this pipeline.** Every fixture is synthetic, every
+> factor is planted, and not one number in this repository is a statement about markets. That is
+> a design constraint, not a gap — see [what is missing](#what-this-is-not), below.
+
+---
+
+## The two views
+
+One running engine, two presentations, one keystroke apart (<kbd>F2</kbd>).
+
+**Overview** — *is this working, and is it beating the market?* One number, one chart, one
+drawdown strip, four figures. Legible from across a room, and deliberately missing everything
+that does not answer that question.
+
+![Overview](docs/screenshots/overview.png)
+
+**Operator** — the working view. Every theory in its own colour, the blotter, positions, the
+universe, the log, latency, and the plugin manager.
+
+![Operator](docs/screenshots/operator.png)
+
+Both read the same published snapshot, and **no view computes a metric of its own**: a number a
+view needs goes into the snapshot, where both modes read the same object. There is exactly one
+equity chart implementation in the codebase, instantiated twice at different densities, and a
+test asserts the two produce identical curve geometry and identical entity-to-colour assignment.
+
+Colour follows the entity, assigned from its stable plugin id — never from draw order — so hiding
+a series repaints nothing and the leaderboard never stops matching the chart.
+
+---
+
+## The survivorship guard, made visible
+
+A backtest over today's index members, applied to history, reports a premium nobody could have
+earned. The defence here is structural rather than a rule to remember: when a universe is
+installed, a strategy is never shown a bar for a security that was not a member that day, and the
+host context gives it no API by which to ask about one.
+
+The Universe Inspector is where that becomes something a person can look at — membership over
+time, every add and drop, the forced exits that actually happened, and each identity decision with
+the rule that made it.
+
+![The Universe Inspector](docs/screenshots/universe.png)
+
+> The **Identity** tab reads `not measured` for all 53 gaps, and that is a true statement about
+> the world rather than an unfinished panel. See [what this is not](#what-this-is-not).
 
 ---
 
@@ -27,15 +87,18 @@ cd MarketScan
 
 ./scripts/dev-env.ps1 cmake --preset release
 ./scripts/dev-env.ps1 cmake --build --preset release
-./scripts/dev-env.ps1 ctest --preset release          # 214 tests
+
+# Through check_skips.py rather than ctest directly: a skipped test is not a
+# pass, and this project has the scar to prove it.
+./scripts/dev-env.ps1 python scripts/check_skips.py --preset release
 
 ./out/build/release/bin/marketscan.exe --data data/samples/synthetic_spy_1min.csv
 ```
 
-That opens the dashboard above: it discovers both theories in `bin/theories/`, gives each its own
-virtual account, replays the committed sample day through them, and shows the result. Press
-<kbd>Space</kbd> to play or pause, <kbd>→</kbd> to step one event, <kbd>Shift</kbd>+<kbd>→</kbd> to
-step one bar, <kbd>Ctrl</kbd>+<kbd>R</kbd> to restart.
+That opens Overview: it discovers both theories in `bin/theories/`, gives each its own virtual
+account, replays the committed sample day through them, and shows the result. <kbd>F2</kbd>
+switches to Operator. <kbd>Space</kbd> plays or pauses, <kbd>→</kbd> steps one event,
+<kbd>Shift</kbd>+<kbd>→</kbd> steps one bar, <kbd>Ctrl</kbd>+<kbd>R</kbd> restarts.
 
 Add `--headless` for the same run as a table, and `--compare-fills` to see what a naive fill model
 would have awarded itself:
@@ -92,7 +155,7 @@ Exactly — not to within a rounding tolerance. That is what the micro-dollar in
 ## The data layer
 
 ```powershell
-python scripts/fetch_stooq.py --symbols-file universe.txt   # free daily bars
+python scripts/fetch_stooq.py --symbols-file universe.txt   # EXCLUDED -- see below
 python scripts/fetch_sp500.py                               # index membership, 1996-
 marketscan.exe --headless --build-universe data/cache/universe/sp500_history.csv
 marketscan.exe --headless --daily data/cache/stooq --universe data/cache/universe/sp500_history.csv
@@ -229,10 +292,58 @@ that same version.
 
 ---
 
+## What this is not
+
+Stated plainly, because every one of these is the kind of thing a repository like this is
+usually vague about.
+
+**No real market data.** Every fixture is synthetic and committed; `data/cache/` is gitignored and
+no test touches the network. Not one number here is a statement about markets — they are
+statements about this pipeline.
+
+**No real strategy and no real factor.** The two reference plugins are a buy-and-hold benchmark
+and a moving-average crossover whose job is to be *calibrated against*. The research layer's
+signal is an abstract exposure with a planted λ; naming it after a real factor would invite the
+reading that recovering it said something about markets.
+
+**The identity model has never been validated.** Forty-one splits of a ticker into two securities
+are inferred from a 730-day threshold, and **none has been checked against a price series**.
+Measuring it needs the price history of companies that may have stopped trading decades ago, and
+no source this project is permitted to use carries that. It is CRSP-dependent, not unfinished.
+Over-splitting is the safe direction — it costs history rather than fabricating a series — which
+is a real defence and not the same as being right. See
+[`docs/IDENTITY_DECISIONS.md`](docs/IDENTITY_DECISIONS.md), which says so on its face.
+
+**Delisting returns are assumed, not measured.** A position in a name that leaves the index is
+liquidated at the last price the book had. `DelistingReturnModel` names that assumption on both
+layers; on the churn fixture it is worth **29.42 points of return and 3.14 of Sharpe** — enough
+to flip the sign of the result.
+
+**A fill is the next close.** A real order sent after a close fills somewhere *in* the next
+session and nothing here models where. No queue position, no borrow cost, no locate.
+
+**The false-discovery threshold is a floor.** It was measured against Gaussian noise; real returns
+have fat tails and cross-sectional structure, all of which give a search more to find.
+
+**No network code, no scrapers, no API clients, no credentials.** How data is acquired — and what
+this project declined to do to get it — is [`docs/DATA_POLICY.md`](docs/DATA_POLICY.md). Short
+version: the one free price source put a proof-of-work challenge in front of its endpoint, solving
+it would have taken a dozen lines, and that made no difference to the decision.
+
+---
+
 ## Where this is
 
-[**`docs/STATUS.md`**](docs/STATUS.md) — what exists, what is blocked, what is
-next, and how to pick the project up on a machine that has never built it.
+[**`docs/STATUS.md`**](docs/STATUS.md) — the handoff. What is proven and the measurement behind
+each claim, what is approximated and where, what is unresolved, and what the next phase needs.
+
+**The short version of what it needs: data, and it is not close.** The false-discovery bar falls
+as `1/sqrt(sample length)` and rises only as `sqrt(2 ln n)` in the number of things tried. Twenty
+years with a full 252-variant sweep gives a bar of 0.77; three years with a tenth of the variants
+gives 1.78. A realistic factor Sharpe of 0.3–0.8 is not detectable *at all* on three years, at any
+level of restraint. That makes the data source a research-design constraint rather than a
+convenience, and it is why more modelling is not the next thing to do.
+
 
 ## Milestones
 
