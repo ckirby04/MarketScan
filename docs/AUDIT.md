@@ -16,6 +16,10 @@ tests, 2 findings escalated to the reader rather than fixed.**
 > were not in the repository — is resolved. They are in
 > [`specs/`](specs/), verbatim. **Both escalations from this audit are
 > closed.**
+>
+> **Session F added a second audit**, with a narrower question: which tests would
+> pass while measuring nothing. It is at the bottom of this file, and it found
+> thirteen.
 
 ---
 
@@ -253,3 +257,149 @@ committed under [`specs/`](specs/) — `BUILD_SPEC.md`, `BUILD_SPEC_2.md`,
 
 Tests: 214 → 223. Green on `debug`, `release`, `ci` and `ci-debug`; 224 on
 `full`, for the reason in check 9.
+
+---
+
+# The vacuous-test audit
+
+Session F, Part 0. A second audit, with a narrower question than the first:
+**which tests in this suite would pass while measuring nothing?**
+
+## Why it was run
+
+Two bugs in two sessions had the same shape, and in both the symptom was a green
+suite:
+
+- A fixture theory placed in a scanned directory broke two determinism tests **by
+  existing**, because they counted what the loader found.
+- An empty `data/cache/stooq` turned the identity calibration test from *skipping*
+  into *measuring nothing and reporting green*: it built the membership history,
+  measured against an empty cache, found every case unresolved, and made **zero
+  assertions**. "0 verified, 10 coverage-limited", in a `WARN` nobody reads.
+
+A skipped test announces itself. A vacuous pass does not. The second one is worse
+and it is the one this audit is about.
+
+## Method
+
+A test is at risk when **every assertion it makes is inside a loop over a set it
+did not choose**. If the set comes back empty the loop runs zero times, no
+assertion is evaluated, and the test reports a pass.
+
+`scripts/` does not carry the analyser — it was a one-off — but the rule it
+applied is simple enough to re-apply by hand: for each test, count assertions
+inside loops against assertions outside them, and look for a size or emptiness
+assertion that is not itself inside the loop.
+
+Its limits, stated so the numbers are read correctly: it cannot see a guard
+expressed through a derived variable (`REQUIRE(loaded >= 2)`), nor one placed
+inside an outer loop, so it over-reports. Every candidate it produced was read
+before being classified. It has no false *negatives* of the kind that matter — a
+test with an unguarded loop is always flagged.
+
+## Counts
+
+Scanned **369 C++ `TEST_CASE`s and 195 Python test functions**.
+
+| | |
+|---|---|
+| Flagged: every assertion inside an unguarded loop | 23 |
+| Flagged: some assertions inside an unguarded loop | 22 |
+| Flagged: no assertions found at all | 1 |
+| **Total candidates reviewed** | **46** |
+
+After reading each one:
+
+| | |
+|---|---|
+| **Genuinely vacuous** — would have passed with an empty set | **13** |
+| **Partially vacuous** — some assertions skippable | **17** |
+| **Not applicable** — loop bound is a literal, a compile-time constant, or a literal list | **15** |
+| **No assertions at all** | **1** |
+
+**31 tests were changed.** The 15 not-applicable cases are recorded here rather
+than annotated in the source: a loop over `{Appearance::Dark, Appearance::Light}`
+or `for (int i = 0; i < 500; ++i)` cannot iterate zero times, and a comment
+saying so on each one would be noise.
+
+## The two worth naming
+
+**`a theory with one point is not drawn as a line`** asserted that every series
+in the chart model had at least two points. That is trivially true of *no series
+at all* — and no series at all is exactly what a bug in the filter it was testing
+would produce. The test could not fail in the direction it was written to catch.
+It now asserts the model holds exactly one series, and that it is the benchmark.
+
+**`the fixture has no exposure ties`** made no assertions whatsoever. It called a
+helper that raises on a tie and returns quietly otherwise — including when it
+examined nothing, which an empty bar table or a rebalance interval longer than the
+panel would both produce. The helper now returns the number of rebalance dates it
+examined, refuses to return zero, and the test asserts the count.
+
+## What changed, mechanically
+
+Every test that discovers its inputs or is parameterized over a set now asserts
+the set is **non-empty** and asserts its **expected size**, exactly rather than as
+a floor. A floor cannot distinguish "somebody added a case" from "the file stopped
+being read"; an exact count fails on both and makes updating it deliberate.
+
+Two counts are now shared constants asserted from both sides:
+
+| | |
+|---|---|
+| `kCommittedCases` / `EXPECTED_CASES` = 54 | Rows in `data/samples/sizing_cases.csv`, asserted by `tests/test_sizing.cpp` and `research/tests/test_sizing.py` against the same file. |
+| `kExpectedTheories` = 2 | Theories the committed tree builds and loads. A floor of two passes when a third silently stops loading. |
+
+One assertion caught an error while being written: `REQUIRE(history.decisions.size() == 2)`
+in the identity test was wrong — the fixture produces one gap, not two — and it
+failed immediately. That is the argument for exact counts in a single line.
+
+## The negative control
+
+`tests/negative_control.cpp` contains one deliberately false assertion. CTest runs
+the binary and requires the reported failure to appear in its output, so the
+suite's pass condition now includes **Catch2 having evaluated a false expression
+and said so**.
+
+`PASS_REGULAR_EXPRESSION` rather than `WILL_FAIL`, deliberately: `WILL_FAIL` only
+checks that the process exited non-zero, which a crash on startup also does.
+Matching the reported failure proves assertions specifically still work.
+
+It is a separate binary, registered by hand rather than through
+`catch_discover_tests`, because a deliberate failure inside a normal test binary
+makes that binary exit non-zero — indistinguishable from a real regression to
+everything downstream, including `scripts/check_skips.py`.
+
+**Verified by inverting it.** With the assertion made true, the CTest entry fails,
+because the expected failure text never appears. That check was run once and the
+file restored; without it the control would itself be unfalsifiable, which is the
+failure it exists to prevent.
+
+## `ctest --output-junit` is useless for skip detection
+
+Recorded so that nobody reaches for it later believing it works.
+
+A run with 351 passes and one skipped test writes a JUnit file containing **351
+`testcase` elements, every one `status="run"`**, and `skipped="0"` on the suite.
+The skipped test is absent entirely. Anything trusting that file would conclude
+the suite had no skips.
+
+`scripts/check_skips.py` therefore parses the block CTest prints on the console:
+
+```
+The following tests did not run:
+        122 - the classifier agrees with the cases we are sure of (Skipped)
+```
+
+Uglier, and correct. Ten tests cover the parser and the allowlist.
+
+## What this does not establish
+
+That every test is *good*. The audit asks one question — can this pass without
+measuring anything — and answers it. A test that asserts something true but
+uninteresting passes this audit and is still a weak test.
+
+It also does not close the class. Two bugs of this shape were found by accident
+before anyone went looking; a third will have a shape nobody has thought of yet.
+What has changed is that the most common form of it now fails the build.
+

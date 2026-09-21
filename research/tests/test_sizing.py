@@ -31,6 +31,14 @@ from research.sizing import (
     write_cases,
 )
 
+EXPECTED_CASES = 54
+"""Rows in `data/samples/sizing_cases.csv`.
+
+Exact rather than a floor, and asserted identically by `tests/test_sizing.cpp`:
+a floor cannot tell "somebody added a case" from "the file stopped being
+read", and this suite exists to notice the second one.
+"""
+
 
 def test_the_committed_grid_is_what_the_generator_produces():
     """If the file and the generator disagree, the C++ suite is reading numbers
@@ -52,7 +60,11 @@ def test_the_grid_is_round_trip_exact(tmp_path):
     """%.17g recovers a binary64 exactly. Anything less and both suites would be
     asserting that the CSV writer and the parser agree."""
     path = write_cases(tmp_path / "cases.csv")
-    for case, expected in read_cases(path):
+    written = read_cases(path)
+    assert written, "round-tripping produced no cases at all"
+    assert len(written) == EXPECTED_CASES
+
+    for case, expected in written:
         out = case.evaluate()
         for key in ("per_name", "target", "delta"):
             assert out[key] == expected[key], f"{case.name}: {key}"
@@ -60,7 +72,10 @@ def test_the_grid_is_round_trip_exact(tmp_path):
 
 def test_the_grid_covers_the_adversarial_cases_the_spec_names():
     cases = [case for case, _ in read_cases()]
-    assert len(cases) >= 40
+    # Exact, not a floor. A floor cannot tell "somebody added a case" from
+    # "the file stopped being read"; tests/test_sizing.cpp asserts the same
+    # number against the same file.
+    assert len(cases) == EXPECTED_CASES
 
     assert any(side_count(c.count, c.decile) == 0 for c in cases), "no stand-down case"
     assert any(0.0 < c.close <= 1e-4 for c in cases), "no near-zero price"

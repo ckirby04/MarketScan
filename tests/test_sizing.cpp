@@ -90,11 +90,20 @@ struct Case {
     return cases;
 }
 
+/// How many rows `data/samples/sizing_cases.csv` is expected to hold.
+///
+/// Exact, not a lower bound. A lower bound cannot tell "somebody added a case"
+/// from "the file stopped being read"; this one fails the build either way and
+/// makes updating it a deliberate act. `research/tests/test_sizing.py` asserts
+/// the same number against the same file.
+constexpr std::size_t kCommittedCases = 54;
+
 }  // namespace
 
 TEST_CASE("the grid covers the cases the specification calls adversarial", "[sizing]") {
     const std::vector<Case> cases = read_cases();
-    REQUIRE(cases.size() >= 40);
+    REQUIRE_FALSE(cases.empty());
+    REQUIRE(cases.size() == kCommittedCases);
 
     // Not a count for its own sake: if the generator ever stops emitting the
     // awkward rows, this suite would still pass while testing only the middle
@@ -117,7 +126,15 @@ TEST_CASE("the grid covers the cases the specification calls adversarial", "[siz
 
 TEST_CASE("both implementations of the sizing rule produce identical shares", "[sizing][parity]") {
     // Bit equality, with no tolerance parameter anywhere in this assertion.
-    for (const Case& one : read_cases()) {
+    //
+    // The count is asserted before the loop because every assertion in this test
+    // is inside it: a `read_cases()` that returned nothing would run zero
+    // comparisons and report a pass. See docs/AUDIT.md.
+    const std::vector<Case> cases = read_cases();
+    REQUIRE_FALSE(cases.empty());
+    REQUIRE(cases.size() == kCommittedCases);
+
+    for (const Case& one : cases) {
         INFO("case " << one.name);
 
         const std::uint32_t side = marketscan::sizing::side_count(one.count, one.decile);

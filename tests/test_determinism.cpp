@@ -29,6 +29,13 @@ using namespace marketscan;
 
 namespace {
 
+/// Theories the committed `theories/` tree is expected to build and load.
+///
+/// buy_and_hold and sma_crossover. Exact rather than a floor: a floor passes
+/// when one of them silently stops loading, which is precisely the failure a
+/// test that iterates the loader's output cannot otherwise notice.
+constexpr std::size_t kExpectedTheories = 2;
+
 /// Hashes every event the engine dispatches, in dispatch order.
 class DigestSink final : public IEventSink {
 public:
@@ -380,6 +387,10 @@ TEST_CASE("a third and fourth run agree with the first", "[determinism]") {
 TEST_CASE("every theory's ledger balances after a full replay", "[determinism][ledger]") {
     const run::BacktestResult result = run::run_backtest(backtest_config());
     REQUIRE(result.ok());
+    // Discovered from a directory: a run that loaded nothing would check nothing
+    // and pass.
+    REQUIRE_FALSE(result.theories.empty());
+    REQUIRE(result.theories.size() == kExpectedTheories);
 
     for (const run::TheoryResult& theory : result.theories) {
         INFO("theory " << theory.id);
@@ -407,6 +418,9 @@ TEST_CASE("optimistic fills flatter every theory, most where it trades most",
     Money biggest_gap;
     std::size_t busiest_trades = 0;
     std::string busiest;
+
+    REQUIRE_FALSE(honest.theories.empty());
+    REQUIRE(honest.theories.size() == kExpectedTheories);
 
     for (const run::TheoryResult& theory : honest.theories) {
         const run::TheoryResult* other = wishful.find(theory.id);

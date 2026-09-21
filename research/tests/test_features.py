@@ -102,7 +102,10 @@ def test_a_rolling_window_never_spans_a_name_that_was_not_there(panel):
     label = "ret.mean20.none"
 
     starts = churning.membership.set_index("security")["start"]
-    for (date, security), value in built[label].dropna().items():
+    checked = built[label].dropna()
+    assert not checked.empty, "every value was NaN, so nothing below is checked"
+
+    for (date, security), value in checked.items():
         elapsed = len(pd.bdate_range(starts[security], date))
         assert elapsed >= window, (f"{security} had a {window}-period mean after {elapsed} "
                                    f"periods of existence")

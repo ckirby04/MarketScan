@@ -259,6 +259,7 @@ def test_the_report_is_written_from_the_measurements(survivorship, lookahead, de
     assert "statement about this pipeline on synthetic data" in text
     # By the finding's own display name, not the dictionary key: "assumed_exit"
     # is how the code addresses it and "assumed exit" is what a reader sees.
+    assert len(findings) == 4, "a pathology was added or removed"
     for finding in findings.values():
         assert finding.name in text
     # The numbers in the prose come from the measurements, so a stale report

@@ -274,6 +274,8 @@ TEST_CASE("a long gap splits and a short one does not", "[universe][identity]") 
     REQUIRE(history.decisions.size() >= 2);
     bool saw_split = false;
     bool saw_keep = false;
+    REQUIRE_FALSE(history.decisions.empty());
+
     for (const IdentityDecision& decision : history.decisions) {
         saw_split = saw_split || (decision.ticker == "SPLT" && decision.split);
         saw_keep = saw_keep || (decision.ticker == "KEEP" && !decision.split);
@@ -911,6 +913,16 @@ TEST_CASE("a ticker with no cached prices is never split by measurement",
     // The property the whole design turns on: a vendor that does not carry a
     // ticker is a coverage limit, not a delisting. Nothing here may become a
     // verdict, and nothing here may reach the override file.
+    //
+    // NODATA leaves after 2000 and returns in 2009: one gap, one decision.
+    // ANCHOR is present throughout and has none.
+    //
+    // Asserted before the loop, because "no decision resolved" is trivially true
+    // of no decisions, and no decisions is what a change to the snapshot writer
+    // would produce. Written as two first, which this assertion caught
+    // immediately -- which is the argument for it in one line.
+    REQUIRE(history.decisions.size() == 1);
+
     for (const IdentityDecision& decision : history.decisions) {
         INFO(decision.ticker << ": " << decision.measured.reason);
         REQUIRE_FALSE(decision.measured.resolved());

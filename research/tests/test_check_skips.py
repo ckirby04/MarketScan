@@ -86,6 +86,7 @@ def test_the_block_ends_at_the_first_unrelated_line():
 def test_the_committed_allowlist_parses_and_every_entry_has_a_reason():
     allowed = check_skips.load_allowlist(ALLOWLIST)
     assert allowed, "the allowlist is empty; the current skip would fail the job"
+    assert len(allowed) == 1, "the allowlist grew or shrank; that is a deliberate act"
     for name, reason in allowed.items():
         assert name.strip() == name
         # Long enough to be an argument rather than a shrug. "needs data" is not

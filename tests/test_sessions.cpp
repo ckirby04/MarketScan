@@ -32,6 +32,13 @@ using namespace marketscan;
 
 namespace {
 
+/// Theories the committed `theories/` tree is expected to build and load.
+///
+/// buy_and_hold and sma_crossover. Exact rather than a floor: a floor passes
+/// when one of them silently stops loading, which is precisely the failure a
+/// test that iterates the loader's output cannot otherwise notice.
+constexpr std::size_t kExpectedTheories = 2;
+
 [[nodiscard]] std::filesystem::path plugin_dir() {
     return std::filesystem::path(MARKETSCAN_TEST_PLUGIN_DIR);
 }
@@ -297,6 +304,14 @@ TEST_CASE("a theory that ignores sessions is unaffected", "[session][plugin][abi
     PluginLoader loader({std::filesystem::path(MARKETSCAN_THEORY_DIR)});
     loader.rescan();
 
+    // Both counts asserted, and exactly rather than as a floor.
+    //
+    // This loop discovers its inputs from a directory. An empty directory, a
+    // failed build, or a rename would make it iterate nothing and pass. A floor
+    // of two would also pass if a third theory silently stopped loading.
+    REQUIRE_FALSE(loader.plugins().empty());
+    REQUIRE(loader.plugins().size() == kExpectedTheories);
+
     std::size_t loaded = 0;
     for (const PluginInfo& info : loader.plugins()) {
         if (info.state == PluginState::Loaded) {
@@ -305,7 +320,7 @@ TEST_CASE("a theory that ignores sessions is unaffected", "[session][plugin][abi
             REQUIRE(info.abi_version == MS_ABI_VERSION);
         }
     }
-    REQUIRE(loaded >= 2);
+    REQUIRE(loaded == kExpectedTheories);
 }
 
 // --------------------------------------------------------------------------

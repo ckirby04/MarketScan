@@ -165,6 +165,11 @@ TEST_CASE("each quote precedes its bar at the same timestamp", "[feed][synthetic
     SyntheticFeed feed(small_config(), symbols);
     const auto events = drain(feed);
 
+    // A feed that produced nothing would satisfy every pairing below by having
+    // no pairs to check.
+    REQUIRE_FALSE(events.empty());
+    REQUIRE(events.size() % 2 == 0);
+
     for (std::size_t i = 0; i + 1 < events.size(); i += 2) {
         REQUIRE(events[i].type == EventType::Quote);
         REQUIRE(events[i + 1].type == EventType::Bar);
@@ -510,6 +515,10 @@ TEST_CASE("the committed sample is what the generator produces", "[feed][determi
     CsvFeed committed(std::filesystem::path(MARKETSCAN_TEST_DATA_DIR) / "synthetic_spy_1min.csv",
                       committed_symbols);
 
+    // Counted, because every comparison below is inside this loop: a sample file
+    // that read as zero events would agree with anything. The count was already
+    // asserted at the bottom -- this test was not one of the vacuous ones, and
+    // the note stays so the next reader knows it was checked.
     std::size_t compared = 0;
     MarketEvent from_generator;
     MarketEvent from_file;

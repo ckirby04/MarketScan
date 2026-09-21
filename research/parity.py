@@ -493,7 +493,7 @@ def fixture_bars(panel: Panel | None = None) -> pd.DataFrame:
     return bars
 
 
-def assert_no_ties(bars: pd.DataFrame, config: ParityConfig | None = None) -> None:
+def assert_no_ties(bars: pd.DataFrame, config: ParityConfig | None = None) -> int:
     """No two names share an exposure on a rebalance date.
 
     The two implementations break ties differently -- one by symbol id assigned
@@ -506,13 +506,25 @@ def assert_no_ties(bars: pd.DataFrame, config: ParityConfig | None = None) -> No
     frame = bars.copy()
     frame["exposure"] = decode_exposure(frame["volume"].to_numpy())
     dates = sorted(frame["date"].unique())
+    examined = 0
     for session, date in enumerate(dates):
         if session % config.rebalance_sessions != 0:
             continue
+        examined += 1
         day = frame.loc[frame["date"] == date, "exposure"]
         if day.duplicated().any():
             raise ValueError(f"exposure ties on rebalance date {date}: the decile boundary "
                              f"would depend on a tiebreak the two implementations do not share")
+
+    # Returned so a caller can assert it looked at something.
+    #
+    # A checker that examines nothing raises nothing, which is indistinguishable
+    # from a clean result. An empty bar table, or a rebalance interval longer
+    # than the panel, would both have produced a silent pass.
+    if examined == 0:
+        raise ValueError("no rebalance date was examined for ties; there is nothing to check "
+                         "here, which is not the same as there being no ties")
+    return examined
 
 
 def write_fixture(out_bars: Path = FIXTURE_BARS, out_equity: Path = FIXTURE_EQUITY,

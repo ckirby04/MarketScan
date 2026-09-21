@@ -41,7 +41,10 @@ def test_the_family_is_at_least_the_size_the_spec_asks_for():
 
 def test_no_variant_in_the_family_can_see_the_future():
     """A leaking variant in the null sweep would make the threshold meaningless."""
-    for config in variants():
+    family = variants()
+    assert len(family) >= 200, "the family shrank; the sweep is not what it claims"
+    for config in family:
+        assert config.features, f"{config.label} has no features to check"
         assert all(not feature.leaks for feature in config.features), config.label
 
 
@@ -160,6 +163,7 @@ def test_the_sharpe_t_statistic_is_the_sharpe_scaled_by_the_sample(small_sweep):
 
 def test_false_discovery_rate_is_a_fraction(small_sweep):
     rates = false_discovery_rate(small_sweep, CONVENTIONAL_T)
+    assert rates, "no rates were computed, so the bounds below check nothing"
     for name, value in rates.items():
         if name.endswith("_n"):
             continue  # a trial count, not a rate

@@ -232,6 +232,8 @@ def test_every_book_over_a_whole_run_is_compliant(panel):
     assert result.rebalances > 5
     assert result.unrepaired == 0
 
+    assert len(result.weights) > 200, "no books to check"
+
     for date, row in result.weights.iterrows():
         book = row.dropna()
         if book.empty:
@@ -268,6 +270,7 @@ def test_a_departure_closes_the_position_and_the_loss_is_realized():
 
     # No name survives in the book after it leaves the universe.
     members = panel.frame.index.to_frame(index=False).groupby("security")["date"].max()
+    assert len(result.weights.columns) > 40
     for security in result.weights.columns:
         held = result.weights[security].dropna()
         held = held[held.abs() > 0]

@@ -49,7 +49,10 @@ def test_a_date_is_never_split_across_folds(rows):
     """
     dates, ends, _ = rows
     cv = PurgedKFold(n_splits=4, embargo=3)
-    for train, test in cv.split(dates, ends):
+    folds = list(cv.split(dates, ends))
+    assert len(folds) == cv.n_splits, "a splitter that yielded nothing would pass"
+
+    for train, test in folds:
         assert set(dates.iloc[train]).isdisjoint(set(dates.iloc[test]))
 
 
@@ -69,7 +72,10 @@ def test_no_training_label_overlaps_a_test_label(horizon, embargo):
     ends = labels.end.reset_index(drop=True)
 
     cv = PurgedKFold(n_splits=5, embargo=embargo)
-    for train, test, report in cv.split_with_reports(dates, ends):
+    reported = list(cv.split_with_reports(dates, ends))
+    assert len(reported) == cv.n_splits
+
+    for train, test, report in reported:
         if train.size == 0:
             continue
         test_open = dates.iloc[test].min()
@@ -101,6 +107,9 @@ def test_the_embargo_extends_the_gap_beyond_the_purge():
 
     assert sum(r.embargoed for _, _, r in without) == 0
     assert sum(r.embargoed for _, _, r in with_embargo) > 0
+    # zip() over two empty sequences iterates zero times and asserts nothing.
+    assert len(without) == len(with_embargo) > 0
+
     for (train_a, _, _), (train_b, _, _) in zip(without, with_embargo):
         assert train_b.size <= train_a.size
         assert set(train_b).issubset(set(train_a))
@@ -120,7 +129,10 @@ def test_purging_costs_are_reported(rows):
 
 def test_train_and_test_never_share_a_row(rows):
     dates, ends, _ = rows
-    for train, test in PurgedKFold(n_splits=5, embargo=5).split(dates, ends):
+    folds = list(PurgedKFold(n_splits=5, embargo=5).split(dates, ends))
+    assert len(folds) == 5
+
+    for train, test in folds:
         assert np.intersect1d(train, test).size == 0
 
 

@@ -76,8 +76,14 @@ def bars():
 
 def test_the_fixture_has_no_exposure_ties(bars):
     """A tie would put a name on opposite sides of the decile boundary in the
-    two implementations and look like an accounting bug."""
-    assert_no_ties(bars)
+    two implementations and look like an accounting bug.
+
+    The count is asserted as well as the absence of ties. `assert_no_ties` raises
+    on a tie and returns quietly otherwise -- including when it examined nothing
+    at all, which an empty bar table or a rebalance interval longer than the
+    panel would both produce. Six rebalance dates in 126 sessions at 21.
+    """
+    assert assert_no_ties(bars) == 6
 
 
 def test_the_fixture_is_churn_free(bars):
@@ -105,6 +111,8 @@ def test_the_accounting_identity_holds_every_day(bars):
     """
     run = simulate(bars)
     closes = bars.pivot(index="date", columns="symbol", values="close")
+
+    assert len(run.equity) == len(closes.index) > 100
 
     for date, equity in run.equity.items():
         held = run.positions.loc[date]
@@ -273,6 +281,8 @@ def test_the_departure_return_is_not_in_the_price_series(churn_panel):
     perfectly while being wrong in the same direction about the size of the exit.
     """
     returns = churn_panel.wide("ret")
+    assert len(churn_panel.delistings) > 10
+
     worst_departing = []
     for security, row in churn_panel.delistings.iterrows():
         final = returns.loc[row["date"], security]
@@ -433,6 +443,8 @@ def test_the_committed_churn_curves_match_a_fresh_run(churn_bars, churn_panel):
     carries four decimals and the panel carries a double, and a curve computed
     before writing is a curve for prices the engine will never see.
     """
+    assert len(MODELS) == 2, "a delisting model was added or removed"
+
     for model in MODELS:
         committed = pd.read_csv(CHURN_EQUITY[model])
         fresh = simulate(churn_bars,
@@ -544,6 +556,8 @@ def test_targets_are_released_in_symbol_order(bars):
     than assumed.
     """
     run = simulate(bars, ParityConfig())
+    assert run.trade_log, "nothing traded, so release order is not being checked"
+
     by_session: dict[object, list[str]] = {}
     for date, symbol, _shares, _price in run.trade_log:
         by_session.setdefault(date, []).append(symbol)

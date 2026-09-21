@@ -118,3 +118,30 @@ marketscan_add_test(test_parity      test_parity.cpp)
 if(TARGET decile_parity)
     add_dependencies(test_parity decile_parity)
 endif()
+
+# ---------------------------------------------------------------------------
+# The negative control.
+#
+# "All green" is only information if red is reachable. This binary contains one
+# deliberately false assertion, and the test passes only when CTest finds the
+# failure in its output -- so the suite's pass condition includes Catch2 having
+# evaluated a false expression and reported it.
+#
+# PASS_REGULAR_EXPRESSION rather than WILL_FAIL, deliberately. WILL_FAIL only
+# checks that the process exited non-zero, which a crash on startup also does;
+# matching the reported failure proves assertions specifically still work.
+# Setting PASS_REGULAR_EXPRESSION makes CTest ignore the exit code, which is what
+# lets a binary that is supposed to fail be a test that is supposed to pass.
+#
+# Registered by hand rather than through marketscan_add_test, because
+# catch_discover_tests would register the deliberate failure as an ordinary test
+# case and turn the whole suite red.
+# ---------------------------------------------------------------------------
+add_executable(negative_control negative_control.cpp)
+target_link_libraries(negative_control PRIVATE marketscan::flags Catch2::Catch2WithMain)
+set_target_properties(negative_control PROPERTIES FOLDER "tests")
+
+add_test(NAME "the harness can still fail" COMMAND negative_control)
+set_tests_properties("the harness can still fail" PROPERTIES
+    PASS_REGULAR_EXPRESSION "NEGATIVE CONTROL: this failure is deliberate"
+    LABELS "unit")

@@ -143,6 +143,9 @@ TEST_CASE("the assignment depends on the set of theories, not on their order", "
     const SeriesColors a(forwards);
     const SeriesColors b(backwards);
 
+    REQUIRE(forwards.strategies.size() == 5);  // four theories and a benchmark
+    REQUIRE(a.assigned() == 4);
+
     for (const StrategySnapshot& row : forwards.strategies) {
         INFO(row.id);
         CHECK(a.color(row.id) == b.color(row.id));
@@ -194,6 +197,13 @@ TEST_CASE("the benchmark never wears a categorical hue", "[view][color]") {
 TEST_CASE("no categorical slot reuses a status colour", "[view][color]") {
     // A P&L indicator and a theory's identity must never be the same colour, or
     // a green line reads as a profit and a theory reads as a status.
+    //
+    // The slot count is a compile-time constant, so an empty sweep here is not
+    // possible at runtime -- but it would become possible the day somebody made
+    // it a variable, and this is the assertion that would then fail instead of
+    // the suite silently checking nothing.
+    static_assert(Palette::kSeriesCount == 8, "the spec pins eight categorical slots");
+
     for (const Appearance appearance : {Appearance::Dark, Appearance::Light}) {
         const Palette& palette = theme::colors(appearance);
         const unsigned int reserved[] = {palette.status_good,
@@ -289,6 +299,11 @@ TEST_CASE("density changes presentation and nothing else", "[view][chart]") {
     const ChartModel dense =
         build_chart_model(snapshot, colors, request_for(ChartDensity::Operator, "theory_a"));
 
+    // Five series: four theories and the benchmark. Asserted before the loop,
+    // because a model that built nothing would satisfy every comparison in it.
+    REQUIRE(overview.series.size() == 5);
+    REQUIRE(dense.series.size() == overview.series.size());
+
     bool greyed_something = false;
     bool weights_differ = false;
     for (std::size_t i = 0; i < overview.series.size(); ++i) {
@@ -332,6 +347,8 @@ TEST_CASE("emphasis is a chart feature, not a mode feature", "[view][chart]") {
         REQUIRE(subject != nullptr);
         CHECK(subject->id == "theory_c");
 
+        REQUIRE(model.series.size() == 4);  // three theories and the benchmark
+
         std::size_t emphasised = 0;
         for (const ChartSeries& s : model.series) {
             emphasised += s.emphasized ? 1 : 0;
@@ -360,6 +377,7 @@ TEST_CASE("the benchmark is drawn in both modes and never greyed", "[view][chart
 
     for (const ChartDensity density : {ChartDensity::Overview, ChartDensity::Operator}) {
         const ChartModel model = build_chart_model(snapshot, colors, request_for(density));
+        REQUIRE(model.series.size() == 4);  // three theories and the benchmark
         const ChartSeries* benchmark = model.benchmark();
         REQUIRE(benchmark != nullptr);
         CHECK(benchmark->drawn_color == benchmark->identity_color);
@@ -423,6 +441,13 @@ TEST_CASE("a theory with one point is not drawn as a line", "[view][chart]") {
     const SeriesColors colors(snapshot);
     const ChartModel model =
         build_chart_model(snapshot, colors, request_for(ChartDensity::Operator));
+
+    // The benchmark survives; the one-point theory is dropped. Asserted
+    // explicitly, because "every series has at least two points" is trivially
+    // true of no series at all -- and no series at all is exactly what a bug in
+    // the filter would produce.
+    REQUIRE(model.series.size() == 1);
+    CHECK(model.series.front().is_benchmark);
 
     for (const ChartSeries& s : model.series) {
         CHECK(s.points() >= 2);

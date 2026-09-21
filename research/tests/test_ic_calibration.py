@@ -86,6 +86,7 @@ def test_the_exported_bars_match_the_committed_sweep():
     assert thresholds.IC_SWEEP_RUNS == committed["runs"]
     assert thresholds.IC_SWEEP_PANELS == committed["panels"]
 
+    assert committed["by_horizon"], "the committed sweep carries no horizons"
     for row in committed["by_horizon"]:
         bar = thresholds.IC_BARS[int(row["horizon"])]
         assert bar.single_test == pytest.approx(row["single_test"], abs=1e-5)
@@ -97,6 +98,7 @@ def test_the_nominal_rule_is_anti_conservative_at_every_measured_horizon():
     """The finding, as an assertion. If a future change made the t-statistic
     honest, this fails and the documentation around it needs rewriting -- which
     is the correct outcome, not a nuisance."""
+    assert thresholds.IC_BARS, "no calibrated bars, so nothing is compared"
     for horizon, bar in thresholds.IC_BARS.items():
         assert bar.t_false_positive > 0.05, horizon
         assert bar.single_test > bar.nominal, horizon
