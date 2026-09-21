@@ -131,6 +131,16 @@ marketscan_add_test(test_sizing      test_sizing.cpp)
 # source grep cannot do; scripts/check_no_live_endpoints.py does the tree.
 marketscan_add_test(test_paper_only  test_paper_only.cpp)
 
+# The live seam's offline half. The parser, the monotonic gate, the recorder
+# round trip and the calendar, none of which touch a network: every message in
+# these is hand-written to the vendor's documented shape with invented prices.
+marketscan_add_test(test_stream_parser test_stream_parser.cpp)
+marketscan_add_test(test_calendar      test_calendar.cpp)
+
+# The live broker's order lifecycle, driven through the same apply_update the
+# socket pump calls. No socket is opened.
+marketscan_add_test(test_live_broker   test_live_broker.cpp)
+
 # ABI v2, and the promise the version-tolerant loader was built to keep.
 marketscan_add_test(test_abi_v2      test_abi_v2.cpp)
 if(TARGET test_plugin_v1_reference)

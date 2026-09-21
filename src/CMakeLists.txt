@@ -36,9 +36,19 @@ add_library(marketscan_core STATIC
     marketscan/data/synthetic_feed.cpp
     marketscan/exec/broker.cpp
     marketscan/exec/delisting.cpp
-    marketscan/live/credentials.cpp
     marketscan/exec/fill_model.cpp
     marketscan/exec/ledger.cpp
+    marketscan/live/calendar.cpp
+    marketscan/live/credentials.cpp
+    marketscan/live/http.cpp
+    marketscan/live/live_broker.cpp
+    marketscan/live/live_feed.cpp
+    marketscan/live/order_map.cpp
+    marketscan/live/recorded_feed.cpp
+    marketscan/live/recorder.cpp
+    marketscan/live/stream_parser.cpp
+    marketscan/live/trade_updates.cpp
+    marketscan/live/websocket.cpp
     marketscan/metrics/correlation.cpp
     marketscan/metrics/performance.cpp
     marketscan/metrics/rolling.cpp
@@ -61,6 +71,14 @@ target_include_directories(marketscan_core PUBLIC
 target_link_libraries(marketscan_core
     PRIVATE marketscan::flags
     PUBLIC  spdlog::spdlog nlohmann_json::nlohmann_json)
+
+# WinHTTP, for the live execution layer's HTTPS and WebSocket. In the operating
+# system rather than vendored: adding a dependency to a frozen-ABI project has a
+# long tail -- a port to pin, a baseline to bump, a transitive TLS stack, a CI
+# cache to grow -- and one OS API covers both halves.
+if(WIN32)
+    target_link_libraries(marketscan_core PRIVATE winhttp)
+endif()
 
 target_compile_definitions(marketscan_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
 

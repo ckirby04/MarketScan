@@ -10,6 +10,10 @@ add_subdirectory(sma_crossover)
 # written where the host does not scan -- see its own CMakeLists for why.
 add_subdirectory(decile_parity)
 
+# The live execution exercise. Not a theory either, and written where the host
+# does not scan -- see its own CMakeLists.
+add_subdirectory(lifecycle_exercise)
+
 # The skeleton is compiled here so that CI notices if it stops building, but
 # it is written somewhere the host does not scan: an empty template appearing
 # on the leaderboard as a flat line would be noise, not information.
