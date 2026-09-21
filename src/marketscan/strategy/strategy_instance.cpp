@@ -193,20 +193,30 @@ void StrategyInstance::sweep_removals(Timestamp ts) {
     last_membership_ts_ = ts;
 
     // Anything held that is no longer a member is sold at the last price the
-    // book has for it.
+    // book has for it, and then -- under `apply_true_return` -- the delisting
+    // return the data supplies is booked against the position that was closed.
     //
-    // This is an OPTIMISTIC APPROXIMATION and it is the single largest thing
-    // this data layer gets wrong. A name leaves an index for two very different
-    // reasons: it was replaced by a bigger one, or it collapsed. The first
-    // liquidates near the last price; the second does not liquidate anywhere
-    // near it, and the real delisting return is frequently -30%, -60%, or
-    // everything. This models both as the first.
+    // Liquidating at the last price alone is an OPTIMISTIC APPROXIMATION and it
+    // is the single largest thing this data layer gets wrong. A name leaves an
+    // index for two very different reasons: it was replaced by a bigger one, or
+    // it collapsed. The first liquidates near the last price; the second does not
+    // liquidate anywhere near it, and the real delisting return is frequently
+    // -30%, -60%, or everything. Modelling both as the first is precisely where
+    // naive backtests hide their losses.
     //
-    // That is precisely where naive backtests hide their losses. When CRSP
-    // delisting returns arrive they replace this path, and until then a result
-    // produced over a universe with removals in it is flattered by an unknown
-    // amount in one direction.
+    // `DelistingReturnModel` names that assumption instead of leaving it
+    // implicit, and `last_price` remains the default so that no committed result
+    // moved when the switch appeared. When CRSP delisting returns arrive, loading
+    // them into a `DelistingReturns` and selecting `apply_true_return` is the
+    // whole of the change.
+    //
+    // The position is captured BY VALUE before the exit runs. Two reasons, and
+    // both have teeth: `open_positions` hands out pointers into a vector the
+    // fill is about to write through, and the delisting return has to be measured
+    // against the position as it stood when the security left rather than against
+    // whatever survived the exit.
     std::vector<const Position*> held = broker_.ledger().open_positions();
+    std::vector<Position> departing;
     for (const Position* position : held) {
         if (position == nullptr || position->quantity == 0.0) {
             continue;
@@ -214,20 +224,23 @@ void StrategyInstance::sweep_removals(Timestamp ts) {
         if (universe_->is_member(position->symbol, ts)) {
             continue;
         }
+        departing.push_back(*position);
+    }
 
+    for (const Position& position : departing) {
         MS_OrderRequest exit{};
-        exit.symbol = position->symbol;
-        exit.side = position->quantity > 0.0 ? MS_SIDE_SELL : MS_SIDE_BUY;
+        exit.symbol = position.symbol;
+        exit.side = position.quantity > 0.0 ? MS_SIDE_SELL : MS_SIDE_BUY;
         exit.type = MS_ORD_MARKET;
         exit.tif = MS_TIF_IOC;
-        exit.quantity = std::fabs(position->quantity);
+        exit.quantity = std::fabs(position.quantity);
         exit.client_order_id = kForcedExitClientId;
 
         const OrderId id = broker_.submit(exit, ts);
         ++forced_exits_;
 
         std::string message = "forced exit: ";
-        message += symbols_ != nullptr ? symbols_->c_name(position->symbol) : "?";
+        message += symbols_ != nullptr ? symbols_->c_name(position.symbol) : "?";
         message += " left the universe";
         if (id == kInvalidOrderId) {
             message += "; the exit order was REFUSED and the position is stranded";
@@ -235,6 +248,32 @@ void StrategyInstance::sweep_removals(Timestamp ts) {
         } else {
             log::write(MS_LOG_INFO, id_, message);
         }
+
+        // After the exit, not before. Applying it first can take cash below zero
+        // on a long about to be sold -- the sale that pays for the loss has not
+        // happened yet -- and the broker would then refuse the exit and strand a
+        // position over an ordering choice. Booked even when the exit was refused,
+        // because a stranded position in a name that collapsed is still worth
+        // less, and pretending otherwise is the flattery this switch exists to
+        // measure.
+        if (delisting_model_ != DelistingReturnModel::ApplyTrueReturn ||
+            delisting_returns_ == nullptr || !delisting_returns_->has(position.symbol)) {
+            continue;
+        }
+
+        const double applied = delisting_returns_->find(position.symbol);
+        const DelistingAdjustment& adjustment = broker_.ledger().apply_delisting_return(
+            ts, position.symbol, position.quantity, position.mark, applied);
+        ++delistings_applied_;
+
+        std::string note = "delisting return ";
+        note += std::to_string(applied);
+        note += " applied to ";
+        note += symbols_ != nullptr ? symbols_->c_name(position.symbol) : "?";
+        note += ": ";
+        note += std::to_string(adjustment.amount.micros());
+        note += " micro-dollars";
+        log::write(MS_LOG_INFO, id_, note);
     }
 }
 

@@ -12,6 +12,7 @@
 #include "marketscan/data/security_master.hpp"
 #include "marketscan/data/universe.hpp"
 #include "marketscan/exec/broker.hpp"
+#include "marketscan/exec/delisting.hpp"
 #include "marketscan/strategy/host_context.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
 #include "marketscan/util/latency_histogram.hpp"
@@ -183,6 +184,42 @@ public:
     /// Securities force-liquidated because they left the universe while held.
     [[nodiscard]] std::uint64_t forced_exits() const noexcept { return forced_exits_; }
 
+    // --- The assumed exit ------------------------------------------------
+    //
+    // A forced exit liquidates at the last price the book holds, which is an
+    // optimistic approximation and the single largest thing this data layer gets
+    // wrong: a name leaves an index either because a bigger one replaced it or
+    // because it collapsed, and only the first liquidates near its last print.
+    //
+    // `include/marketscan/exec/delisting.hpp` names the two choices and
+    // `research/delisting.py` is the research layer's half of the same switch.
+    // The default is the optimistic one on purpose -- changing a default silently
+    // moves every committed number measured under it.
+
+    /// Installs the delisting model and the table it reads.
+    ///
+    /// `returns` is borrowed and must outlive this instance. Null is legal and
+    /// means the data supplies nothing, which liquidates at the last price under
+    /// either model.
+    void set_delisting_model(DelistingReturnModel model, const DelistingReturns* returns) noexcept {
+        delisting_model_ = model;
+        delisting_returns_ = returns;
+    }
+
+    [[nodiscard]] DelistingReturnModel delisting_model() const noexcept { return delisting_model_; }
+
+    [[nodiscard]] const DelistingReturns* delisting_returns() const noexcept {
+        return delisting_returns_;
+    }
+
+    /// Forced exits that found a delisting return in the table and booked it.
+    ///
+    /// Counted separately from `forced_exits` so that a run configured for
+    /// `apply_true_return` against a table that covers none of its departures is
+    /// visible as such, rather than looking like a universe whose delistings
+    /// happened to cost nothing.
+    [[nodiscard]] std::uint64_t delistings_applied() const noexcept { return delistings_applied_; }
+
     /// Events withheld from the strategy because the security was not a member
     /// that day. Counted so the guard's effect is a number rather than a
     /// claim: a run where this is zero has not been filtered at all.
@@ -211,6 +248,9 @@ private:
     const Universe* universe_ = nullptr;
     const SecurityMaster* master_ = nullptr;
     std::uint64_t forced_exits_ = 0;
+    DelistingReturnModel delisting_model_ = kDefaultDelistingReturnModel;
+    const DelistingReturns* delisting_returns_ = nullptr;
+    std::uint64_t delistings_applied_ = 0;
     std::uint64_t events_withheld_ = 0;
 
     /// Members as of the last event, so a removal is noticed on the event that

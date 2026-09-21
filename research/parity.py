@@ -61,11 +61,32 @@ import numpy as np
 import pandas as pd
 
 from research import sizing
+from research.delisting import (APPLY_TRUE_RETURN, LAST_PRICE, MODELS, applied_returns)
 from research.panel import Panel, PanelSpec, generate_panel
 
 REPO = Path(__file__).resolve().parent.parent
 FIXTURE_BARS = REPO / "data" / "samples" / "parity_panel.csv"
 FIXTURE_EQUITY = REPO / "data" / "samples" / "parity_expected.csv"
+
+CHURN_BARS = REPO / "data" / "samples" / "parity_churn_panel.csv"
+CHURN_MEMBERSHIP = REPO / "data" / "samples" / "parity_churn_membership.csv"
+CHURN_DELISTINGS = REPO / "data" / "samples" / "parity_churn_delistings.csv"
+CHURN_EQUITY = {
+    LAST_PRICE: REPO / "data" / "samples" / "parity_churn_expected_last_price.csv",
+    APPLY_TRUE_RETURN: REPO / "data" / "samples" / "parity_churn_expected_apply_true_return.csv",
+}
+"""One committed curve per delisting model. Two files rather than one with a
+column each, because the C++ side reads whichever the case under test selected
+and a test that reads the wrong column would still parse."""
+
+CHURN_APPLIED = REPO / "data" / "samples" / "parity_churn_applied.csv"
+"""Every delisting return the reference run booked, with the position and the mark
+it was measured against.
+
+The equity curves agreeing is the assertion; this is what makes a disagreement
+legible. A curve that parts company at session 90 says only that something is
+wrong by then, and `Ledger::delisting_adjustments` compared against these rows
+says which name, on which date, against what position, and by how much."""
 
 EXPOSURE_OFFSET = 10.0
 EXPOSURE_SCALE = 1_000_000.0
@@ -89,6 +110,32 @@ Sized against the repository's other committed sample: 3,780 rows, which is what
 be the largest thing in the tree. Six monthly rebalances and a planted signal are
 enough for the book to trade and to make money -- a strategy that never traded
 would make parity true for the wrong reason."""
+
+PARITY_CHURN_SPEC = PARITY_SPEC.replace(seed=20260920, delist_hazard=0.006,
+                                        delist_exposure_tilt=-1.5)
+"""The same fixture with names leaving it, which is the case the churn-free one
+deliberately does not cover.
+
+Thirty names, six months, the same planted signal; a different seed, because the
+churn draws come from a stream the churn-free spec never touches. Two settings are
+chosen rather than inherited, and both are fixture devices rather than claims
+about the world:
+
+**The hazard is tilted toward high exposure.** A departure in a name the book
+never owned exercises nothing at all, and with a decile rule on thirty names only
+six of the thirty are held at any instant -- so an untilted hazard spends most of
+its departures on names nobody owns. At 0.004 with no tilt this fixture produced
+twenty-three departures and exactly **one** held position, which would have made
+the magnitude half of churn parity rest on a single row. A negative tilt raises the
+hazard with the exposure, which is the long leg, and the committed fixture holds
+seven departures across both causes -- including one total loss and one short
+whose name left at a premium, so both signs of the adjustment are covered.
+
+**The hazard is higher.** 0.006 rather than 0.004, for the same reason.
+
+`write_churn_fixture` refuses to write a fixture where no position was ever held
+into a departure, because that fixture would make churn parity pass by vacuity --
+which is the specific failure Session D says not to report as a result."""
 
 
 def encode_exposure(exposure: float | np.ndarray) -> np.ndarray:
@@ -154,6 +201,19 @@ class ParityRun:
     from position differences, which stopped being possible once the snapshots
     moved to pre-trade."""
 
+    forced_exits: int = 0
+    """Positions liquidated because the name left the panel."""
+
+    delisting_log: list[tuple[pd.Timestamp, str, float, float, float, int]] = field(
+        default_factory=list)
+    """(date, symbol, quantity, mark, delisting_return, micro-dollars) per booked
+    delisting return. The engine's `Ledger::delisting_adjustments`, in Python, and
+    the two are compared row for row by `test_parity.cpp`."""
+
+    delisting_pnl: int = 0
+    """Micro-dollars booked by delisting returns rather than by fills. Zero under
+    `last_price`, which is the whole of that model."""
+
     def to_frame(self) -> pd.DataFrame:
         return pd.DataFrame({"equity_micros": self.equity.astype("int64"),
                              "cash_micros": self.cash.astype("int64")})
@@ -166,15 +226,31 @@ def _fill_price(close: float, buying: bool, config: ParityConfig) -> float:
     return close + half if buying else close - half
 
 
-def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRun:
+def simulate(bars: pd.DataFrame, config: ParityConfig | None = None,
+             delisting_returns: dict[str, float] | None = None) -> ParityRun:
     """Runs the decile rule over a bar table, in the engine's accounting.
 
     `bars` carries date, symbol, close and volume, with the exposure encoded in
     volume. Everything here mirrors `decile_parity.hpp` step for step: the same
     sort, the same decile boundary, closes before opens, the same epsilon on a
     trade too small to bother with.
+
+    CHURN, AND WHY THE SWEEP IS AT THE TOP OF THE LOOP
+
+    A name whose bars stop is force-liquidated, and where the loop puts that is not
+    a matter of taste -- it is what makes the two layers comparable. The engine
+    runs `sweep_removals` from `on_event_complete`, on the first event of the first
+    session the name is no longer a member, and the shim fires `on_session_close`
+    for session N while the engine dispatches the first bar of N+1. So the engine's
+    order within that one event is: rebalance on session N's cross-section, then
+    sweep. Here, the session-N rebalance is at the *end* of iteration N and the
+    sweep is at the *top* of iteration N+1, which is the same order.
+
+    `delisting_returns` is what `research.delisting.applied_returns` produced, so
+    it is empty under `last_price` and this function does not branch on the model.
     """
     config = config or ParityConfig()
+    delisting_returns = delisting_returns or {}
 
     frame = bars.copy()
     frame["exposure"] = decode_exposure(frame["volume"].to_numpy())
@@ -189,10 +265,66 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRu
     trades = 0
     commission_paid = 0
     trade_log: list[tuple[pd.Timestamp, str, float, float]] = []
+    forced_exits = 0
+    delisting_log: list[tuple[pd.Timestamp, str, float, float, float, int]] = []
+    delisting_pnl = 0
+
+    # The last close each name printed, and the last session it printed one.
+    # Membership is read off the bar table rather than taken as a second input:
+    # the engine is handed a membership file and this is handed the bars, and if
+    # the two disagree the fixture is wrong in a way no parity assertion could
+    # attribute. `write_churn_fixture` asserts they agree.
+    last_close: dict[str, float] = {}
+    final_session = {symbol: closes[symbol].last_valid_index() for symbol in closes.columns}
 
     for session, date in enumerate(closes.index):
         close_row = closes.loc[date].dropna()
         exposure_row = exposures.loc[date].reindex(close_row.index)
+
+        # --- The sweep ---------------------------------------------------
+        #
+        # Anything held whose bars have ended is liquidated at the last price
+        # this table showed for it, and then the delisting return the data
+        # supplies -- if any, and there is none under `last_price` -- is booked
+        # against the position that was closed.
+        #
+        # A held name with no bar today whose bars have NOT ended is a gap, not a
+        # departure, and is left alone. The engine does the same thing for the
+        # same reason: membership, not the presence of a print, is what says a
+        # name has gone.
+        for symbol in sorted(shares):
+            if symbol in close_row.index or date <= final_session[symbol]:
+                continue
+
+            quantity = shares[symbol]
+            mark = last_close[symbol]
+            delta = sizing.trade_delta(0.0, quantity)
+            fill = _fill_price(mark, buying=delta > 0, config=config)
+            cash -= notional(fill, delta)
+            charge = notional(config.commission_per_share, abs(delta))
+            cash -= charge
+            commission_paid += charge
+            trade_log.append((date, symbol, delta, mark))
+            trades += 1
+            forced_exits += 1
+            shares.pop(symbol)
+
+            # After the exit, matching `sweep_removals`. The adjustment is
+            # measured against the position as it stood when the name left, and
+            # `mark * delisting_return` is formed first and rounded once -- the
+            # same expression, in the same order, as `delisting_adjustment` in
+            # include/marketscan/exec/delisting.hpp. Rounding it twice puts the
+            # two layers a micro-dollar apart and the assertion has no tolerance.
+            if symbol not in delisting_returns:
+                continue
+            applied = float(delisting_returns[symbol])
+            amount = notional(mark * applied, quantity)
+            cash += amount
+            delisting_pnl += amount
+            delisting_log.append((date, symbol, quantity, mark, applied, amount))
+
+        for symbol, price in close_row.items():
+            last_close[str(symbol)] = float(price)
 
         # Recorded BEFORE this session's rebalance, because that is when the
         # engine records it.
@@ -209,8 +341,13 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRu
         # one session in 126, one micro-dollar of rounding on a rebalance that
         # is equity-neutral at the marks it uses. Caught by
         # test_parity.cpp's "agree, exactly".
-        marked = sum(notional(float(close_row[symbol]), quantity)
-                     for symbol, quantity in shares.items() if symbol in close_row.index)
+        # Marked from the last close each name printed, not from today's row.
+        # The two are the same number for every name that printed today, which is
+        # every name in a panel with no gaps -- but the engine marks from its
+        # market book, which holds the last print regardless, and matching that is
+        # free here and not free to discover later.
+        marked = sum(notional(last_close[symbol], quantity)
+                     for symbol, quantity in shares.items() if symbol in last_close)
         equity_by_date[date] = cash + marked
         cash_by_date[date] = cash
         position_rows[date] = dict(shares)
@@ -269,6 +406,9 @@ def simulate(bars: pd.DataFrame, config: ParityConfig | None = None) -> ParityRu
         trades=trades,
         commission=commission_paid,
         trade_log=trade_log,
+        forced_exits=forced_exits,
+        delisting_log=delisting_log,
+        delisting_pnl=delisting_pnl,
     )
 
 
@@ -339,6 +479,218 @@ def write_fixture(out_bars: Path = FIXTURE_BARS, out_equity: Path = FIXTURE_EQUI
     curve.index.name = "date"
     curve.to_csv(out_equity)
     return out_bars, out_equity
+
+
+ROLL_SYMBOL = "ROLL"
+"""A name that is present on every session, never departs, and is never traded.
+
+WHY A FIXTURE NEEDS ONE
+
+The engine applies a bar to its book *before* showing it to anybody, so that a
+strategy and the fill model pricing its order see the same market. That is the
+right rule for a strategy reacting to a print. It is the wrong rule for a
+cross-sectional one, because the shim fires `on_session_close(N)` from inside the
+dispatch of the **first bar of session N+1** -- so at the instant a session-N
+decision is priced, exactly one symbol's book is already a session ahead.
+
+An order in that one symbol therefore fills at session N+1's price while the
+decision that sized it used session N's close. That is a real defect in the
+engine, it is Session D Part 3's to resolve, and it has nothing to do with
+delisting returns. Measured on this fixture before the roll symbol existed: the
+short leg's SY0000 order was sized against a close of 148.62 and filled at
+143.216, which put the two layers $606.07 apart at session 1 and grew to $942 by
+the end.
+
+The churn-free fixture has always been immune to it **by accident**: SY0000 sorts
+first on every session and never once lands in either decile. That is not a
+property anybody chose, and `assert_roll_symbol_never_trades` now checks it on
+both fixtures rather than leaving it to luck.
+
+This fixture makes it deliberate. `ROLL` sorts before every `SY....` ticker, so it
+is the first bar of every session and therefore always the symbol the engine
+prices a session ahead; its exposure is pinned mid-rank, so it is never in either
+decile and no order is ever sent for it. Adding it changes nothing else: the decile
+count is `floor(31 * 0.1) == 3`, the same as `floor(30 * 0.1)`, and a name holding
+nothing contributes nothing to decision-time equity.
+"""
+
+ROLL_PRICE = 100.0
+"""Flat, and irrelevant: no order is ever priced against it. Constant rather than
+a random walk so that a fixture diff shows only the rows that mean something."""
+
+ROLL_EXPOSURE = 0.0
+"""Mid-rank. `assert_no_ties` checks it does not collide with a real one, and
+`assert_roll_symbol_never_trades` checks the consequence rather than assuming it."""
+
+
+def add_roll_symbol(bars: pd.DataFrame) -> pd.DataFrame:
+    """Prepends a `ROLL` bar to every session. See `ROLL_SYMBOL`."""
+    sessions = pd.Index(sorted(bars["date"].unique()), name="date")
+    rows = pd.DataFrame({
+        "date": sessions,
+        "symbol": ROLL_SYMBOL,
+        "open": ROLL_PRICE,
+        "high": ROLL_PRICE,
+        "low": ROLL_PRICE,
+        "close": ROLL_PRICE,
+        "volume": float(encode_exposure(ROLL_EXPOSURE)),
+    })
+    return pd.concat([bars, rows], ignore_index=True).sort_values(
+        ["date", "symbol"], kind="stable").reset_index(drop=True)
+
+
+def assert_roll_symbol_never_trades(bars: pd.DataFrame, config: ParityConfig | None = None,
+                                    delisting_returns: dict[str, float] | None = None) -> str:
+    """The first symbol of every session is never in a traded leg.
+
+    The property both parity fixtures depend on and neither used to state. If it
+    fails, the engine prices that symbol's orders a session ahead of the decision
+    that sized them and the two layers part company for a reason that has nothing
+    to do with what the test is measuring.
+
+    Returns the symbol it checked, so a caller can report which one carried the
+    fixture.
+    """
+    config = config or ParityConfig()
+    first = min(bars["symbol"].unique())
+    traded = {symbol for _, symbol, _, _ in
+              simulate(bars, config, delisting_returns=delisting_returns).trade_log}
+    if first in traded:
+        raise ValueError(
+            f"{first} sorts first on every session and is traded, so the engine prices its "
+            f"orders a session ahead of the decision that sized them. See ROLL_SYMBOL.")
+
+    # And it really is first on every session, not merely first overall.
+    for date, day in bars.groupby("date"):
+        if min(day["symbol"]) != first:
+            raise ValueError(f"{first} is not the first symbol on {date}")
+    return str(first)
+
+
+def churn_membership(bars: pd.DataFrame) -> pd.DataFrame:
+    """The membership history the engine needs, read off the bar table.
+
+    `symbol, first_session, last_session`, both inclusive dates. The C++ side
+    turns the pair into a `MembershipPeriod` of [midnight of first, midnight after
+    last), which covers every bar the name printed and nothing after -- a daily
+    bar of date D is timestamped midnight UTC of D, so the session after the last
+    one is the first instant the name is not a member, which is when
+    `sweep_removals` fires.
+
+    Derived rather than exported from the panel's own `membership` frame on
+    purpose: the engine is handed this file and the Python reference is handed the
+    bars, so anything that made them disagree would surface as a parity failure
+    with nothing wrong on either side. One source, two readers.
+    """
+    grouped = bars.groupby("symbol")["date"]
+    frame = pd.DataFrame({"first_session": grouped.min(), "last_session": grouped.max()})
+    frame.index.name = "symbol"
+    return frame.sort_index().reset_index()
+
+
+def assert_no_gaps(bars: pd.DataFrame) -> None:
+    """Every name prints on every session between its first and its last.
+
+    A gap is not modelled by either layer and the two would handle one
+    differently -- the engine keeps marking a held name from its stale book while
+    a membership period that spans the gap says it never left. The generator does
+    not produce gaps; this is the assertion that says so rather than the comment
+    that assumes it.
+    """
+    sessions = pd.Index(sorted(bars["date"].unique()))
+    for symbol, dates in bars.groupby("symbol")["date"]:
+        lo = sessions.get_loc(dates.min())
+        hi = sessions.get_loc(dates.max())
+        if len(dates) != hi - lo + 1:
+            raise ValueError(f"{symbol} has a gap: {len(dates)} bars across "
+                             f"{hi - lo + 1} sessions")
+
+
+def write_churn_fixture(config: ParityConfig | None = None) -> list[Path]:
+    """Writes the churn fixture and one reference curve per delisting model.
+
+    Five files: the bars, the membership history, the delisting returns, and the
+    expected equity curve under each of the two models. The curves are simulated
+    from the written CSV rather than from the frame that produced it, for the same
+    reason the churn-free one is -- four decimals on disk against a double in
+    memory was sixteen cents of divergence and looked like a parity bug.
+    """
+    config = config or ParityConfig()
+    panel = generate_panel(PARITY_CHURN_SPEC)
+    if panel.delistings.empty:
+        raise ValueError("the churn spec produced no departures")
+
+    bars = add_roll_symbol(fixture_bars(panel))
+    assert_no_gaps(bars)
+    assert_no_ties(bars, config)
+    assert_roll_symbol_never_trades(
+        bars, config, applied_returns(panel.delistings, APPLY_TRUE_RETURN))
+
+    CHURN_BARS.parent.mkdir(parents=True, exist_ok=True)
+    formatted = bars.assign(date=bars["date"].dt.strftime("%Y-%m-%d"))
+    for column in ("open", "high", "low", "close"):
+        formatted[column] = formatted[column].map(lambda v: f"{v:.4f}")
+    formatted["volume"] = formatted["volume"].round().astype("int64")
+    formatted.to_csv(CHURN_BARS, index=False,
+                     columns=["date", "symbol", "open", "high", "low", "close", "volume"])
+
+    membership = churn_membership(bars)
+    membership.assign(
+        first_session=membership["first_session"].dt.strftime("%Y-%m-%d"),
+        last_session=membership["last_session"].dt.strftime("%Y-%m-%d"),
+    ).to_csv(CHURN_MEMBERSHIP, index=False)
+
+    # Only the names that actually left. A survivor has no delisting return, and
+    # writing one of zero for it would turn "nobody measured this" into "this cost
+    # nothing" -- the distinction `DelistingReturns::has` exists to keep.
+    delistings = panel.delistings.copy()
+    delistings.index.name = "symbol"
+    delistings = delistings.reset_index()
+    delistings["delisting_return"] = delistings["delisting_return"].map(lambda v: f"{v:.17g}")
+    delistings.sort_values("symbol").to_csv(
+        CHURN_DELISTINGS, index=False, columns=["symbol", "delisting_return", "cause"])
+
+    written = [CHURN_BARS, CHURN_MEMBERSHIP, CHURN_DELISTINGS]
+
+    from_file = pd.read_csv(CHURN_BARS, parse_dates=["date"])
+    held_a_departure = 0
+    applied_rows: list[tuple[pd.Timestamp, str, float, float, float, int]] = []
+    for model in MODELS:
+        run = simulate(from_file, config,
+                       delisting_returns=applied_returns(panel.delistings, model))
+        held_a_departure = max(held_a_departure, run.forced_exits)
+        curve = run.to_frame()
+        curve.index = curve.index.strftime("%Y-%m-%d")
+        curve.index.name = "date"
+        curve.to_csv(CHURN_EQUITY[model])
+        written.append(CHURN_EQUITY[model])
+        if model == APPLY_TRUE_RETURN:
+            applied_rows = run.delisting_log
+            if not applied_rows:
+                raise ValueError("apply_true_return booked nothing; either no departure was "
+                                 "held or the delisting table does not cover the ones that were")
+
+    # Seventeen significant digits on the quantity and the mark, because the C++
+    # side is asserted to have computed the identical adjustment from them and a
+    # four-decimal mark would make a mismatch unattributable.
+    pd.DataFrame(applied_rows,
+                 columns=["date", "symbol", "quantity", "mark", "delisting_return",
+                          "micros"]).assign(
+        date=lambda f: f["date"].dt.strftime("%Y-%m-%d"),
+        quantity=lambda f: f["quantity"].map(lambda v: f"{v:.17g}"),
+        mark=lambda f: f["mark"].map(lambda v: f"{v:.17g}"),
+        delisting_return=lambda f: f["delisting_return"].map(lambda v: f"{v:.17g}"),
+    ).to_csv(CHURN_APPLIED, index=False)
+    written.append(CHURN_APPLIED)
+
+    # A fixture where no position was ever held into a departure would make churn
+    # parity pass without testing anything, which is exactly the failure Session D
+    # says not to report as a result.
+    if held_a_departure == 0:
+        raise ValueError("no position was ever held into a departure; this fixture would "
+                         "make churn parity pass by vacuity")
+    return written
+
 
 
 # The engine's fill model, for predicting what it will charge.

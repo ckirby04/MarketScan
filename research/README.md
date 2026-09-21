@@ -59,7 +59,7 @@ installed as a package: run it from the repository root.
 
 | | |
 |---|---|
-| `panel.py` | **M4.** Generates a panel: `r = β·m + λ·x + ε`, seeded, with churn and delistings. The exposure is lagged one period against the return it explains, which is the difference between an honest pipeline and the lookahead pathology. |
+| `panel.py` | **M4.** Generates a panel: `r = β·m + λ·x + ε`, seeded, with churn and delistings — whose returns are emitted beside the panel rather than inside the price series, so the size of an assumed exit is testable. The exposure is lagged one period against the return it explains, which is the difference between an honest pipeline and the lookahead pathology. |
 | `export.py` | Writes a panel as daily bars and a membership history in the formats the C++ side already reads, so the synthetic panel enters the engine through the same door real data does. |
 | `features.py` | **M5.** Causal panel transforms. Every feature on date *t* is a function of data at or before *t*, proved structurally by a test that perturbs tomorrow and asserts today does not move. The one transform that can see the future is called `leak`. |
 | `labels.py` | Forward returns, and the question of what a dead name's label is. Two policies; the difference between them is a measurement in M7. |
@@ -69,6 +69,7 @@ installed as a package: run it from the repository root.
 | `pipeline.py` | The lot, end to end, with every number carrying its caveat. |
 | `metrics.py` | Statistics, and the Fama–MacBeth estimator λ is measured with. Undefined results are NaN, never zero — the same rule the C++ metrics follow. |
 | `recovery.py` | **M6.** |
+| `delisting.py` | The research layer's half of `DelistingReturnModel`, spelled identically to the engine's `exec/delisting.hpp`. One place decides what a position is worth after its last quoted price; a consumer applies whatever `applied_returns` hands it rather than branching on the model. |
 | `pathology.py`, `pathology_report.py` | **M7.** |
 | `sweep.py`, `sweep_report.py`, `sweep_report_body.py` | **M8.** |
 | `ic_calibration.py` | **M8b.** The information coefficient bar, per horizon. |
@@ -105,9 +106,16 @@ R², information coefficient, calibration slope, and the portfolio's Sharpe.
   two. A second, approximate cost model here would be a second answer to a
   question that already has one. `research.parity.modelled_cost` predicts what
   the engine will charge rather than duplicating it.
-- **No real delisting return.** `PanelSpec.delist_return` is a planted number and
-  the engine assumes the last price it saw. Both are instances of **the assumed
+- **No *measured* delisting return.** The generator draws one per departing name —
+  bimodally by cause, distress with mass near total loss against voluntary exits at
+  a small premium — and emits it **separately from the price series**, because on
+  real data the delisting return is an event after the last quoted price.
+  `delisting.py` names the two things a consumer can do with it, `last_price` and
+  `apply_true_return`, and the engine's
+  [`exec/delisting.hpp`](../include/marketscan/exec/delisting.hpp) spells the
+  settings identically. `last_price` is the default on both sides, so no committed
+  number moved when the switch appeared. Both are instances of **the assumed
   exit** — see [`docs/EXECUTION.md`](../docs/EXECUTION.md) — and CRSP delisting
-  returns replace both in one change.
+  returns replace the draw with a measurement in one change.
 - **No real data.** `data/cache/` is gitignored, no test touches the network, and
   the committed fixtures are synthetic.

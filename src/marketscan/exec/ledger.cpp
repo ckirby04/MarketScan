@@ -1,5 +1,7 @@
 #include "marketscan/exec/ledger.hpp"
 
+#include "marketscan/exec/delisting.hpp"
+
 #include <cmath>
 
 namespace marketscan {
@@ -112,6 +114,24 @@ const TradeRecord& Ledger::apply_fill(Timestamp ts,
     return blotter_.back();
 }
 
+const DelistingAdjustment& Ledger::apply_delisting_return(
+    Timestamp ts, SymbolId symbol, Quantity quantity, Price mark, double delisting_return) {
+    // Computed here rather than taken as a Money, so that the one expression
+    // `delisting_adjustment` documents is the only one in the build. Both layers
+    // form `mark * delisting_return` first and round once.
+    const Money amount = delisting_adjustment(mark, quantity, delisting_return);
+
+    // The identical integer out of one account and into another, which is what
+    // keeps check_invariant() exact across this path.
+    cash_ += amount;
+    realized_pnl_ += amount;
+    delisting_pnl_ += amount;
+
+    delisting_adjustments_.push_back(
+        DelistingAdjustment{ts, symbol, quantity, mark, delisting_return, amount});
+    return delisting_adjustments_.back();
+}
+
 void Ledger::mark(SymbolId symbol, Price price) {
     if (!is_usable_price(price) || symbol == kInvalidSymbol || symbol > positions_.size()) {
         return;
@@ -197,6 +217,8 @@ void Ledger::reset() {
     commission_paid_ = Money{};
     positions_.clear();
     blotter_.clear();
+    delisting_adjustments_.clear();
+    delisting_pnl_ = Money{};
     equity_curve_.clear();
     last_sample_ts_ = kNever;
 }

@@ -170,36 +170,91 @@ delivered.
 ## The assumed exit
 
 A name that leaves the index has to be got out of, and neither layer of this
-project knows what that actually cost. Both substitute something, the
-substitutions are different, and the shared limitation has a name so that the two
-halves can point at the same thing:
+project knows what that actually cost. Both substitute something, and the shared
+limitation has a name so that the two halves can point at the same thing:
 
-> **The assumed exit.** Nothing here models a real delisting return. The engine
-> assumes the last price it saw; the research layer assumes a configured number.
-> Both are stand-ins for a measurement this project does not have.
+> **The assumed exit.** Nothing here models a *measured* delisting return. Both
+> layers substitute something, they now substitute the same thing under the same
+> named setting, and the setting says which substitution produced a given number.
 
-Concretely:
+### The switch
 
-| | what it assumes |
+`DelistingReturnModel` exists on both sides, spelled identically:
+[`include/marketscan/exec/delisting.hpp`](../include/marketscan/exec/delisting.hpp)
+and [`research/delisting.py`](../research/delisting.py). Two settings:
+
+| | what it does |
 |---|---|
-| **Engine** | A held security that leaves the universe is force-liquidated at the **last price the book has for it**, logged in the blotter under `kForcedExitClientId` so it is never mistaken for a decision the strategy made. See [`IDENTITY.md`](IDENTITY.md). |
-| **Research layer** | `PanelSpec.delist_return` — a **planted** number, -30% by default and -100% in the delisting pathology. `labels.py` compounds it into the forward return of every row whose window reaches the departure. See [`research/README.md`](../research/README.md). |
+| `last_price` | Liquidate at the final quoted price; apply no delisting return. **The default.** It is what the engine has always done, and it is what a backtest does when nobody has asked the question. |
+| `apply_true_return` | Apply the delisting return **where the data supplies one**. A security with no row is liquidated at the last price either way: a missing row is a coverage limit, not a return of zero, and `DelistingReturns::has` is what keeps the two apart. |
 
-The engine's version is the optimistic one, and it is optimistic in a specific
-way rather than vaguely: a real delisting return is frequently -30% or
-everything, and the last price the book saw is by construction the price *before*
-whatever happened. That is where a naive backtest hides its losses, and
-[`PATHOLOGIES.md`](PATHOLOGIES.md) measures what the hiding is worth — dropping
-the truncated labels removes 82% of the average loss while leaving the worst
-single observation intact, so a study that checks its own worst case finds it
-present and concludes the delistings are counted.
+In the engine the return is booked by `Ledger::apply_delisting_return` as its own
+line rather than as a fabricated fill — no order, no counterparty, no commission,
+because what happened is that a position turned out to be worth something other
+than its last print. Cash and realized P&L move by the identical integer, so the
+ledger invariant holds across the path without being told about it, and
+`delisting_pnl()` tallies separately how much of a result came from an assumption
+rather than from a trade.
 
-**CRSP delisting returns replace both in one change.** They are a measured
-return for the event itself, which makes the engine's last-price assumption
-unnecessary and the research layer's planted number unnecessary at the same time.
-Until then, any number either layer produces on a panel with departures carries
-this assumption, and the two layers carry *different* ones — so a comparison
-between them across a delisting is a comparison of two stand-ins.
+`last_price` stays the default because changing a default silently moves every
+number measured under it. Turning this on is a decision somebody makes.
+
+### What the assumption is worth
+
+Measured, on the committed churn parity fixture — thirty names over six months, 29
+departures, seven of them held when they happened, and a generator whose delisting
+returns are known by construction:
+
+| | `last_price` | `apply_true_return` |
+|---|---|---|
+| total return | **+11.74%** | **-18.36%** |
+| Sharpe | **+2.41** | **-1.14** |
+| delisting returns booked | $0.00 | -$30,008.25 |
+
+The assumption is worth **30.10 points of return and 3.55 of Sharpe** on this
+fixture, and it does not merely flip the sign of the result. +2.41 clears the
+`NULL_SHARPE_THRESHOLD` of 1.927 that
+[`FALSE_DISCOVERY.md`](FALSE_DISCOVERY.md) derived from a 1,512-run null sweep —
+so under the optimistic assumption this rule looks distinguishable from noise
+after adjusting for the size of the search, and under the honest one it loses
+money.
+
+The gap is larger than the adjustments themselves ($30,103.77 against
+$30,008.25). The extra $95.51 is compounding: a delisting return moves cash,
+decision-time equity is cash plus the marked book, and every rebalance after the
+first booked loss sizes a smaller book. Small on six months because most of the
+loss lands in the final month; it is the larger of the two terms over a long
+panel.
+
+[`PATHOLOGIES.md`](PATHOLOGIES.md) measures the same assumption from the research
+layer alone, on its own panel, and reports it independently.
+
+### Both layers, asserted equal
+
+`tests/test_parity.cpp` replays the churn fixture through the engine under each
+setting and compares it to a curve `research/parity.py` produced from the same
+bytes. The two agree **to the micro-dollar under both models**, and every booked
+adjustment is reconciled against the reference row for row — name, date, position,
+mark, return, and micro-dollars.
+
+That ordering is the point of Session D Part 2. Under `last_price` the adjustment
+is zero, so agreement is agreement about *when* each layer noticed a departure and
+at what price it liquidated. Under `apply_true_return` both layers apply the same
+known return, so agreement is additionally agreement about *how much* the exit was
+worth. The old fixture could not separate those: the departure return used to be
+the departing name's final bar, which made "liquidate at the last price the book
+has" capture the loss by construction, and both layers could agree perfectly while
+being wrong in the same direction about the size of the exit they assumed.
+
+### What is still assumed
+
+**CRSP delisting returns replace the substitution with a measurement.** Until
+then, `apply_true_return` on real data has nothing to apply, and every number
+either layer produces over a universe with departures in it carries `last_price`.
+On synthetic data the generator supplies the truth, which is what makes the
+measurement above possible and also what limits it: the bimodal draw by cause —
+distress with mass near total loss, voluntary exits at a small premium — is a
+modelling choice, not an estimate of anything.
 
 ---
 

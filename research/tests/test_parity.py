@@ -14,15 +14,27 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from research.delisting import APPLY_TRUE_RETURN, LAST_PRICE, MODELS, applied_returns
+from research.panel import generate_panel
 from research.parity import (
+    CHURN_APPLIED,
+    CHURN_BARS,
+    CHURN_DELISTINGS,
+    CHURN_EQUITY,
+    CHURN_MEMBERSHIP,
     EXPOSURE_OFFSET,
     EXPOSURE_SCALE,
     FIXTURE_BARS,
     FIXTURE_EQUITY,
     MICROS,
+    PARITY_CHURN_SPEC,
     PARITY_SPEC,
+    ROLL_SYMBOL,
     ParityConfig,
+    assert_no_gaps,
     assert_no_ties,
+    assert_roll_symbol_never_trades,
+    churn_membership,
     decode_exposure,
     encode_exposure,
     fixture_bars,
@@ -218,3 +230,259 @@ def test_the_committed_volume_decodes_into_an_exposure():
     # A real volume column decodes to nonsense, which is the point of the guard.
     real = decode_exposure(np.array([1_000_000.0 * 2.5, 850_000.0]))
     assert (np.abs(real) > 9.0).any()
+# ---------------------------------------------------------------------------
+# The churn fixture
+# ---------------------------------------------------------------------------
+#
+# Session D Part 2. The cross-language comparison is still in the C++ suite; what
+# is checked here is everything it depends on, plus the two properties that make
+# the churn case mean anything: that the delisting return is separable from the
+# price series, and that the symbol whose bar rolls each session is never traded.
+
+
+@pytest.fixture(scope="module")
+def churn_panel():
+    return generate_panel(PARITY_CHURN_SPEC)
+
+
+@pytest.fixture(scope="module")
+def churn_bars():
+    return pd.read_csv(CHURN_BARS, parse_dates=["date"])
+
+
+def test_the_churn_fixture_actually_churns(churn_panel, churn_bars):
+    assert len(churn_panel.delistings) > 10
+    assert len(churn_panel.securities) > churn_panel.spec.n_securities
+
+    # Every session has the same number of names: a departure is replaced, so the
+    # panel never shrinks. A shrinking panel would be survivorship bias introduced
+    # by the generator.
+    per_session = churn_bars.groupby("date")["symbol"].nunique()
+    assert per_session.nunique() == 1
+
+
+def test_the_departure_return_is_not_in_the_price_series(churn_panel):
+    """The change that made the churn case worth running.
+
+    A departing name's final bar is an ordinary bar. If the delisting return were
+    compounded into it, the engine's "liquidate at the last price the book has"
+    would capture the loss by construction and the two layers could agree
+    perfectly while being wrong in the same direction about the size of the exit.
+    """
+    returns = churn_panel.wide("ret")
+    worst_departing = []
+    for security, row in churn_panel.delistings.iterrows():
+        final = returns.loc[row["date"], security]
+        assert np.isfinite(final)
+        worst_departing.append(float(final))
+        # A -100% delisting return exists in this fixture; no bar carries it.
+        assert final > -0.5, (f"{security}'s final bar carries {final:+.2%}, which is the "
+                              f"delisting return leaking back into the price series")
+
+    # And the returns the table carries really are severe, so the assertion above
+    # is not passing because there was nothing to leak.
+    assert churn_panel.delistings["delisting_return"].min() <= -0.9
+    assert min(worst_departing) > -0.5
+
+
+def test_both_causes_are_represented_and_bounded(churn_panel):
+    causes = set(churn_panel.delistings["cause"])
+    assert causes == {"distress", "voluntary"}
+
+    values = churn_panel.delistings["delisting_return"]
+    assert values.min() >= -1.0, "a delisting cannot lose more than everything"
+    distress = churn_panel.delistings.loc[churn_panel.delistings["cause"] == "distress",
+                                          "delisting_return"]
+    assert (distress <= 0.0).all(), "a distressed delisting cannot pay a premium"
+
+
+def test_the_committed_membership_is_what_the_bars_say(churn_bars):
+    """One source, two readers.
+
+    The engine is handed the membership file and the reference is handed the bars.
+    Anything that made them disagree would surface as a parity failure with
+    nothing wrong on either side.
+    """
+    committed = pd.read_csv(CHURN_MEMBERSHIP, parse_dates=["first_session", "last_session"])
+    derived = churn_membership(churn_bars)
+
+    pd.testing.assert_frame_equal(
+        committed.sort_values("symbol").reset_index(drop=True),
+        derived.sort_values("symbol").reset_index(drop=True))
+
+
+def test_the_committed_delisting_table_covers_exactly_the_names_that_left(churn_panel):
+    committed = pd.read_csv(CHURN_DELISTINGS)
+    assert set(committed["symbol"]) == set(churn_panel.delistings.index)
+
+    # And nothing else. A survivor with a row of zero would turn "nobody measured
+    # this" into "this cost nothing", which is the distinction the model exists to
+    # keep.
+    assert ROLL_SYMBOL not in set(committed["symbol"])
+
+
+def test_the_fixture_has_no_gaps(churn_bars):
+    assert_no_gaps(churn_bars)
+
+    # And the assertion bites: drop one interior session for one name.
+    victim = "SY0005"
+    dates = sorted(churn_bars.loc[churn_bars["symbol"] == victim, "date"])
+    assert len(dates) > 4
+    holed = churn_bars.drop(churn_bars[(churn_bars["symbol"] == victim) &
+                                       (churn_bars["date"] == dates[2])].index)
+    with pytest.raises(ValueError, match="gap"):
+        assert_no_gaps(holed)
+
+
+def test_the_rolling_symbol_is_never_traded(churn_bars):
+    """The property both fixtures depend on and neither used to state.
+
+    The engine applies a bar to its book before showing it to anybody, and the
+    shim fires `on_session_close(N)` from inside the dispatch of the first bar of
+    session N+1 -- so an order in that one symbol is sized against session N's
+    close and filled at N+1's. See `research.parity.ROLL_SYMBOL`.
+    """
+    assert assert_roll_symbol_never_trades(churn_bars) == ROLL_SYMBOL
+
+    # The churn-free fixture satisfies it too, by accident rather than by design,
+    # which is exactly why it is now checked.
+    assert assert_roll_symbol_never_trades(fixture_bars()) == "SY0000"
+
+
+def test_the_rolling_symbol_check_bites(churn_bars):
+    """A roll symbol ranked into a decile is caught."""
+    tampered = churn_bars.copy()
+    roll = tampered["symbol"] == ROLL_SYMBOL
+    # The highest exposure in the panel, so it lands in the long leg.
+    tampered.loc[roll, "volume"] = float(encode_exposure(8.5))
+    with pytest.raises(ValueError, match="session ahead"):
+        assert_roll_symbol_never_trades(tampered)
+
+
+def test_a_position_held_into_a_departure_is_liquidated_and_the_return_booked(churn_bars,
+                                                                             churn_panel):
+    assumed = simulate(churn_bars)
+    honest = simulate(churn_bars,
+                      delisting_returns=applied_returns(churn_panel.delistings,
+                                                        APPLY_TRUE_RETURN))
+
+    # The same departures, on the same sessions, at the same prices.
+    assert assumed.forced_exits == honest.forced_exits >= 5
+
+    # `last_price` books nothing at all. That is the whole of that model.
+    assert assumed.delisting_log == []
+    assert assumed.delisting_pnl == 0
+
+    assert len(honest.delisting_log) == honest.forced_exits
+    assert honest.delisting_pnl != 0
+
+    # Both signs, and one total loss, so neither the credit nor the debit path is
+    # untested and the worst case is covered.
+    amounts = [row[5] for row in honest.delisting_log]
+    assert min(amounts) < 0 < max(amounts)
+    assert any(row[4] == -1.0 for row in honest.delisting_log)
+
+    # Every booked adjustment is the position as it stood when the name left,
+    # marked at the last price it printed.
+    for date, symbol, quantity, mark, applied, micros in honest.delisting_log:
+        assert micros == notional(mark * applied, quantity)
+        assert applied == pytest.approx(
+            float(churn_panel.delistings.loc[symbol, "delisting_return"]))
+        # The position is gone by the next session, not merely adjusted.
+        assert symbol not in honest.positions.loc[date][
+            honest.positions.loc[date] != 0.0].index
+
+
+def test_the_assumption_flatters_the_run_and_the_gap_exceeds_the_adjustments(churn_bars,
+                                                                            churn_panel):
+    """Session D Part 2.3, from the Python side.
+
+    The engine measures this independently through its own ledger; the two are a
+    cross-check rather than a restatement.
+    """
+    assumed = simulate(churn_bars)
+    honest = simulate(churn_bars,
+                      delisting_returns=applied_returns(churn_panel.delistings,
+                                                        APPLY_TRUE_RETURN))
+
+    start = ParityConfig().starting_cash * MICROS
+    assumed_end = int(assumed.equity.iloc[-1])
+    honest_end = int(honest.equity.iloc[-1])
+
+    assert assumed_end > start > honest_end, (
+        "the assumption is supposed to turn a losing run into a winning one on this "
+        "fixture; it no longer does")
+
+    gap = assumed_end - honest_end
+    assert gap > 10 * MICROS * 1000, f"the assumption was worth only {gap / MICROS:,.2f}"
+
+    # Strictly more than the adjustments themselves. A delisting return moves cash,
+    # decision-time equity is cash plus the marked book, and every rebalance after
+    # the first booked loss sizes a smaller book -- so the gap is the adjustments
+    # plus everything the smaller book then failed to earn.
+    assert gap > -honest.delisting_pnl
+
+
+def test_the_committed_churn_curves_match_a_fresh_run(churn_bars, churn_panel):
+    """The curves the C++ suite asserts against cannot drift from this code.
+
+    Simulated from the committed CSV, not from the frame that produced it: the file
+    carries four decimals and the panel carries a double, and a curve computed
+    before writing is a curve for prices the engine will never see.
+    """
+    for model in MODELS:
+        committed = pd.read_csv(CHURN_EQUITY[model])
+        fresh = simulate(churn_bars,
+                         delisting_returns=applied_returns(churn_panel.delistings, model))
+
+        assert len(committed) == len(fresh.equity)
+        assert list(committed["equity_micros"]) == list(fresh.equity.astype("int64"))
+        assert list(committed["cash_micros"]) == list(fresh.cash.astype("int64"))
+
+
+def test_the_committed_applied_log_matches_a_fresh_run(churn_bars, churn_panel):
+    # `float_precision="round_trip"` is load-bearing. pandas' default C converter
+    # is fast and inexact: it parses the committed `287.08291392594157` to a
+    # different double than the one that wrote it, and this test failed on the last
+    # bit because of the reader rather than because of anything it was checking.
+    # The C++ side reads these with `strtod`, which is exact.
+    committed = pd.read_csv(CHURN_APPLIED, float_precision="round_trip")
+    fresh = simulate(churn_bars,
+                     delisting_returns=applied_returns(churn_panel.delistings,
+                                                       APPLY_TRUE_RETURN))
+
+    assert len(committed) == len(fresh.delisting_log)
+    for (_, want), got in zip(committed.iterrows(), fresh.delisting_log):
+        assert want["symbol"] == got[1]
+        # Bit-exact, not approximate: the C++ side is asserted to have computed the
+        # identical adjustment from these two doubles.
+        assert float(want["quantity"]) == got[2]
+        assert float(want["mark"]) == got[3]
+        assert float(want["delisting_return"]) == got[4]
+        assert int(want["micros"]) == got[5]
+
+
+def test_a_delisting_return_nobody_supplied_is_not_zero(churn_bars, churn_panel):
+    """A security the table says nothing about is liquidated at the last price
+    under either model, which is not the same as one measured to have cost
+    nothing."""
+    partial = applied_returns(churn_panel.delistings, APPLY_TRUE_RETURN)
+    dropped = sorted(partial)[0]
+    del partial[dropped]
+
+    full = simulate(churn_bars,
+                    delisting_returns=applied_returns(churn_panel.delistings,
+                                                      APPLY_TRUE_RETURN))
+    thinner = simulate(churn_bars, delisting_returns=partial)
+
+    # Same forced exits either way -- coverage changes what an exit was worth, not
+    # whether it happened.
+    assert thinner.forced_exits == full.forced_exits
+    assert len(thinner.delisting_log) <= len(full.delisting_log)
+
+
+def test_applied_returns_is_empty_under_the_default(churn_panel):
+    assert applied_returns(churn_panel.delistings, LAST_PRICE) == {}
+    assert applied_returns(churn_panel.delistings) == {}, "the default is not last_price"
+    assert len(applied_returns(churn_panel.delistings, APPLY_TRUE_RETURN)) == len(
+        churn_panel.delistings)

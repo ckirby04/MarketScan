@@ -236,9 +236,17 @@ magnitude is reliably large.
 
 Because changing it silently would move every number measured under it. The
 switch is named on both sides -- `research/delisting.py` and the engine's
-equivalent -- and `last_price` remains the default so that turning it on is a
-decision somebody made. When CRSP delisting returns arrive, `apply_true_return`
-is the whole of the change.
+`include/marketscan/exec/delisting.hpp`, spelled identically -- and
+`last_price` remains the default so that turning it on is a decision somebody
+made. When CRSP delisting returns arrive, `apply_true_return` is the whole of
+the change.
+
+The engine reaches the same conclusion independently, on its own fixture and
+through its own ledger: `tests/test_parity.cpp` runs the decile rule over a
+panel with departures under both settings and measures 30.10 points of return
+and 3.55 of Sharpe. Nothing in *this* file has run that path -- the two
+measurements are separate by construction, which is what makes them a
+cross-check rather than a restatement.
 
 See **the assumed exit** in [`EXECUTION.md`](EXECUTION.md) for the shared name
 and what each layer substitutes.

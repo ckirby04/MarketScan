@@ -184,15 +184,29 @@ micro-dollar, onto the number the engine had been reporting throughout.
 One micro-dollar, on one session, in `data/samples/parity_expected.csv`. Caught
 by the equality assertion itself.
 
+### Churn parity, added in Session D Part 2
+
+A second fixture, `data/samples/parity_churn_*`, where names leave: 29
+departures, a membership history the engine builds a `Universe` from, and a
+delisting return table the generator knows the truth of. Both layers are asserted
+identical **under each setting of `DelistingReturnModel`**, which is what splits
+agreement about the *timing* of a forced exit from agreement about its
+*magnitude* — the distinction the old fixture could not make, because the
+departure return used to be the departing name's final bar. See *What Part 3
+owed* below.
+
 ### Still open, and it is Session D Part 3
 
-The sizing-side lookahead is gone. The **fill-side** one is not even measured
-yet. Both layers currently fill a decision taken from session N's close *at*
-session N's close, which Session D argues is itself a lookahead — trading on
-information simultaneously with acting on it. Resolving it means instrumenting
-the fill path with a decision/price/fill timestamp triple and asserting that a
-fill price is stamped later than the bar that produced the decision. Expect it to
-move committed results.
+The sizing-side lookahead is gone. The **fill-side** one is now measured — churn
+parity caught it, at $606.07 on one symbol at session 1 of 126 — but not fixed.
+Both layers fill a decision taken from session N's close *at* session N's close
+for every symbol but one, which is trading on information simultaneously with
+acting on it; the one exception fills a session late, which is the only fill in
+the run that is actually defensible. Resolving it means the decision/price/fill
+timestamp triple, the invariant asserted in CI, and a change to
+`CrossSectionalStrategy` so that every fill lands a session after the decision.
+Expect it to move committed results. Detail in *What Part 3 owed, and what it
+got*.
 
 ---
 
@@ -200,21 +214,42 @@ move committed results.
 
 | | | |
 |---|---|---|
-| 0 | Housekeeping, reboot, baseline | **not done** — see below |
+| 0 | Housekeeping, reboot, baseline | **done** — baseline below |
 | 1 | Bit-identical sizing | **done**, CI green |
-| 2 | Make delisting returns real | not started |
-| 3 | The lookahead probe | not started; the sizing half of it landed in Part 1 |
+| 2 | Make delisting returns real | **done** — both layers, churn parity exact |
+| 3 | The lookahead probe | not started; the sizing half landed in Part 1, and Part 2 **measured** the fill-timing half |
 | 4 | Toolchain gate (GUI stack) | not reached |
 | 5–7 | Inspector, dual view, close-out | not started |
 
-**Part 0 was skipped and should not have been, except that its substance did not
-block Part 1.** It asks for a reboot first: this machine's endpoint security
-holds freshly built binaries in a kernel-mode wait — one thread, zero CPU,
-surviving `Kill()` — and stale copies keep their own executables open, so
-`test_parity.exe` cannot relink. 26 such processes are outstanding. Part 1 was
-finished by compiling locally and verifying through CI, which worked but cost
-several seven-minute round-trips for answers a local run gives in seconds. Parts
-2 and 3 involve real iteration and should not be attempted that way.
+### Part 0: the baseline, and what it cost to get
+
+Local runs now work. The cause was never scanning — it was **SONAR /
+Auto-Protect**, a separate exclusion from the scan exclusion, holding each
+freshly built binary in a kernel-mode wait: one thread, zero CPU, surviving
+`Kill()`. A reboot cleared the stale handles but not the interception; the
+Auto-Protect exclusion fixed it.
+
+One more thing had to be learned after that. With the exclusion in place, a build
+that links 21 test binaries and then runs all 21 through `catch_discover_tests`
+in parallel still hangs — every one of the 21 stalls, while the same binary run on
+its own returns immediately. Building with `-j 3` is enough.
+
+Baseline, taken before anything in Part 2 was changed:
+
+| | |
+|---|---|
+| C++ (`ci` configuration: Release, `MARKETSCAN_WERROR=ON`) | **334 passed, 0 failed, 1 skipped** |
+| Python (`research/tests`) | **185 passed** |
+| CI on `main` | green at `cb4aefb` |
+
+The one skipped test is the identity classifier's calibration case, which needs
+cached Stooq bars; see *Stooq is gated* below.
+
+Part 2 then moved them, and the movement is accounted for: **343 C++** (+9 cases,
+all in `test_parity.cpp` — the churn fixture, the two curve comparisons, the
+row-for-row reconciliation, the flattery gate, the rolling-symbol property and the
+two loader cases) and **199 Python** (+14, all in `research/tests/test_parity.py`).
+`clang-format` 19.1.1 clean across the tree. No existing test changed its result.
 
 ---
 
@@ -275,35 +310,90 @@ document itself nominates as clean.
 | 0 | Commit Session B | done — five milestone commits, CI green |
 | 1 | M8b, empirical IC thresholds | done |
 | 2 | What moves the bar | done |
-| 3 | M9 parity | churn-free parity and the cost check done; **churn parity not run** |
+| 3 | M9 parity | done — churn-free parity, the cost check, and (in Session D Part 2) **churn parity, exact under both delisting models** |
 | 4 | Universe Inspector panel | not started |
 | 5 | M9b, the dual view | not started |
 | 6 | Close-out: README and this file | partly — this file is current, `README.md` is not |
 
-### What Part 3 still owes
+### What Part 3 owed, and what it got
 
-**Churn parity.** Only the churn-free case has been run, which is the ordering
-Session C asks for and the half that had to pass first. The churn case needs a
-second fixture with departures, a `Universe` built in the test so the engine's
-forced-exit path fires, and the gap quantified and attributed to names.
+**Churn parity: run, and exact under both delisting models.** Session D Part 2
+made it possible and then it passed. The fixture is
+`data/samples/parity_churn_*` — thirty names over six months, 29 departures, a
+membership history the engine builds a `Universe` from, and a delisting return
+table the generator knows the truth of.
 
-Expect it to be *smaller* than it sounds, and be careful about why. The engine
-force-liquidates at the last price the book has, and in a synthetic panel the
-departure return **is** the final bar — so the engine captures it rather than
-missing it, and the two layers may agree for a reason that would not hold on real
-data where the drop is not in the file. That is worth confirming explicitly
-rather than reporting as a clean pass: what the churn case actually measures here
-is the *timing* of the exit, not the size of the assumed one.
+| | |
+|---|---|
+| `last_price` | engine and reference agree to the micro-dollar across 126 sessions |
+| `apply_true_return` | same, and every booked adjustment reconciled row for row — name, date, position, mark, return, micro-dollars |
+| held departures | 7, across both causes, including one total loss and one short whose name left at a premium |
 
-**The one-symbol lookahead, predicted and not observed.** Reading the engine says
-an order submitted inside a callback fills immediately against the book as of that
-event, and `on_session_close` fires while the first bar of the *next* session is
-being dispatched — so one symbol per session should price at tomorrow's close.
-Four rebalances matched exactly, so either the reading is wrong or the effect is
-masked by the fixture. It wants a purpose-built probe: submit for every symbol at
-a session close, record the fill prices, compare each to that session's close and
-the next one's. An inference from a curve that happened to agree is not an answer.
+The earlier warning in this file was right and is now discharged rather than
+repeated. It said to expect the churn case to measure *the timing of the exit, not
+the size of the assumed one*, because the departure return **was** the departing
+name's final bar — so "liquidate at the last price the book has" captured it by
+construction and the two layers could agree perfectly while being wrong in the
+same direction. Part 2 moved the delisting return out of the price series, which
+splits the two questions:
 
+- under `last_price` the adjustment is zero, so agreement is agreement about
+  **when** each layer noticed a departure and at what price it liquidated;
+- under `apply_true_return` both layers apply the same known return, so agreement
+  is additionally agreement about **how much** the exit was worth;
+- and the two runs are required to differ materially, so neither passes by the
+  switch having done nothing.
+
+What the assumption is worth on that fixture: **30.10 points of return and 3.55 of
+Sharpe** (+11.74% and +2.41 assuming a zero delisting return, −18.36% and −1.14
+applying it). +2.41 clears the 1.927 null-Sharpe threshold that
+`FALSE_DISCOVERY.md` derived from a 1,512-run sweep, so under the optimistic
+assumption this rule looks distinguishable from noise after adjusting for the size
+of the search, and under the honest one it loses money. Full detail in **the
+assumed exit** in `EXECUTION.md`.
+
+**The one-symbol lookahead: observed, and measured.** This file previously said it
+was *predicted and not observed*, and that an inference from a curve that happened
+to agree is not an answer. It is observed now, and it was churn parity that caught
+it rather than a probe built to look for it.
+
+The reading was correct. `Engine::step` applies an event to the book before
+dispatching it, so that a strategy and the fill model pricing its order see the
+same market — right for a strategy reacting to a print. But
+`IStrategy::advance_session` fires `on_session_close(N)` from inside the dispatch
+of the **first bar of session N+1**, so at the instant a session-N decision is
+priced, exactly one symbol's book is already a session ahead. An order in that
+symbol is sized against session N's close and filled at N+1's.
+
+Measured, on the churn fixture before it carried a dedicated roll symbol: the
+short leg held SY0000, which sorts first on every session. It was sized against a
+close of 148.6207 and filled at 143.216 — **$606.07 apart at session 1 of 126,
+growing to $942 by the end**. Caught by
+`tests/test_parity.cpp`'s "under last_price the two layers agree about timing,
+exactly", which is not a test anybody wrote to look for a lookahead.
+
+Why the churn-free fixture never showed it: SY0000 sorts first there too and
+**never once lands in either decile**. That is luck, not a property anybody chose,
+and the parity suite depended on it silently. It no longer does —
+`the symbol that rolls each session is never in a traded leg` asserts it on both
+fixtures, and the churn fixture satisfies it deliberately with a `ROLL` symbol
+whose exposure is pinned mid-rank.
+
+**So Part 3's remaining work is the fix, not the diagnosis.** The timestamp triple
+and the invariant are still owed: record, per fill, the decision's information
+horizon, the timestamp of the price used, and the fill's own, then assert that a
+decision taken from bar N can only fill against a price timestamped later than bar
+N's close. Note what that invariant says about the engine as it stands — the one
+anomalous symbol is the only one that *satisfies* it. The other 29 fill at the
+close they were sized from, which is the larger lookahead and the one that will
+move committed results when it is fixed.
+
+The fix cannot be "fire the session-close callback earlier": `plugin_abi.h` is
+frozen at v1 and its vtable has no session hook, so the shim can only learn a
+session ended by being handed the next one's first bar. It belongs in
+`CrossSectionalStrategy` — compute targets on session N's cross-section, submit
+each symbol's order when that symbol's next bar arrives — which needs no ABI
+change and makes every fill a session later than the decision, uniformly.
 ### Parts 4–6
 
 Read `specs/SPEC_VIEW_MODES.md` in full before starting Part 5; it is binding as
@@ -328,7 +418,8 @@ Not bugs. Things this cannot do, written down so they are not rediscovered.
 
 | | |
 |---|---|
-| **Forced exits are optimistic** | The biggest one. A name leaving the index is liquidated at the last price; real delisting returns are frequently −30% or everything. This is where naive backtests hide their losses. |
+| **The assumed exit** | The biggest one, and now named on both sides rather than merely known. `DelistingReturnModel` selects between liquidating at the last price (`last_price`, the default) and applying a supplied delisting return (`apply_true_return`). On real data there is nothing to apply until CRSP delisting returns arrive, so every number over a universe with departures in it carries `last_price` — worth **30.10 points of return and 3.55 of Sharpe** on the churn parity fixture. See *the assumed exit* in [`EXECUTION.md`](EXECUTION.md). |
+| **One fill per session is priced a session early, and the rest a session late** | Measured, not fixed. A cross-sectional decision on session N fills at session N's own close for every symbol but the one whose bar rolled the session, which fills at N+1's. Session D Part 3. |
 | **Renames are not inferred** | From ticker-keyed data a rename is indistinguishable from one name leaving and another arriving. `add_ticker` declares one; nothing populates it. |
 | **No corporate actions** | No spin-offs, mergers, rights issues or share classes. |
 | **No point-in-time restatements** | Prices are as they are today, adjustments included. |

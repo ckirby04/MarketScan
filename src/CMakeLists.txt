@@ -35,6 +35,7 @@ add_library(marketscan_core STATIC
     marketscan/data/universe.cpp
     marketscan/data/synthetic_feed.cpp
     marketscan/exec/broker.cpp
+    marketscan/exec/delisting.cpp
     marketscan/exec/fill_model.cpp
     marketscan/exec/ledger.cpp
     marketscan/metrics/correlation.cpp

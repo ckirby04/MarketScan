@@ -46,6 +46,31 @@ struct EquityPoint {
     Money cash;
 };
 
+/// One delisting return, booked.
+///
+/// Not a trade, and kept out of the blotter for that reason: there is no order,
+/// no counterparty, no reference price and no commission. What happened is that a
+/// position turned out to be worth something other than the last price the tape
+/// showed for it, and the difference is recorded here with the numbers it was
+/// computed from -- so a run under `apply_true_return` can be reconciled against
+/// the same run under `last_price` line by line.
+struct DelistingAdjustment {
+    Timestamp ts = 0;
+    SymbolId symbol = kInvalidSymbol;
+
+    /// Signed position the return was earned on, as it stood when the security
+    /// left the universe.
+    Quantity quantity = 0.0;
+
+    /// The last price the book held. The return is measured from here.
+    Price mark = 0.0;
+
+    double delisting_return = 0.0;
+
+    /// Change in cash. Negative for a long that failed.
+    Money amount;
+};
+
 /// One strategy's virtual account.
 ///
 /// Every strategy in a run owns one of these and can see no other. Cash is
@@ -83,6 +108,28 @@ public:
                                   Price reference_price,
                                   Money commission);
 
+    /// Books a delisting return against a position that has left the universe.
+    ///
+    /// `quantity` and `mark` are the position as it stood when the security left,
+    /// captured by the caller before the forced exit ran, because by the time this
+    /// is called the position is normally flat. See
+    /// `include/marketscan/exec/delisting.hpp` for what the number means and
+    /// `StrategyInstance::sweep_removals` for where it comes from.
+    ///
+    /// Cash and realized P&L move by the identical integer, which is why the
+    /// ledger invariant holds across this path without being told about it: the
+    /// adjustment is realized value, just not realized by trading. `delisting_pnl`
+    /// tallies it separately so a report can say how much of the result came from
+    /// an assumption rather than from a fill.
+    ///
+    /// **This path can drive cash negative**, and it is the only one that can.
+    /// The broker refuses an order that would overdraw the account; a delisting
+    /// return cannot be refused, because it is not a decision -- it is what the
+    /// position turned out to be worth. An account it takes below zero is a blown
+    /// up account, and recording that is the point.
+    const DelistingAdjustment& apply_delisting_return(
+        Timestamp ts, SymbolId symbol, Quantity quantity, Price mark, double delisting_return);
+
     /// Revalues one position. Prices that are not positive and finite are
     /// ignored rather than allowed to zero out a holding.
     void mark(SymbolId symbol, Price price);
@@ -119,6 +166,15 @@ public:
     [[nodiscard]] std::vector<const Position*> open_positions() const;
 
     [[nodiscard]] const std::vector<TradeRecord>& blotter() const noexcept { return blotter_; }
+
+    /// Cash booked by delisting returns rather than by fills. A subset of
+    /// `realized_pnl`, not an addition to it.
+    [[nodiscard]] Money delisting_pnl() const noexcept { return delisting_pnl_; }
+
+    /// Every delisting return booked, in the order they happened.
+    [[nodiscard]] const std::vector<DelistingAdjustment>& delisting_adjustments() const noexcept {
+        return delisting_adjustments_;
+    }
 
     /// True when the account could pay `cost` without going negative.
     [[nodiscard]] bool can_afford(Money cost) const noexcept { return cost <= cash_; }
@@ -168,6 +224,8 @@ private:
     std::vector<Position> positions_;
 
     std::vector<TradeRecord> blotter_;
+    std::vector<DelistingAdjustment> delisting_adjustments_;
+    Money delisting_pnl_;
     std::vector<EquityPoint> equity_curve_;
 
     Duration sample_interval_ = time::kMinute;
