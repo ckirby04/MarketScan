@@ -2,6 +2,7 @@
 #define MARKETSCAN_EXEC_BROKER_HPP
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 #include "marketscan/core/random.hpp"
@@ -40,6 +41,76 @@ public:
     virtual void on_order_status(const MS_OrderStatus&) {}
 };
 
+/// Order lifecycle and execution for one account, as a strategy sees it.
+///
+/// WHY THIS INTERFACE EXISTS
+///
+/// So that live execution is a different implementation of the same thing
+/// rather than a second path through the same code. A strategy submits, and
+/// something either simulates a fill or sends the order to a venue; nothing
+/// above this line knows which, and there is no flag to ask.
+///
+/// That is the milestone's own test of itself. If a branch on "are we live"
+/// ever appears in StrategyInstance, in the engine, or in a plugin, the seam
+/// has leaked and this interface has failed at its one job.
+///
+/// The methods here are exactly the ones StrategyInstance and the run drivers
+/// call. Anything narrower belongs to the implementation: the simulator's
+/// latency jitter and exchange zone are configured through `Broker` directly,
+/// because a live venue has its own latency and its own calendar and being
+/// told about a simulated one would be meaningless.
+class IBroker {
+public:
+    IBroker() = default;
+    IBroker(const IBroker&) = delete;
+    IBroker& operator=(const IBroker&) = delete;
+    IBroker(IBroker&&) = delete;
+    IBroker& operator=(IBroker&&) = delete;
+    virtual ~IBroker() = default;
+
+    virtual void set_fill_listener(IFillListener* listener) noexcept = 0;
+
+    /// Returns the engine order id, or kInvalidOrderId if the order was
+    /// refused outright. A refused order still appears in orders() with its
+    /// reason, so nothing disappears silently.
+    virtual OrderId
+    submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts = kNever) = 0;
+
+    /// Cancels a working order. Returns false if the id is unknown or the
+    /// order already reached a terminal state.
+    ///
+    /// False does not mean the cancel failed to send. Live, a cancel that
+    /// loses the race against a fill is a cancel that was correctly sent and
+    /// correctly too late; see LiveBroker.
+    virtual bool cancel(OrderId id, Timestamp now) = 0;
+
+    /// Called by the strategy after each event, once the book has been
+    /// updated. The simulator retries resting orders here; a live broker uses
+    /// it to drain whatever the venue has told it since the last event.
+    virtual void on_market_event(SymbolId symbol, Timestamp now) = 0;
+
+    [[nodiscard]] virtual Ledger& ledger() noexcept = 0;
+    [[nodiscard]] virtual const Ledger& ledger() const noexcept = 0;
+
+    /// Every order ever submitted, in submission order.
+    [[nodiscard]] virtual const std::vector<Order>& orders() const noexcept = 0;
+
+    [[nodiscard]] virtual const Order* find_order(OrderId id) const noexcept = 0;
+
+    [[nodiscard]] virtual std::vector<const Order*> working_orders() const = 0;
+
+    [[nodiscard]] virtual std::uint64_t rejected_count() const noexcept = 0;
+
+    /// Cancels that arrived after the order had already finished.
+    [[nodiscard]] virtual std::uint64_t late_cancel_count() const noexcept = 0;
+
+    virtual void reset() = 0;
+
+    /// A name for a report to print. Not a mode flag: nothing branches on it,
+    /// and the only code that reads it is code that writes a line of text.
+    [[nodiscard]] virtual std::string_view venue() const noexcept = 0;
+};
+
 /// Order lifecycle and execution for one account.
 ///
 /// Sits between a strategy and its Ledger. The strategy submits; the broker
@@ -70,7 +141,7 @@ public:
 /// was sent -- which is the whole reason the delay exists, and the reason a
 /// strategy written against a zero-latency simulator has never once
 /// experienced a pending order.
-class Broker {
+class Broker final : public IBroker {
 public:
     /// `fill_model` and `market` are borrowed and must outlive the broker. The
     /// fill model is shared across accounts and stateless, so two strategies
@@ -80,7 +151,7 @@ public:
            const MarketView* market,
            OrderId order_id_base = 0);
 
-    void set_fill_listener(IFillListener* listener) noexcept { listener_ = listener; }
+    void set_fill_listener(IFillListener* listener) noexcept override { listener_ = listener; }
 
     /// Where latency jitter is drawn from.
     ///
@@ -102,7 +173,9 @@ public:
     /// Counted rather than ignored: live, this is a race that happened, and a
     /// strategy whose cancels are routinely too late is one whose logic
     /// assumes an execution speed it does not have.
-    [[nodiscard]] std::uint64_t late_cancel_count() const noexcept { return late_cancels_; }
+    [[nodiscard]] std::uint64_t late_cancel_count() const noexcept override {
+        return late_cancels_;
+    }
 
     /// Returns the engine order id, or kInvalidOrderId if the order was
     /// refused outright. A refused order still appears in orders() with its
@@ -113,32 +186,36 @@ public:
     /// never acted on: the broker does not refuse a lookahead, it makes one
     /// visible, and a fill model that refused one would hide the defect instead
     /// of reporting it. kNever means unrecorded.
-    OrderId submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts = kNever);
+    OrderId
+    submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts = kNever) override;
 
     /// Cancels a working order. Returns false if the id is unknown or the
     /// order already reached a terminal state.
-    bool cancel(OrderId id, Timestamp now);
+    bool cancel(OrderId id, Timestamp now) override;
 
     /// Retries resting orders for `symbol` and expires stale DAY orders.
     /// Called by the engine after each event, once the book has been updated.
-    void on_market_event(SymbolId symbol, Timestamp now);
+    void on_market_event(SymbolId symbol, Timestamp now) override;
 
-    [[nodiscard]] Ledger& ledger() noexcept { return ledger_; }
+    [[nodiscard]] Ledger& ledger() noexcept override { return ledger_; }
 
-    [[nodiscard]] const Ledger& ledger() const noexcept { return ledger_; }
+    [[nodiscard]] const Ledger& ledger() const noexcept override { return ledger_; }
 
     /// Every order ever submitted, in submission order.
-    [[nodiscard]] const std::vector<Order>& orders() const noexcept { return orders_; }
+    [[nodiscard]] const std::vector<Order>& orders() const noexcept override { return orders_; }
 
-    [[nodiscard]] const Order* find_order(OrderId id) const noexcept;
+    [[nodiscard]] const Order* find_order(OrderId id) const noexcept override;
 
-    [[nodiscard]] std::vector<const Order*> working_orders() const;
+    [[nodiscard]] std::vector<const Order*> working_orders() const override;
 
     [[nodiscard]] const IFillModel& fill_model() const noexcept { return *fill_model_; }
 
-    [[nodiscard]] std::uint64_t rejected_count() const noexcept { return rejected_count_; }
+    [[nodiscard]] std::uint64_t rejected_count() const noexcept override { return rejected_count_; }
 
-    void reset();
+    void reset() override;
+
+    /// "simulator". Nothing branches on it.
+    [[nodiscard]] std::string_view venue() const noexcept override { return "simulator"; }
 
 private:
     /// Prices `order` against the current book and books whatever fills.

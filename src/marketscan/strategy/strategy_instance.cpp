@@ -25,19 +25,32 @@ StrategyInstance::StrategyInstance(std::string id,
       market_(market),
       symbols_(symbols),
       clock_(clock),
-      broker_(config.starting_cash, fill_model, market, config.order_id_base),
+      owned_broker_(config.broker == nullptr
+                        ? std::make_unique<Broker>(
+                              config.starting_cash, fill_model, market, config.order_id_base)
+                        : nullptr),
+      broker_(config.broker != nullptr ? config.broker : owned_broker_.get()),
       host_(this),
       // Derived from the run seed and this strategy's id, so that the numbers
       // one theory draws do not depend on which other theories are loaded.
       rng_(derive_seed(config.run_seed, id_)) {
-    broker_.set_fill_listener(this);
-    // The strategy's own stream, not one of the broker's. Latency jitter is a
-    // draw like any other and belongs in the same reproducible sequence; a
-    // broker with a private generator would be a second source of randomness
-    // that nobody chose a seed for.
-    broker_.set_jitter_source(&rng_);
-    broker_.set_exchange_zone(config.exchange_zone);
-    broker_.ledger().set_equity_sample_interval(config_.equity_sample_interval);
+    broker_->set_fill_listener(this);
+
+    // Simulator-only settings, applied only to a simulator. A venue has its
+    // own latency and its own calendar, and telling it about a simulated one
+    // would be meaningless -- which is why these live on Broker rather than on
+    // IBroker, and why this is a null check on ownership rather than a branch
+    // on which kind of run this is.
+    if (owned_broker_) {
+        // The strategy's own stream, not one of the broker's. Latency jitter
+        // is a draw like any other and belongs in the same reproducible
+        // sequence; a broker with a private generator would be a second source
+        // of randomness that nobody chose a seed for.
+        owned_broker_->set_jitter_source(&rng_);
+        owned_broker_->set_exchange_zone(config.exchange_zone);
+    }
+
+    broker_->ledger().set_equity_sample_interval(config_.equity_sample_interval);
     resolve_subscriptions();
 }
 
@@ -168,17 +181,17 @@ void StrategyInstance::on_event_complete(const MarketEvent& event) {
     // Resting orders are retried here rather than inside the callback above,
     // so they never fill against a book that other strategies have not yet
     // been shown.
-    broker_.on_market_event(event.symbol(), ts);
+    broker_->on_market_event(event.symbol(), ts);
 
     if (market_ != nullptr) {
-        broker_.ledger().mark_all(*market_);
+        broker_->ledger().mark_all(*market_);
     }
 
     // After the marks, so a forced exit prices against the book as of this
     // event rather than the previous one.
     sweep_removals(ts);
 
-    broker_.ledger().maybe_sample_equity(ts);
+    broker_->ledger().maybe_sample_equity(ts);
 }
 
 void StrategyInstance::sweep_removals(Timestamp ts) {
@@ -225,7 +238,7 @@ void StrategyInstance::sweep_removals(Timestamp ts) {
     // fill is about to write through, and the delisting return has to be measured
     // against the position as it stood when the security left rather than against
     // whatever survived the exit.
-    std::vector<const Position*> held = broker_.ledger().open_positions();
+    std::vector<const Position*> held = broker_->ledger().open_positions();
     std::vector<Position> departing;
     for (const Position* position : held) {
         if (position == nullptr || position->quantity == 0.0) {
@@ -246,7 +259,7 @@ void StrategyInstance::sweep_removals(Timestamp ts) {
         exit.quantity = std::fabs(position.quantity);
         exit.client_order_id = kForcedExitClientId;
 
-        const OrderId id = broker_.submit(exit, ts);
+        const OrderId id = broker_->submit(exit, ts);
         ++forced_exits_;
 
         std::string message = "forced exit: ";
@@ -272,7 +285,7 @@ void StrategyInstance::sweep_removals(Timestamp ts) {
         }
 
         const double applied = delisting_returns_->find(position.symbol);
-        const DelistingAdjustment& adjustment = broker_.ledger().apply_delisting_return(
+        const DelistingAdjustment& adjustment = broker_->ledger().apply_delisting_return(
             ts, position.symbol, position.quantity, position.mark, applied);
         ++delistings_applied_;
 
@@ -307,12 +320,12 @@ void StrategyInstance::on_order_status(const MS_OrderStatus& status) {
 // --- HostServices ----------------------------------------------------------
 
 std::uint64_t StrategyInstance::submit_order(const MS_OrderRequest& request) {
-    return broker_.submit(request, now(), shown_ts(request.symbol));
+    return broker_->submit(request, now(), shown_ts(request.symbol));
 }
 
 StrategyInstance::InstantAudit StrategyInstance::audit_instants() const {
     InstantAudit out;
-    for (const TradeRecord& row : broker_.ledger().blotter()) {
+    for (const TradeRecord& row : broker_->ledger().blotter()) {
         if (row.client_order_id == kForcedExitClientId) {
             ++out.forced_exits;
         } else if (row.decision_ts == kNever || row.price_ts == kNever) {
@@ -348,7 +361,7 @@ void StrategyInstance::note_shown(SymbolId symbol, Timestamp ts) {
 }
 
 void StrategyInstance::cancel_order(std::uint64_t order_id) {
-    (void)broker_.cancel(order_id, now());
+    (void)broker_->cancel(order_id, now());
 }
 
 Timestamp StrategyInstance::now() const {
@@ -367,15 +380,15 @@ double StrategyInstance::position(SymbolId symbol) const {
     if (!visible(symbol, now())) {
         return 0.0;
     }
-    return broker_.ledger().position(symbol);
+    return broker_->ledger().position(symbol);
 }
 
 Money StrategyInstance::cash() const {
-    return broker_.ledger().cash();
+    return broker_->ledger().cash();
 }
 
 Money StrategyInstance::equity() const {
-    return broker_.ledger().equity();
+    return broker_->ledger().equity();
 }
 
 SymbolId StrategyInstance::symbol_id(const char* ticker) const {

@@ -97,6 +97,11 @@ enum class RejectReason : std::uint8_t {
             return "insufficient cash";
         case RejectReason::NotMarketable:
             return "not marketable";
+        case RejectReason::SimulatedRejection:
+            // Named as arranged, because it was. A blotter that showed this as
+            // an ordinary rejection would let a configured refusal be read as
+            // something the market did.
+            return "simulated rejection (arranged)";
     }
     return "?";
 }

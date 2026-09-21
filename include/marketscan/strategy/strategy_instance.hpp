@@ -2,6 +2,7 @@
 #define MARKETSCAN_STRATEGY_STRATEGY_INSTANCE_HPP
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,19 @@ struct StrategyRuntimeConfig {
     /// an order on one boundary while the strategy believes it is still in the
     /// session that placed it. Both default to US Eastern.
     ExchangeZone exchange_zone = ExchangeZone::UsEastern;
+
+    /// An execution venue to use instead of the built-in simulator.
+    ///
+    /// Borrowed, and must outlive the strategy. Null -- the default, and the
+    /// only thing a backtest ever passes -- means this instance owns a
+    /// `Broker` of its own, configured from the fields above.
+    ///
+    /// This pointer is the whole live/replay seam on the execution side.
+    /// Nothing below it asks which one it got: the strategy calls submit() and
+    /// cancel() on an IBroker, and whether that reaches a fill model or a
+    /// venue was decided once, here, by whoever built the run. There is no
+    /// mode flag and nothing to branch on -- see IBroker in exec/broker.hpp.
+    IBroker* broker = nullptr;
 };
 
 /// A named scalar a strategy published. The GUI plots these without being told.
@@ -55,9 +69,13 @@ struct PublishedMetric {
 ///
 /// This is where a plugin stops being a DLL and becomes something the engine
 /// cannot distinguish from built-in code: it is an IEventSink like any other,
-/// it owns a Broker and therefore its own virtual account, and it implements
+/// it has a Broker and therefore its own account, and it implements
 /// HostServices so the C table handed across the boundary has somewhere to
 /// land.
+///
+/// The broker is an IBroker, which is how the same strategy binary runs
+/// against a fill simulator and against a venue without knowing which. See
+/// StrategyRuntimeConfig::broker.
 ///
 /// Events reach the plugin in this order, per market event:
 ///
@@ -127,11 +145,16 @@ public:
 
     [[nodiscard]] const std::string& display_name() const noexcept { return display_name_; }
 
-    [[nodiscard]] const Ledger& ledger() const noexcept { return broker_.ledger(); }
+    [[nodiscard]] const Ledger& ledger() const noexcept { return broker_->ledger(); }
 
-    [[nodiscard]] const Broker& broker() const noexcept { return broker_; }
+    [[nodiscard]] const IBroker& broker() const noexcept { return *broker_; }
 
-    [[nodiscard]] Broker& broker() noexcept { return broker_; }
+    [[nodiscard]] IBroker& broker() noexcept { return *broker_; }
+
+    /// The simulator this instance owns, or null when a venue was injected.
+    /// For a caller that needs to configure simulated latency, which is a
+    /// thing only a simulator has.
+    [[nodiscard]] Broker* simulator() noexcept { return owned_broker_.get(); }
 
     /// Published metrics, in first-published order. Stable across runs, which
     /// a hash map would not be.
@@ -337,7 +360,13 @@ private:
     std::vector<SymbolId> last_members_;
     Timestamp last_membership_ts_ = kNever;
 
-    Broker broker_;
+    /// The simulator, when this instance owns one. Null when a venue was
+    /// injected through StrategyRuntimeConfig::broker.
+    std::unique_ptr<Broker> owned_broker_;
+
+    /// Either the above or the injected one. Never null after construction.
+    IBroker* broker_;
+
     HostContext host_;
     DeterministicRng rng_;
 
