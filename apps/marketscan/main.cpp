@@ -74,6 +74,11 @@ int main(int argc, char** argv) {
         app_options.session.theory_roots = marketscan::PluginLoader::default_roots(executable_dir);
         app_options.autoplay = options.autoplay;
         app_options.focus_panel = options.focus_panel;
+        if (options.view_mode == "overview") {
+            app_options.view_mode = marketscan::app::ViewMode::Overview;
+        } else if (options.view_mode == "operator") {
+            app_options.view_mode = marketscan::app::ViewMode::Operator;
+        }
         app_options.screenshot = options.screenshot;
         app_options.screenshot_after = options.screenshot_after;
         app_options.speed = options.speed;

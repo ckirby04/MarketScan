@@ -233,7 +233,7 @@ Part 3 owed* below for what it cost.
 | 1 | `DATA_POLICY.md` | **done** |
 | 2 | Reclassify M3b, label identity honestly | **done** |
 | 3 | Make skips loud | **done** — and it found a worse bug than the skip |
-| 4 | The dual view | in progress |
+| 4 | The dual view | **done** |
 | 5 | Close-out | not started |
 
 ### Part 0: Session D Part 2, verified
@@ -323,6 +323,7 @@ Parts 2 and 3 then moved them, and the movement is accounted for:
 | after Part 3 | 346 (+3) | 202 (+3) |
 | after Part 5 | 351 (+5) | 203 (+1) |
 | after Session E Part 3 | 351, **1 skipped and allowlisted** | 213 (+10) |
+| after Session E Part 4 | 367 (+16) | 213 |
 
 Part 2's additions are all in `test_parity.cpp` — the churn fixture, the two curve
 comparisons, the row-for-row reconciliation, the flattery gate, the rolling-symbol
@@ -408,6 +409,56 @@ what makes a screenshot a command anybody can repeat.
 
 `--focus <panel>` picks which panel is in front, so a screenshot of one view is
 reproducible rather than arranged.
+
+
+### Part 4: the dual view
+
+Two presentations over one running engine, one keystroke apart (`F2`). Overview
+asks *is this working, and is it beating the market?* and contains a hero figure,
+one chart, one drawdown strip, four stat tiles and one selector. Operator is the
+dense dashboard, unchanged. Neither is a lite version of the other.
+
+![Overview](screenshots/overview.png)
+
+The spec's three rules are the ones that erode under implementation pressure, so
+each is a test rather than an intention. What made that possible was a
+refactoring: the colour table, the entity-to-colour assignment and the chart
+**model** were moved into `marketscan_app`, the half of the application that does
+not link ImGui. What each mode would draw can therefore be built and compared
+without a window, a GPU or a screenshot.
+
+| Rule | How it is held |
+|---|---|
+| One snapshot, two renderers, zero duplicate computation | Every figure is a field. `excess_return` was added to `StrategySnapshot` rather than subtracted in the view — it is *one subtraction*, which is exactly why it was tempting. |
+| One `EquityChart` at two densities | `build_chart_model` is pure and both modes call it. A test asserts the two produce the same series, pointing at the same arrays, with the same entity colours — differing only in line weight, greying and labels. |
+| Colour follows the entity, never draw order | `SeriesColors` assigns slots from sorted stable ids, built from **every** theory including hidden ones. A test hides a series and asserts the survivors are unrepainted. |
+
+Eight categorical slots and then fold: a ninth theory goes to "Other" in gray
+rather than getting a generated hue, because a ninth colour is indistinguishable
+from one of the eight for a colour-blind viewer — it would counterfeit an
+identity rather than add one.
+
+**Five panels were still colouring by index** — leaderboard, blotter, drawdown,
+relative strength and theory detail — which is the precise failure the spec names:
+hide one series and every series after it repaints, so the leaderboard stops
+matching the chart. All five now colour by entity.
+
+**Two bugs the tests and the screenshots caught:**
+
+- The benchmark's hue was borrowed from the muted ink, which happens to be the
+  same value as the de-emphasis gray. The benchmark therefore rendered
+  *identically to the context series it is supposed to be the reference for*. It
+  has its own pinned token now, and a test asserts it differs from the context
+  gray and from all eight slots.
+- Overview's hero figure read **`-+13.06%`**. The view had grown its own
+  signed-percentage helper on top of `format_percent`, which already formats with
+  `%+`. The spec's requirement is that a P&L always carries a sign, not that every
+  view implements its own signing — one shared formatter satisfies it and a second
+  one is how two views end up disagreeing about how a number looks.
+
+No dual-axis chart exists anywhere: the chart model carries no second scale and
+no field that could introduce one.
+
 
 ---
 

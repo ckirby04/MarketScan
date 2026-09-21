@@ -69,6 +69,9 @@ struct HeadlessOptions {
     /// dashboard that has something on it.
     bool autoplay = false;
 
+    /// GUI only: "overview" or "operator". Empty uses the remembered mode.
+    std::string view_mode;
+
     /// GUI only: capture the window to this path and quit.
     std::string screenshot;
 

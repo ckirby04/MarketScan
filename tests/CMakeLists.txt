@@ -103,6 +103,7 @@ marketscan_add_test(test_execution   test_execution.cpp)
 marketscan_add_test(test_plugin_loader test_plugin_loader.cpp)
 marketscan_add_test(test_metrics     test_metrics.cpp)
 marketscan_add_test(test_session     test_session.cpp)
+marketscan_add_test(test_view_modes  test_view_modes.cpp)
 marketscan_add_test(test_sessions    test_sessions.cpp)
 marketscan_add_test(test_hot_path    test_hot_path.cpp)
 

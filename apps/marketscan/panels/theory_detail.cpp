@@ -126,7 +126,8 @@ void theory_detail(Context& context) {
             ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
             if (row.times.size() >= 2) {
                 ImPlotSpec spec;
-                spec.LineColor = ImGui::ColorConvertU32ToFloat4(theme::series_color(index));
+                spec.LineColor =
+                    ImGui::ColorConvertU32ToFloat4(SeriesColors(snapshot).color(row.id));
                 spec.LineWeight = 2.0F;
                 ImPlot::PlotLine(
                     "equity",

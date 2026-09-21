@@ -49,6 +49,10 @@ void trade_blotter(Context& context) {
     }
 
     const SessionSnapshot& snapshot = context.snapshot;
+
+    // Colour follows the entity: a blotter row wears the colour of the theory
+    // that made the trade, and it keeps it when another theory is hidden.
+    const SeriesColors colors(snapshot);
     UiState& ui = context.ui;
 
     ImGui::Checkbox("Selected theory only", &ui.blotter_selected_only);
@@ -139,7 +143,8 @@ void trade_blotter(Context& context) {
                 mono_text(format_timestamp(record.ts));
 
                 ImGui::TableSetColumnIndex(1);
-                ImGui::PushStyleColor(ImGuiCol_Text, theme::series_color(row.strategy_index));
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      colors.color(snapshot.strategies[row.strategy_index].id));
                 ImGui::TextUnformatted(row.strategy->display_name.c_str());
                 ImGui::PopStyleColor();
 

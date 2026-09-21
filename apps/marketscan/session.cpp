@@ -905,6 +905,26 @@ void Session::publish() {
         }
     }
 
+    // Excess return, computed here so that no view has to.
+    //
+    // It is one subtraction, which is exactly why it is tempting to do in the
+    // renderer, and exactly why it is not done there: two views subtracting
+    // independently is two chances to annualise, round or rebase differently,
+    // and the discrepancy surfaces in a screenshot rather than in a test.
+    // SPEC_VIEW_MODES.md section 2 -- one snapshot, two renderers, zero
+    // duplicate computation.
+    if (next->benchmark_index != kNoIndex) {
+        const double benchmark_return =
+            next->strategies[next->benchmark_index].summary.total_return;
+        for (StrategySnapshot& row : next->strategies) {
+            if (row.is_benchmark || !std::isfinite(benchmark_return) ||
+                !std::isfinite(row.summary.total_return)) {
+                continue;
+            }
+            row.excess_return = row.summary.total_return - benchmark_return;
+        }
+    }
+
     // --- Correlation matrix ---------------------------------------------
     if (next->strategies.size() >= 2) {
         std::vector<std::vector<double>> series;

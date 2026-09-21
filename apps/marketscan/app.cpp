@@ -150,6 +150,15 @@ bool Application::initialise() {
     layout_path_ = options_.layout_file.string();
     io.IniFilename = layout_path_.c_str();
 
+    // Beside the layout, so the two travel together and a reset of one is not a
+    // surprise reset of the other.
+    state_path_ = options_.layout_file;
+    state_path_.replace_extension(".state");
+    ui_.load(state_path_);
+    if (options_.view_mode.has_value()) {
+        ui_.view_mode = *options_.view_mode;
+    }
+
     theme::apply();
     theme::load_fonts(options_.assets_dir);
 
@@ -207,6 +216,12 @@ bool Application::layout_file_covers_all_panels() const {
 }
 
 void Application::shutdown() {
+    // Remember which view was showing. Best-effort: not being able to write a
+    // preference is not worth failing a shutdown over.
+    if (!state_path_.empty()) {
+        ui_.save(state_path_);
+    }
+
     // The session's worker thread is joined here, before the GL context goes
     // away. It does not touch the GPU, but it does hold plugin instances, and
     // tearing those down after the process has started unwinding is asking for
@@ -304,26 +319,50 @@ void Application::draw_frame() {
     draw_menu_bar();
     draw_toolbar();
 
-    const ImGuiID dockspace_id = ImGui::GetID("##dockspace");
-    if (!layout_built_ || ui_.request_reset_layout) {
-        build_default_layout(dockspace_id);
-        layout_built_ = true;
-        ui_.request_reset_layout = false;
-    }
     // Leave room for the status bar at the bottom. That bar is a separator and
     // a line of text, so the reservation has to cover the spacing either side
     // of the separator as well -- reserving the text height alone clips the
     // status line in half against the bottom of the window.
     const float status_height =
         ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2.0F;
-    ImGui::DockSpace(dockspace_id, ImVec2(0.0F, -status_height), ImGuiDockNodeFlags_None);
 
-    draw_status_bar();
-    ImGui::End();
-
-    // --- Panels ---------------------------------------------------------
     panels::Context context{*session_, *snapshot, ui_};
-    panels::draw_all(context);
+    const bool overview = ui_.view_mode == ViewMode::Overview;
+
+    if (overview) {
+        // No dockspace, and no panels submitted.
+        //
+        // That is how each mode keeps its own layout state without any being
+        // written down: Overview has nothing dockable in it, so Operator's
+        // arrangement is not touched while Overview is showing, and comes back
+        // exactly as it was. ImGui keeps a window's settings whether or not it
+        // was submitted this frame.
+        ImGui::BeginChild("##overview_body", ImVec2(0.0F, -status_height));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(28.0F, 20.0F));
+        ImGui::Indent(28.0F);
+        ImGui::Dummy(ImVec2(0.0F, 10.0F));
+        panels::overview(context);
+        ImGui::Unindent(28.0F);
+        ImGui::PopStyleVar();
+        ImGui::EndChild();
+
+        draw_status_bar();
+        ImGui::End();
+    } else {
+        const ImGuiID dockspace_id = ImGui::GetID("##dockspace");
+        if (!layout_built_ || ui_.request_reset_layout) {
+            build_default_layout(dockspace_id);
+            layout_built_ = true;
+            ui_.request_reset_layout = false;
+        }
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0F, -status_height), ImGuiDockNodeFlags_None);
+
+        draw_status_bar();
+        ImGui::End();
+
+        // --- Panels ---------------------------------------------------------
+        panels::draw_all(context);
+    }
 
     // Bring the default tabs to the front, now that the panels exist.
     //
@@ -336,7 +375,7 @@ void Application::draw_frame() {
     // Two frames apart, and in this order: focusing the leaderboard hands the
     // bottom node back, and focusing the equity chart afterwards moves the
     // focus out of that node without disturbing the selection it just made.
-    if (default_focus_stage_ > 0) {
+    if (!overview && default_focus_stage_ > 0) {
         --default_focus_stage_;
         if (default_focus_stage_ == 2) {
             ImGui::SetWindowFocus("Leaderboard");
@@ -391,6 +430,17 @@ void Application::draw_menu_bar() {
     }
 
     if (ImGui::BeginMenu("View")) {
+        if (ImGui::MenuItem("Overview", "F2", ui_.view_mode == ViewMode::Overview)) {
+            ui_.view_mode = ViewMode::Overview;
+        }
+        if (ImGui::MenuItem("Operator", "F2", ui_.view_mode == ViewMode::Operator)) {
+            ui_.view_mode = ViewMode::Operator;
+        }
+        ImGui::Separator();
+
+        // The panel toggles below belong to Operator. Greyed rather than hidden
+        // in Overview, so the menu does not appear to lose entries.
+        ImGui::BeginDisabled(ui_.view_mode == ViewMode::Overview);
         ImGui::MenuItem("Leaderboard", nullptr, &ui_.show_leaderboard);
         ImGui::MenuItem("Equity Curves", nullptr, &ui_.show_equity);
         ImGui::MenuItem("Drawdown", nullptr, &ui_.show_drawdown);
@@ -406,6 +456,7 @@ void Application::draw_menu_bar() {
         ImGui::MenuItem("Transport", nullptr, &ui_.show_transport);
         ImGui::MenuItem("Latency", nullptr, &ui_.show_latency);
         ImGui::MenuItem("Log", nullptr, &ui_.show_log);
+        ImGui::EndDisabled();
         ImGui::Separator();
         if (ImGui::MenuItem("Reset Layout")) {
             ui_.request_reset_layout = true;
@@ -524,6 +575,12 @@ void Application::handle_shortcuts() {
         return;
     }
 
+    // One keystroke between the two views, and it never touches the engine: the
+    // run continues at whatever speed it was going, only the renderer changes.
+    if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
+        ui_.view_mode =
+            ui_.view_mode == ViewMode::Overview ? ViewMode::Operator : ViewMode::Overview;
+    }
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
         session_->toggle_play();
     }

@@ -118,7 +118,7 @@ void drawdown(Context& context) {
             plot_one(
                 snapshot.strategies[snapshot.benchmark_index], theme::colors().text_faint, false);
         }
-        plot_one(row, theme::series_color(index), true);
+        plot_one(row, SeriesColors(snapshot).color(row.id), true);
 
         ImPlot::EndPlot();
     }
@@ -179,7 +179,7 @@ void relative_strength(Context& context) {
             ImPlot::PlotLine("parity", parity_x, parity_y, 2, parity);
 
             ImPlotSpec spec;
-            spec.LineColor = ImGui::ColorConvertU32ToFloat4(theme::series_color(index));
+            spec.LineColor = ImGui::ColorConvertU32ToFloat4(SeriesColors(snapshot).color(row.id));
             spec.LineWeight = 2.0F;
             ImPlot::PlotLine(
                 row.display_name.c_str(), row.times.data(), row.relative.data(), count, spec);

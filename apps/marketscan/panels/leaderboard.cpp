@@ -85,6 +85,10 @@ void leaderboard(Context& context) {
     }
 
     const SessionSnapshot& snapshot = context.snapshot;
+
+    // Colour follows the entity, so the swatch beside a row matches the chart
+    // whatever the table is sorted by and whatever is hidden.
+    const SeriesColors colors(snapshot);
     UiState& ui = context.ui;
 
     if (snapshot.strategies.empty()) {
@@ -156,7 +160,7 @@ void leaderboard(Context& context) {
             ImGui::GetWindowDrawList()->AddRectFilled(
                 ImVec2(cursor.x, cursor.y + 2.0F),
                 ImVec2(cursor.x + 3.0F, cursor.y + height - 2.0F),
-                row.is_benchmark ? theme::colors().text_faint : theme::series_color(index));
+                colors.color(row.id));
             ImGui::Dummy(ImVec2(8.0F, 0.0F));
             ImGui::SameLine();
 

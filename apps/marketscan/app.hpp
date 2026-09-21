@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "session.hpp"
@@ -42,6 +43,10 @@ struct AppOptions {
 
     /// How long to replay before capturing. Gives the run something to show.
     double screenshot_after = 8.0;
+
+    /// Which view to open in, overriding the remembered one. For screenshots
+    /// and demonstrations.
+    std::optional<ViewMode> view_mode;
 
     /// A panel title to bring to the front once the layout exists.
     ///
@@ -93,6 +98,9 @@ private:
 
     /// ImGui keeps a pointer to this, so it has to outlive the context.
     std::string layout_path_;
+
+    /// Where the remembered view mode lives, beside the layout.
+    std::filesystem::path state_path_;
 
     bool layout_built_ = false;
 

@@ -1,60 +1,21 @@
 #ifndef MARKETSCAN_APP_THEME_HPP
 #define MARKETSCAN_APP_THEME_HPP
 
-#include <cstddef>
 #include <filesystem>
+
+#include "palette.hpp"
 
 struct ImFont;
 struct ImVec4;
 
 namespace marketscan::app {
-
-/// The application's colours, in one place.
-///
-/// Semantic names rather than raw values at the call site: a panel asks for
-/// `theme::colors().profit`, not for a particular green, so that changing what
-/// profit looks like is one edit rather than thirty.
-struct Palette {
-    unsigned int background;
-    unsigned int surface;
-    unsigned int surface_raised;
-    unsigned int border;
-
-    unsigned int text;
-    unsigned int text_dim;
-    unsigned int text_faint;
-
-    unsigned int accent;
-    unsigned int accent_dim;
-
-    /// Gains and losses. Deliberately not pure red and green: a fair slice of
-    /// people cannot tell those apart, so the loss colour carries a different
-    /// lightness as well as a different hue, and every place that uses them
-    /// also shows a sign.
-    unsigned int profit;
-    unsigned int loss;
-
-    unsigned int warning;
-    unsigned int danger;
-
-    /// Series colours for charts, picked to stay distinguishable in order.
-    static constexpr std::size_t kSeriesCount = 10;
-    unsigned int series[kSeriesCount];
-};
-
 namespace theme {
 
-/// Applies the dark style to the current ImGui context.
+/// Applies the current appearance's style to the ImGui context.
+///
+/// Call after `set_appearance`. Separate from it because the palette is data
+/// and ImGui styling is not -- see palette.hpp.
 void apply();
-
-[[nodiscard]] const Palette& colors() noexcept;
-
-/// Colour for the nth loaded theory, wrapping.
-[[nodiscard]] unsigned int series_color(std::size_t index) noexcept;
-
-/// Colour for a value, by sign. Zero is neutral rather than green, because a
-/// flat P&L is not a gain.
-[[nodiscard]] unsigned int pnl_color(double value) noexcept;
 
 /// Loads Inter for UI text and JetBrains Mono for numeric columns.
 ///
@@ -73,6 +34,12 @@ bool load_fonts(const std::filesystem::path& assets_dir, float size_pixels = 16.
 
 /// Larger proportional face, for headline figures.
 [[nodiscard]] ImFont* large_font() noexcept;
+
+/// The hero face: Overview's single big number, at least 48 pixels.
+///
+/// Its own face rather than a scaled `large_font`, because the spec pins a size
+/// and a size that is "whatever the headline face happens to be" is not pinned.
+[[nodiscard]] ImFont* hero_font() noexcept;
 
 }  // namespace theme
 }  // namespace marketscan::app

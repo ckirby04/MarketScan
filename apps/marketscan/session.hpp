@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -101,6 +102,16 @@ struct StrategySnapshot {
     std::size_t working_orders = 0;
 
     metrics::PerformanceSummary summary;
+
+    /// Total return minus the benchmark's, or NaN when there is no benchmark.
+    ///
+    /// **In the snapshot rather than in the view, deliberately.** Overview's hero
+    /// figure is excess return vs the benchmark, and subtracting two numbers in
+    /// the renderer is exactly how Overview ends up showing 12.4% while Operator
+    /// shows 12.1% and nobody notices until it is in a screenshot somebody sent
+    /// somebody else. `SPEC_VIEW_MODES.md` section 2: a number a view needs goes
+    /// into the snapshot, where both modes read the same object.
+    double excess_return = std::numeric_limits<double>::quiet_NaN();
 
     /// Plot-ready series. X is seconds since the Unix epoch, which is what
     /// ImPlot's time axis expects.

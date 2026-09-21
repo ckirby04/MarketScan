@@ -44,6 +44,8 @@ replays market data through all of them at once, and prints what happened.
                         against cached daily bars, so identity is observed
                         rather than inferred from a threshold. Overrides are
                         then written from measurements only.
+  --view <mode>         GUI only: open in 'overview' or 'operator', overriding
+                        the remembered mode.
   --screenshot <file>   GUI only: write the window to a BMP and quit. See
                         scripts/capture_screenshot.ps1, which converts it.
   --screenshot-after <s> Seconds of replay before the capture. Default 8.
@@ -376,6 +378,18 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
                 return false;
             }
             out.price_cache = value;
+        } else if (argument == "--view") {
+            if (i + 1 >= argc) {
+                std::cerr << "--view needs overview or operator" << "\n";
+                exit_code = 2;
+                return false;
+            }
+            out.view_mode = argv[++i];
+            if (out.view_mode != "overview" && out.view_mode != "operator") {
+                std::cerr << "--view takes overview or operator" << "\n";
+                exit_code = 2;
+                return false;
+            }
         } else if (argument == "--screenshot") {
             if (i + 1 >= argc) {
                 std::cerr << "--screenshot needs a path" << "\n";

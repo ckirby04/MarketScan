@@ -3,6 +3,8 @@
 
 #include <string>
 
+#include "../chart_model.hpp"
+#include "../series_colors.hpp"
 #include "../session.hpp"
 #include "../ui_state.hpp"
 
@@ -22,6 +24,10 @@ struct Context {
 
 // Each of these draws one dockable window, including its own Begin/End, and
 // does nothing if its UiState flag is false.
+
+/// Overview. Draws into the caller's window rather than owning one: it is a
+/// whole view, not a dockable panel, and nothing in it is dockable either.
+void overview(Context& context);
 
 void leaderboard(Context& context);
 void equity_curves(Context& context);
