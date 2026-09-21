@@ -136,6 +136,10 @@ holds it, and every one of them runs in CI.
 | **Assuming a zero delisting return flatters a backtest.** | 29.42 points of return and 3.14 of Sharpe, measured by running one strategy under both settings of `DelistingReturnModel`. Measured independently in the research layer as well, on its own panel. |
 | **The two view modes cannot disagree.** | `tests/test_view_modes.cpp`: same series, same arrays, same entity colours across densities; hiding a series repaints nothing. |
 | **No test skips silently.** | `scripts/check_skips.py` enumerates every skip and fails on any not allowlisted with a written reason. |
+| **The same plugin binary makes the same decisions live and in replay.** | `ms_live equivalence`, run against the paper venue on 2026-09-21: 463 live events, 463 replayed, 10 decisions identical field by field including limit prices and triggering-event timestamps. Not in CI -- it needs a venue and an open market. See [`EXECUTION.md`](EXECUTION.md). |
+| **A live ledger divergence is reported, never corrected.** | Seen doing it: a run reported 6 shares against the venue's 9 and the gap traced to an earlier run that died holding three. Both directions of the comparison are asserted offline in `tests/test_live_broker.cpp`, including that "could not check" is not "they agree". |
+| **An order survives losing its connection.** | The client order id is derived from the engine order id before anything is sent, so a reconnect reclaims by a string this process chose. Exercised for real: connection dropped mid-session, 4 orders reclaimed, 3 stale updates dropped rather than re-delivered. |
+| **A v1 plugin still loads under ABI v2.** | `tests/test_abi_v2.cpp`, with a fixture that declares version 1 by hand, trades, and is asserted never to receive the tenth callback. |
 
 ---
 
@@ -193,7 +197,10 @@ structure that panel does not contain, all of which give a search *more* to find
 | **M3b has never run.** | Zero of 53 gaps measured, zero of 10 ground-truth cases scored. CRSP-dependent, not blocked — see below. |
 | **Forty-one splits want a human.** | The threshold decided them; a person should review the ones it nearly went the other way on. Four overrides exist and are hand-written company facts, not measurements. |
 | **One transient test failure, unexplained.** | Seen once, never reproduced. Recorded rather than closed. |
-| **No real market data has ever entered this pipeline.** | Not one number in this repository is a statement about markets. |
+| **No real market data has entered the *research* pipeline.** | Corrected in Session F, because the old wording became false. Real IEX quotes, trades and bars now reach the engine through `LiveMarketDataFeed`, and real orders reach a paper venue. But no committed result, table or figure rests on any of it: the recordings are deleted, nothing is fitted to them, and every number in the research layer still comes from synthetic prices. Not one *conclusion* in this repository is a statement about markets. |
+| **Partial fills were never exercised against a venue.** | Every order the lifecycle exercise sends is one share, and one share does not partially fill. The partial-then-expiry path is covered by unit tests and by the simulator only. |
+| **The equivalence test is not in CI and cannot be.** | It needs a venue, credentials and an open market. It is run by hand and its result is quoted with its date in [`EXECUTION.md`](EXECUTION.md). A result nobody can reproduce on demand is weaker than one CI re-runs nightly, and that is the honest standing of this one. |
+| **Extended hours were doing the work.** | The live sessions that produced these numbers ran after 16:00 ET, where IEX carried one of the five symbols asked for. A regular-session run would be a stronger measurement and has not been done. |
 
 ---
 
@@ -970,10 +977,84 @@ Not bugs. Things this cannot do, written down so they are not rediscovered.
 Worth re-reading before changing anything structural.
 
 > **A strategy cannot tell whether it is being backtested, paper traded, or
-> trading live.** One engine, one ledger, one fill simulator. Only the clock and
-> the transport swap. If you find yourself writing a second code path for
-> "backtest mode", go back.
+> trading live.** One engine, one ledger, one `IBroker`. Only the clock and the
+> transport swap. If you find yourself writing a second code path for "backtest
+> mode", go back.
+
+That was an assertion for eight sessions. As of Session F it is a measurement,
+and it is worth being precise about how much of it the measurement covers.
+
+**What is now evidence.** One plugin binary ran against the paper venue while
+the market data was recorded, then ran again -- the same file, not a rebuild --
+against that recording. The two produced 10 decisions that matched field by
+field: symbol, side, quantity, type, time in force, limit price, the strategy's
+own client order id, and the timestamp of the event that triggered each one.
+Event counts matched too, 463 against 463. A divergence would have been
+reported as the smallest differing decision rather than absorbed.
+
+**What is still an assertion.** That a *fill-dependent* strategy would agree.
+It would not, and should not: live it sees the venue's fills and in replay the
+simulator's. The plugin used is deliberately written so its decisions are a
+function of the event stream alone. So the measurement establishes that the
+*pipeline* is identical, not that every strategy is indifferent to which side
+of the seam it is on.
+
+**What is structural rather than measured.** There is no mode flag to find.
+`IBroker` has two implementations and `StrategyRuntimeConfig::broker` chooses
+one; no `#ifdef`, no branch on "are we live" in the engine, in
+`StrategyInstance`, or in any plugin. That is checkable by reading, and the
+equivalence test is what would notice if it stopped being true.
+
+**One asymmetry that is real and is not hidden.** `LiveBroker::submit` makes a
+synchronous HTTPS request on the engine thread, so submitting an order stalls
+event dispatch for a round trip -- about 60ms here. In replay the same call is
+free. A strategy cannot *observe* which it got, but a busy one would feel it.
 
 > **`theories/` is a USB port.** A compiled plugin dropped in is discovered at
 > runtime, given its own virtual account, and appears in the GUI — with no host
 > recompile and no host code that knows it exists.
+
+---
+
+## Session F: the vacuous-test audit and the live execution seam
+
+| | | |
+|---|---|---|
+| 0 | Vacuous-test audit | done â€” see [`AUDIT.md`](AUDIT.md). One more shape of it was then found in Part 5 and is written up there too |
+| 1 | Credentials and safety rails | done â€” paper-only enforced three ways, keys from the environment only |
+| 2 | ABI v2 | done â€” one appended callback, a v1 fixture that trades and is asserted never to receive it |
+| 3 | Live market data and the recorder | done â€” 3,215 real events in one 45-second session, 0 dropped, recorder byte-faithful |
+| 4 | The broker | done â€” real fills, cancels, a real rejection, a reconnect that reclaimed 4 live orders |
+| 5 | The equivalence test | done â€” 10 decisions identical live and in replay, and three earlier vacuous passes refused |
+| 6 | Lifecycle exercise theory | done â€” `theories/lifecycle_exercise`, which loses money by design and says so |
+| 7 | Documentation | this, plus the live section of [`EXECUTION.md`](EXECUTION.md) |
+
+### What the live layer cost in real bugs
+
+Worth listing, because every one of them was found by running the thing rather
+than by reading it, and three of them were wrong guesses corrected by
+measurement.
+
+| what looked wrong | what was actually wrong |
+|---|---|
+| A feed reporting 60,236 ms of backwards jitter | Nothing. A one-minute bar is stamped at the start of its minute. Bars and ticks now have separate counters |
+| Quote sizes needing a lot multiplier | They did not. A capture showed sizes of 40â€“1880 against trades of 1â€“200 shares. The multiplier was removed |
+| Three TLS connections overwhelming the machine's inspection proxy | Nothing. `ms_live probe` measured 60ms per request with both sockets open. The guess was plausible and wrong |
+| A POST hanging | It did not. 422 in 63ms |
+| Everything hanging | WinHTTP's synchronous WebSocket receive honours **no timeout at all** â€” not the session's, not the request's, and `WINHTTP_OPTION_RECEIVE_TIMEOUT` on the socket is accepted and ignored. A silent socket's pump thread could not be joined |
+| A replay disagreeing with its own live session by 0.2 ms of mean skew | Two definitions of one number: the replay measured skew *after* the monotonic gate raised timestamps. There is now one definition, in one place, with a test holding it there |
+| A reconciliation that would not go green | It was right. Three shares of QQQ on the account belonged to a run that had died mid-session. Traced order by order |
+| A run crashing at the reclaim | `"filled_avg_price": null` on an unfilled order, and `json::value` throws on present-but-null with a string default |
+
+### What is owed to the next phase
+
+- **A regular-session run.** Every live number here was measured after 16:00 ET,
+  where IEX carried one of the five symbols asked for. Regular hours would be a
+  stronger measurement of the same things.
+- **A partial fill against a venue.** Not reachable with one-share orders.
+- **The equivalence test cannot be in CI**, and a result nobody can re-run on
+  demand is weaker than one that runs nightly. It is quoted with its date
+  instead.
+- **Nothing here is a statement about execution quality.** Paper fills are the
+  venue's simulation, IEX is two per cent of volume, and
+  [`DATA_POLICY.md`](DATA_POLICY.md) Â§7 says both on its face.

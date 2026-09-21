@@ -69,3 +69,18 @@ desktop.ini
 
 # --- Fetched market data: cache only, never committed ---
 data/cache/
+
+# --- Live stream recordings ---
+#
+# A recording is real market data under a subscriber agreement. It is never
+# committed, whatever it is called or wherever someone puts it. See
+# docs/DATA_POLICY.md section 7.
+#
+# The equivalence test writes to a temporary directory and deletes what it
+# wrote; these patterns are for the times somebody passes --out into the repo
+# to look at a divergence, which is a reasonable thing to do and must not end
+# in a commit.
+*.ndjson
+data/recordings/
+recordings/
+

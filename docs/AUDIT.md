@@ -403,3 +403,60 @@ It also does not close the class. Two bugs of this shape were found by accident
 before anyone went looking; a third will have a shape nobody has thought of yet.
 What has changed is that the most common form of it now fails the build.
 
+
+
+---
+
+## The class did not close, and here is the third shape
+
+The section above ends by saying a third vacuous test would have a shape nobody
+had thought of. It took four days.
+
+**The equivalence test passed three times while measuring nothing.** It compares
+two lists of decisions. The first run produced zero decisions on each side, and
+two empty lists are equal, so it printed a pass. The second and third runs did
+the same for different reasons: the market had closed, then four of five symbols
+were silent on the venue's feed, then the strategy was pointed at one of the
+silent four.
+
+Nothing was wrong with the comparison. The comparison was correct and the answer
+was meaningless, which is exactly the shape the audit was written about and not a
+shape the audit's mechanical check could catch â€” there was no fixture directory
+to be empty and no count to assert, because the input is a live market.
+
+**What it cost.** Nothing, because the runs were being read by a person who
+noticed. That is the part worth being uncomfortable about: the guard was
+attention, and attention does not run in CI.
+
+**What changed.** The harness now refuses the vacuous case explicitly rather
+than reporting it as a pass:
+
+- Zero decisions is a `VACUOUS` failure with exit code 3, not a green line.
+- It prints the decision count on both sides, so a pass says how much it
+  compared.
+- It prints per-symbol event counts and names how many symbols produced nothing,
+  because "four of five symbols were silent" is the actual answer and the report
+  did not used to contain it.
+- It distinguishes three causes in its message: every symbol silent, some
+  symbols silent, or data arrived and no order followed.
+
+**And one worse-than-failing case.** A later run reported 609 live events against
+610 replayed and still passed, because the live half was not draining the events
+still queued when the feed stopped. The decisions happened to match. The next
+undrained event to trigger an order would have been reported as a divergence
+that was really a bug in the test â€” a false red, which is the mirror image of
+this whole class and just as expensive. The live half now drains its tail
+through the strategy before comparing.
+
+### The pattern across all three shapes
+
+| | Session D | Session F Part 0 | Session F Part 5 |
+|---|---|---|---|
+| shape | a skip read as a pass | an empty fixture directory read as a pass | an empty comparison read as a pass |
+| caught by | accident | a deliberate audit | reading the output |
+| now fails via | `scripts/check_skips.py` | gate on a checked count, not on a directory existing | `VACUOUS` exit 3, with counts printed |
+
+The common element is not a bug in any assertion. In all three the assertion was
+correct and had nothing to assert about. A test's inputs deserve the same
+scepticism as its outputs, and a report that does not say *how much* it measured
+cannot be audited by reading it.

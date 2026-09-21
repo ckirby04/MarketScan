@@ -257,6 +257,46 @@ or network I/O, no allocation on the event path) and why each exists:
 
 ---
 
+## Live execution, paper only
+
+`ms_live` is the command line to the live seam. It is a separate binary from the
+dashboard on purpose: the dashboard reads files, this one opens sockets and sends
+orders, so "can this binary reach a broker" has a one-word answer for each.
+
+```powershell
+$env:APCA_API_KEY_ID     = '...'   # paper keys, from the environment only
+$env:APCA_API_SECRET_KEY = '...'
+
+ms_live guard        # prove the paper-only guard refuses a live host
+ms_live account      # what the paper account says about itself
+ms_live clock        # the exchange clock, and this machine's skew from it
+ms_live calendar     # trading sessions, from the broker rather than hard-coded
+ms_live probe        # how this machine behaves with several TLS connections open
+
+# Stream real market data, record it, and force one reconnect:
+ms_live record --out session.ndjson --symbols AAPL,SPY --seconds 60 --drop-after 30
+ms_live replay session.ndjson
+
+# The equivalence test: run a plugin live, replay the recording with the same
+# binary, and compare the decisions.
+ms_live equivalence --plugin lifecycle_exercise.dll --out run.ndjson --symbols QQQ
+
+ms_live orders                              # what the venue thinks happened
+ms_live positions [--flatten --yes --limit]  # and how to put the account back to flat
+```
+
+**Paper only, and structurally rather than by configuration.** The live-money
+trading hostname is not in this repository — not in a constant, a comment, a
+config example, or behind a flag. Three guards enforce it: a source scan, a scan
+of the built binaries, and a constructor that throws on a host that is not on the
+allowlist. The third is the one that catches a hostname assembled at run time,
+and `ms_live guard` demonstrates it doing so.
+
+What the live layer measured, what it did not, and the several things it got
+wrong first are in [`docs/EXECUTION.md`](docs/EXECUTION.md).
+
+---
+
 ## Python
 
 ```powershell
@@ -297,12 +337,24 @@ that same version.
 Stated plainly, because every one of these is the kind of thing a repository like this is
 usually vague about.
 
-**No real market data.** Every fixture is synthetic and committed; `data/cache/` is gitignored and
-no test touches the network. Not one number here is a statement about markets — they are
-statements about this pipeline.
+**No real market data in any committed result.** Every fixture is synthetic and committed,
+`data/cache/` is gitignored, and no test touches the network. Not one number here is a
+statement about markets — they are statements about this pipeline.
+
+This wording was weaker until Session F and had to be corrected rather than left standing.
+Real IEX quotes, trades and bars *do* now reach the engine, through a live feed, and real
+orders reach a paper broker. But nothing is fitted to them, no recording is committed — it
+is market data under a subscriber agreement, see
+[`docs/DATA_POLICY.md`](docs/DATA_POLICY.md) — and no table or figure in this repository
+rests on a single real price.
 
 **No real strategy and no real factor.** The two reference plugins are a buy-and-hold benchmark
-and a moving-average crossover whose job is to be *calibrated against*. The research layer's
+and a moving-average crossover whose job is to be *calibrated against*. A third,
+`theories/lifecycle_exercise`, is **not a strategy at all**: it submits small orders, cancels
+some and provokes a rejection so that the code handling those states has been run against a
+real venue. It has no edge, seeks none, and **loses money by design** — it lost $2.91 of paper
+money establishing that the order lifecycle works. It is built to a directory the application
+does not scan, so it cannot appear on a leaderboard and be mistaken for a result. The research layer's
 signal is an abstract exposure with a planted λ; naming it after a real factor would invite the
 reading that recovering it said something about markets.
 
@@ -325,10 +377,28 @@ session and nothing here models where. No queue position, no borrow cost, no loc
 **The false-discovery threshold is a floor.** It was measured against Gaussian noise; real returns
 have fat tails and cross-sectional structure, all of which give a search more to find.
 
-**No network code, no scrapers, no API clients, no credentials.** How data is acquired — and what
-this project declined to do to get it — is [`docs/DATA_POLICY.md`](docs/DATA_POLICY.md). Short
-version: the one free price source put a proof-of-work challenge in front of its endpoint, solving
-it would have taken a dozen lines, and that made no difference to the decision.
+**There is network code now, and it is paper-only by construction.** This said "no network
+code, no API clients, no credentials" until Session F, when the live execution seam arrived.
+What replaced it is narrower and checkable:
+
+- The live-money trading hostname **does not appear anywhere in this repository** — not in a
+  constant, a comment, a config example, or behind an `if`. There is no value any setting
+  could take that would reach it, because the string is not here to be reached. An allowlist
+  in
+  [`include/marketscan/live/endpoints.hpp`](include/marketscan/live/endpoints.hpp)
+  is enforced three ways: a source scan, a scan of the built binaries, and a runtime check
+  that throws. The check fails on a host that is *not on the allowlist*, not on a known-bad
+  one, which is the direction that survives somebody inventing a new endpoint.
+- **Credentials come from the environment**, `APCA_API_KEY_ID` and `APCA_API_SECRET_KEY`.
+  None are in the repository in any form, including test fixtures; `scripts/check_no_secrets.py`
+  scans for their shape.
+- **No test touches the network.** Every live-layer test drives the same parsers and the same
+  order-update path with hand-written messages.
+
+How historical data is acquired — and what this project declined to do to get it — is still
+[`docs/DATA_POLICY.md`](docs/DATA_POLICY.md). Short version: the one free price source put a
+proof-of-work challenge in front of its endpoint, solving it would have taken a dozen lines,
+and that made no difference to the decision.
 
 ---
 
@@ -359,10 +429,17 @@ convenience, and it is why more modelling is not the next thing to do.
 | M7 | Full GUI | ✅ |
 | M8 | Python bindings | ✅ |
 | M9 | Hardening and polish | ✅ |
+| M10 | Live execution seam, paper only | ✅ |
 
-The ABI in `include/marketscan/abi/plugin_abi.h` was frozen at M4 and is at version 1. Every struct
-in it is `static_assert`ed to its exact size, so a change that would break an already-compiled
-theory cannot compile.
+The ABI in `include/marketscan/abi/plugin_abi.h` was frozen at M4 and is at version 2. Every
+struct in it is `static_assert`ed to its exact size, so a change that would break an
+already-compiled theory cannot compile.
+
+Version 2 **appended** one callback, `on_order_status`, and added one struct. Nothing that
+existed in v1 moved, changed size, or changed meaning, and the host trims the vtable to the
+nine slots a v1 plugin knows about before calling anything. A fixture that declares version 1
+by hand is asserted to keep loading, to trade, and never to receive the tenth callback — the
+migration promise as something that runs rather than something written down.
 
 ---
 
@@ -377,10 +454,13 @@ include/marketscan/   public headers
   exec/               orders, fill models, ledger
   strategy/           strategy base class, registry, plugin loader
   metrics/            performance statistics
+  live/               the paper-only live execution seam: HTTPS, WebSocket,
+                      stream parser, recorder, live feed, live broker, calendar
   run/                the one run_backtest the CLI and Python both call
   util/               logging, latency histogram
 src/                  implementation, mirroring include/
 apps/marketscan/      the desktop application
+apps/live/            ms_live: the paper-only command line to the live seam
 theories/             the USB port: strategy plugins, discovered at runtime
 bindings/python/      pybind11 module
 research/             the dynamometer: synthetic panels, and what the pipeline

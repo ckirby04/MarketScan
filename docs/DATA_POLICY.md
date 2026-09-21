@@ -151,12 +151,15 @@ somebody who does not know what it protects — including a future session of an
 assistant reading a config key and helpfully making it configurable. An absent
 string cannot.
 
-Enforced in two places, both of which fail the build:
+Enforced in three places:
 
 | | |
 |---|---|
 | `scripts/check_no_live_endpoints.py` | Scans the source tree. Runs in CI before anything is built. |
 | `tests/test_paper_only.cpp` | Scans the **built binaries**, which a source grep cannot: a string can reach a binary through a header, a generated file or a dependency without appearing in any source file a reviewer would read. |
+| `HttpClient` and `WebSocket` constructors | Throw on a host that is not on the allowlist. The only one of the three that acts at *runtime*: a hostname assembled from pieces at run time passes both scans, and fails here. |
+
+The third was not theoretical. `ms_live guard` demonstrates it by building a live hostname at runtime from a prefix and the broker domain, and watching the constructor refuse it. An earlier draft of that command spelled the live host out as a literal so the refusal would be legible — and `check_no_live_endpoints.py` failed the tree, which is how the first guard was observed catching the second author of a violation rather than the first.
 
 **Both check an allowlist, not a blocklist**, and the reason is worth stating
 because the obvious implementation is wrong. The live trading host is the paper
@@ -197,6 +200,45 @@ tested — the same rule the rest of this project's tests are held to.
 is backed off from and logged. It is not evaded by rotating identifiers, opening
 parallel connections, or retrying faster. If a limit makes something impossible,
 that is a finding to report, not an obstacle to route around.
+
+### Recorded market data is never committed
+
+Checked before recording anything, rather than after. Alpaca's disclosures library
+links the **NASDAQ OMX Global Subscriber Agreement** and the **NYSE Market Data
+Display Services Agreement** as the agreements governing market data received
+through it. The NASDAQ one says a subscriber:
+
+> "may not sell, lease, **furnish** or otherwise permit or **provide access to the
+> Information to any other Person** or to any other office or place"
+
+and, for a non-professional subscriber, that "the Information is licensed **only
+for personal use**."
+
+Committing a recorded session to a public repository furnishes it and provides
+access to any other Person. So it is not done, and this is not a close call.
+
+The free tier is IEX data, which is a different exchange from the two those
+agreements name — and nothing in Alpaca's terms clearly grants redistribution of
+it either. §3 settles that: **silence is not consent.**
+
+**What this costs and how it is handled.** The live/replay equivalence test
+cannot ship a real recording as a fixture, so it does not have one. Instead:
+
+- `ms_live equivalence` records a session, replays it, compares, and then **deletes
+  the recording**. `--keep` exists for debugging a divergence and says on the console
+  that what it kept must not be committed.
+- `.gitignore` covers `*.ndjson`, `recordings/` and `data/recordings/` as well as
+  `data/cache/`, so a recording written into the repository to look at cannot be
+  committed by accident.
+- The committed tests use messages **hand-written to the vendor's documented shapes
+  with invented prices**. Those are not market data by any reading, and they are what
+  lets the parser, the recorder round trip and the whole order lifecycle be tested in
+  CI with no network and no fixture.
+
+A real session is recorded, compared and then thrown away, and **the result of that
+comparison is reported** — a measurement is not redistribution, and a statement that
+two runs agreed on ten decisions carries none of the underlying data. The results are
+in [`EXECUTION.md`](EXECUTION.md) with their dates.
 
 ### What paper trading is not
 
