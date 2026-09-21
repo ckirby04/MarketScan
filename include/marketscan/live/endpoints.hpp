@@ -53,6 +53,17 @@ inline constexpr std::string_view kMarketDataHost = "data.alpaca.markets";
 /// Streaming market data. IEX on the free tier.
 inline constexpr std::string_view kMarketDataStreamHost = "stream.data.alpaca.markets";
 
+/// The stream path. IEX, which is what the free tier grants: one venue's own
+/// prints, roughly two per cent of consolidated volume. Good enough to prove
+/// the seam and to exercise an order lifecycle, and not good enough to draw a
+/// conclusion about liquidity or fill quality from -- docs/EXECUTION.md says
+/// so where it says what this feed is for.
+inline constexpr std::string_view kMarketDataStreamPath = "/v2/iex";
+
+/// Paper trade updates: the account's own fills, partials, rejections and
+/// cancels, as a stream rather than a poll.
+inline constexpr std::string_view kPaperTradeStreamPath = "/stream";
+
 /// Every host that may appear in this repository.
 ///
 /// The guard checks membership in this list. A host not on it fails the build,
