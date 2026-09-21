@@ -246,8 +246,12 @@ Baseline, taken before anything in Part 2 was changed:
 | Python (`research/tests`) | **185 passed** |
 | CI on `main` | green at `cb4aefb` |
 
-The one skipped test is the identity classifier's calibration case, which needs
-cached Stooq bars; see *Stooq is gated* below.
+**The one skipped test is not cosmetic.** It is the identity classifier's
+calibration case, and it has skipped in every run this file reports because the
+price data it needs has never been fetched — so the measurement that was supposed
+to resolve forty-one identity splits has never executed. A green suite with a
+skip in it is how that stayed invisible. See *Stooq is gated, and M3b has
+therefore never run*, below.
 
 Parts 2 and 3 then moved them, and the movement is accounted for:
 
@@ -315,8 +319,14 @@ a warning.
 **Identity provenance is present and empty on this universe, which is honest
 rather than broken.** No ticker in a synthetic history has a gap in its
 membership, so the split heuristic has nothing to decide; the panel says that
-instead of showing an empty table. The provenance columns are exercised by the
-S&P history, which cannot be committed — see *Stooq is gated* below.
+instead of showing an empty table.
+
+It is worth being exact about what that means, because the panel can only show
+what exists: on the real S&P history the provenance column would read
+`threshold` for forty-nine gaps and `override` for four, and the measurement
+column would read `not measured` for all fifty-three. The panel is not waiting on
+a feature. It is waiting on a measurement that has never run — see *Stooq is
+gated, and M3b has therefore never run*, below.
 
 ### Screenshots capture themselves now
 
@@ -341,28 +351,98 @@ reproducible rather than arranged.
 
 ## Blocked — needs a decision
 
-### 1. Stooq is gated, so identity cannot be measured
+### 1. Stooq is gated, and M3b has therefore never run
 
-As of 2026-09-17 Stooq answers every request to its free CSV endpoint with
-**HTTP 200 and a JavaScript browser-verification page**. Nothing here attempts
-to defeat that check.
+**The gate, diagnosed rather than inferred.** Probed 2026-09-21 from this
+machine:
 
-The consequence is narrow but real: the M3b identity classifier is built,
-tested and calibrated, and has **nothing to point at**. All 53 membership gaps
-read `unresolved: no price data`, so the 730-day threshold still governs and all
-**41 splits remain inferences**.
+| | |
+|---|---|
+| DNS | resolves to `159.69.202.225`, `78.47.47.99` — Hetzner, Stooq's own hosting |
+| TCP + TLS | completes, TLS 1.3 |
+| HTTP | **200**, `Server: openresty`, `Cache-Control: no-store`, 796 bytes of HTML |
+| Rate-limit signals | none: no `429`, no `Retry-After` |
+| CDN | no `CF-RAY` — this is Stooq's own edge, not Cloudflare |
+
+The body is a **proof-of-work challenge**: find `n` such that `SHA-256(c + n)`
+begins with four hex zeros, then `POST /__verify`. It is served unconditionally
+on a first request from a cold connection, which is what rules out rate
+limiting — a limiter does not challenge you before you have asked for anything.
+
+So it is **a deliberate change on Stooq's end**, not throttling, not a network
+policy here, and not the endpoint agent.
+
+**This is not a bug to route around.** The challenge is trivially solvable in
+a few lines — four hex zeros is about sixty-five thousand hashes, milliseconds
+of work. Nothing here does it. Spec 1 forbids it, and more to the point a
+proof-of-work gate is an unambiguous statement by the operator that automated
+clients are not welcome. That also settles the "wait and see" option below:
+gates like this are a decision, and decisions do not lapse.
+
+*Incidental, and worth knowing before anyone else diagnoses a TLS problem on
+this machine:* Norton is intercepting TLS here — the chain presents
+`Norton Web/Mail Shield Root` for `*.stooq.com`. It is **not** the blocker; it
+passed Stooq's real response through intact. It is the same endpoint agent that
+holds freshly built binaries, and it will make any certificate-level diagnosis
+on this machine misleading unless you expect it.
+
+**The consequence, stated plainly: M3b has never been run on real data, and the
+identity model rests on the 730-day threshold alone.**
+
+| | |
+|---|---|
+| Gaps considered | 53 |
+| Resolved by measurement | **0** |
+| Governed by the threshold | 49 |
+| Governed by a hand-written override | 4 |
+| Splits made | 41, **all of them inferences** |
+| Ground-truth cases ever scored | **0 of 10** |
+
+`data/cache/` has never held real price data. Every gap in
+[`IDENTITY_DECISIONS.md`](IDENTITY_DECISIONS.md) reads `no price data for this
+ticker`, without exception, and `measure_identities` has never had anything to
+measure.
+
+The calibration test — *the classifier agrees with the cases we are sure of* —
+**skips**, and it is the one skipped test in every count this file reports. A
+green suite has been carrying it the whole time, which is exactly how an unrun
+measurement stays invisible.
+
+Two details that make this worse rather than better:
+
+- **The 4 overrides are not measurements.** They are hand-written company facts,
+  and `write_measured_overrides` — which writes rows from measurements only — has
+  never had a measurement to write. So four gaps rest on a human's assertion and
+  forty-nine on a threshold nobody has checked against reality.
+- **The report cannot currently be regenerated.** `data/cache/universe/sp500_history.csv`
+  is gone too, so `IDENTITY_DECISIONS.md` is a committed artefact whose input no
+  longer exists on disk. The membership half is recoverable —
+  `scripts/fetch_sp500.py` reads the fja05680/sp500 project on GitHub, which is
+  not gated. The price half is not.
+
+**What the classifier is, precisely:** built, unit-tested against committed
+synthetic fixtures, and **never validated against a single real case.** The ten
+labelled cases in `data/identity_calibration.csv` include the two traps the whole
+design exists for — `HP` is Helmerich & Payne and not Hewlett-Packard; `CCI` was
+Citicorp before Crown Castle took the ticker — and neither has ever been scored.
 
 Everything else works without it. The cache format, the feed, the universe, the
-guard and the classifier are all exercised against committed synthetic fixtures.
+guard and the classifier's own logic are exercised against committed synthetic
+fixtures, and the Universe Inspector draws real membership from them.
 
 **The options, none of which should be picked without deciding:**
 
 | | |
 |---|---|
-| Wait | The gate may be temporary. Costs nothing, resolves nothing. |
+| Wait | Now looks wrong. A proof-of-work gate is a decision by the operator, not an outage, and there is no reason to expect it to lapse. |
 | Another free source | Every one comes with a key, an account, or terms nobody here has read. Spec 1 forbids keys and accounts; Spec 2 named Stooq specifically. **This is a spec change, not a fix.** |
-| A licensed source | CRSP deletes this problem entirely — PERMNO *is* the identity, and the whole inference heuristic gets deleted rather than adapted. |
-| Ship without it | Legitimate. The splits stay inferences, the report says so, and the safe direction protects you. |
+| A licensed source | CRSP deletes this problem entirely — PERMNO *is* the identity, and the whole inference heuristic gets deleted rather than adapted. It also deletes the assumed exit. |
+| Ship without it | Legitimate, and it is what has happened so far. The splits stay inferences, the report says so, and over-splitting is the safe direction. What is **not** legitimate is letting the skipped test read as a passing suite. |
+
+**This is a Session E item.** It is not close-out material for Part 7: the
+measurement that was supposed to resolve forty-one splits has never executed, and
+writing the project up as finished without saying so in the README would be the
+single most misleading thing in it.
 
 ### 2. Forty-one identity splits want a human
 
@@ -397,9 +477,28 @@ document itself nominates as clean.
 | 1 | M8b, empirical IC thresholds | done |
 | 2 | What moves the bar | done |
 | 3 | M9 parity | done — churn-free parity, the cost check, and (in Session D Part 2) **churn parity, exact under both delisting models** |
-| 4 | Universe Inspector panel | not started |
+| 4 | Universe Inspector panel | done in Session D Part 5 |
 | 5 | M9b, the dual view | not started |
 | 6 | Close-out: README and this file | partly — this file is current, `README.md` is not |
+
+### Session E: what must not be closed out
+
+One item, and it is the reason Part 7 cannot simply declare the project written
+up. **M3b — the price-continuity measurement that was built to resolve the
+forty-one identity splits — has never executed on real data.** Not deferred, not
+partially done: zero of fifty-three gaps measured, zero of ten ground-truth cases
+scored, and the test that would have said so skips.
+
+Stooq put a proof-of-work gate in front of the endpoint, which is a decision by
+the operator rather than an outage, so waiting is not a plan. The detail and the
+options are in *Stooq is gated, and M3b has therefore never run* above; the
+decision — another source, a licensed one, or shipping with the splits as
+declared inferences — belongs to a human, and belongs in Session E.
+
+Whatever is decided, the README has to say that the identity model rests on a
+730-day threshold that has never been checked against a real price series.
+Writing this up as finished without that sentence would be the single most
+misleading thing in the repository.
 
 ### What Part 3 owed, and what it got
 
