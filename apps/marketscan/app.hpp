@@ -32,6 +32,22 @@ struct AppOptions {
 
     /// Initial replay speed. Zero is unthrottled.
     double speed = 0.0;
+
+    /// Write the window's own contents here and quit.
+    ///
+    /// A 24-bit BMP; `scripts/capture_screenshot.ps1` converts it to PNG. See
+    /// screenshot.hpp for why the application captures itself rather than
+    /// letting something read the desktop.
+    std::filesystem::path screenshot;
+
+    /// How long to replay before capturing. Gives the run something to show.
+    double screenshot_after = 8.0;
+
+    /// A panel title to bring to the front once the layout exists.
+    ///
+    /// For screenshots, and for a demonstration that wants to open on one
+    /// particular view. Empty leaves whatever the saved layout had focused.
+    std::string focus_panel;
 };
 
 /// The desktop application.

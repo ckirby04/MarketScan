@@ -14,6 +14,7 @@ void draw_all(Context& context) {
     theory_detail(context);
     positions(context);
     trade_blotter(context);
+    universe_inspector(context);
     plugin_manager(context);
     transport(context);
     latency(context);

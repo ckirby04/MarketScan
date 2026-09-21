@@ -22,6 +22,7 @@ from research.parity import (
     CHURN_DELISTINGS,
     CHURN_EQUITY,
     CHURN_MEMBERSHIP,
+    CHURN_UNIVERSE,
     EXPOSURE_OFFSET,
     EXPOSURE_SCALE,
     FIXTURE_BARS,
@@ -591,3 +592,41 @@ def test_a_target_whose_name_never_prints_again_is_abandoned(churn_bars, churn_p
 
     # The churn-free fixture abandons nothing, because nobody leaves it.
     assert simulate(fixture_bars()).targets_abandoned == 0
+
+
+def test_the_two_membership_spellings_agree(churn_bars):
+    """Intervals and snapshots describe the same universe.
+
+    `parity_churn_membership.csv` is `symbol,first_session,last_session`, which
+    is what a reader and the Python reference want. `parity_churn_universe.csv`
+    is `date,TICKER,TICKER,...`, which is the shape real membership data comes in
+    and what the engine's `SnapshotMembershipSource` reads -- it derives the
+    intervals back out by diffing consecutive days.
+
+    Both are written from the same bars, so the Universe Inspector and the parity
+    tests cannot be looking at different universes. This is the assertion that
+    says so.
+    """
+    intervals = pd.read_csv(CHURN_MEMBERSHIP, parse_dates=["first_session", "last_session"])
+
+    snapshots: dict[pd.Timestamp, set[str]] = {}
+    with CHURN_UNIVERSE.open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.startswith("#") or line.startswith("date,"):
+                continue
+            fields = line.strip().split(",")
+            if len(fields) < 2:
+                continue
+            snapshots[pd.Timestamp(fields[0])] = set(fields[1:])
+
+    sessions = sorted(churn_bars["date"].unique())
+    assert len(snapshots) == len(sessions)
+
+    # Every snapshot is exactly the names whose interval covers that date.
+    for date in sessions:
+        covering = set(intervals.loc[(intervals["first_session"] <= date) &
+                                     (intervals["last_session"] >= date), "symbol"])
+        assert snapshots[pd.Timestamp(date)] == covering, f"the two disagree on {date}"
+
+    # And the snapshots really do change, or this would pass on a static universe.
+    assert len({frozenset(members) for members in snapshots.values()}) > 5

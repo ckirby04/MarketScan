@@ -31,6 +31,7 @@ void correlation_matrix(Context& context);
 void trade_blotter(Context& context);
 void positions(Context& context);
 void theory_detail(Context& context);
+void universe_inspector(Context& context);
 void plugin_manager(Context& context);
 void transport(Context& context);
 void latency(Context& context);

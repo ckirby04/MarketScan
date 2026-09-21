@@ -443,3 +443,168 @@ TEST_CASE("a new theory dropped into the folder appears on rescan",
 
     std::filesystem::remove_all(root, ec);
 }
+
+// --- The Universe Inspector -----------------------------------------------
+//
+// Session C Part 4 / Session D Part 5. The panel is ImGui and is not unit
+// tested; everything it draws is, because everything it draws is assembled in
+// `Session::universe_snapshot_locked` and the panel only formats it. That split
+// is deliberate -- a panel that computed its own member list would eventually
+// disagree with the guard it exists to make visible.
+
+namespace {
+
+/// The committed churn fixture: thirty names at a time, names that leave, and a
+/// membership file derived from the bars themselves.
+///
+/// Reusing M9's fixture rather than inventing a second one. It is the only
+/// committed dataset where anything leaves a universe, and holding the Inspector
+/// to the same bars the parity tests use means a change to the fixture cannot
+/// quietly break one and not the other.
+SessionConfig churn_config() {
+    SessionConfig config = small_config();
+    config.data_file = std::filesystem::path(MARKETSCAN_TEST_DATA_DIR) / "parity_churn_panel.csv";
+    config.universe_file =
+        std::filesystem::path(MARKETSCAN_TEST_DATA_DIR) / "parity_churn_universe.csv";
+    return config;
+}
+
+}  // namespace
+
+TEST_CASE("a session with no universe says so rather than looking empty", "[session][universe]") {
+    Session session(small_config());
+    const std::shared_ptr<const SessionSnapshot> snapshot = wait_for(session, has_strategies);
+
+    // Not an error and not a blank panel. A run without a universe is the only
+    // sensible thing for one instrument; it is survivorship-unsafe for a
+    // cross-section, and which of the two a run is has to be visible rather than
+    // remembered.
+    CHECK_FALSE(snapshot->universe.active);
+    CHECK(snapshot->universe.members.empty());
+    CHECK_FALSE(snapshot->universe.source.empty());
+    CHECK(snapshot->universe.events_withheld == 0);
+}
+
+TEST_CASE("a universe reaches the snapshot with its membership and its provenance",
+          "[session][universe]") {
+    Session session(churn_config());
+    std::shared_ptr<const SessionSnapshot> snapshot = wait_for(session, has_strategies);
+
+    REQUIRE(snapshot->state != TransportState::Failed);
+    const UniverseSnapshot& universe = snapshot->universe;
+    INFO("source " << universe.source << ", " << universe.securities << " securities over "
+                   << universe.periods << " periods");
+
+    REQUIRE(universe.active);
+    CHECK(universe.rejected.empty());
+
+    // More securities than are ever members at once, which is what says names
+    // were replaced rather than merely present. The churn fixture holds thirty-one
+    // at a time -- thirty names and the roll symbol -- out of sixty.
+    CHECK(universe.securities > 40);
+    CHECK(universe.periods == universe.securities);
+    CHECK(universe.first != kNever);
+
+    // Adds and drops: one add per period, one drop per name that left.
+    CHECK(universe.events.size() > universe.securities);
+    std::size_t added = 0;
+    std::size_t dropped = 0;
+    for (const MembershipEvent& event : universe.events) {
+        (event.added ? added : dropped) += 1;
+        CHECK_FALSE(event.ticker.empty());
+    }
+    CHECK(added == universe.securities);
+    CHECK(dropped > 10);
+
+    // Ascending by time, so the panel can clip a long history without sorting it
+    // per frame.
+    for (std::size_t i = 1; i < universe.events.size(); ++i) {
+        CHECK(universe.events[i - 1].ts <= universe.events[i].ts);
+    }
+}
+
+TEST_CASE("the member list follows the clock", "[session][universe]") {
+    // The claim the panel makes in as many words: membership as of the instant
+    // the engine has reached, not as of today. A list that did not move as the
+    // replay advanced would be a picture of the final universe, which is the
+    // survivorship bias this whole layer exists to prevent.
+    Session session(churn_config());
+    const std::shared_ptr<const SessionSnapshot> opening = wait_for(session, has_strategies);
+    REQUIRE(opening->universe.active);
+
+    const std::size_t width = opening->universe.members.size();
+    CHECK(width > 10);
+    for (const UniverseMember& member : opening->universe.members) {
+        CHECK_FALSE(member.ticker.empty());
+        CHECK(member.since != kNever);
+    }
+
+    session.play();
+    const std::shared_ptr<const SessionSnapshot> ended = wait_for(session, finished);
+    REQUIRE(ended->state == TransportState::Finished);
+
+    // The panel is fixed-width by construction -- a departure is replaced on the
+    // following session -- so the count is the same and the names are not.
+    const UniverseSnapshot& late = ended->universe;
+    CHECK(late.members.size() == width);
+
+    std::vector<std::string> before;
+    std::vector<std::string> after;
+    for (const UniverseMember& member : opening->universe.members) {
+        before.push_back(member.ticker);
+    }
+    for (const UniverseMember& member : late.members) {
+        after.push_back(member.ticker);
+    }
+    CHECK(before != after);
+}
+
+TEST_CASE("the guard's effect is a number, and the forced exits are the blotter's",
+          "[session][universe]") {
+    Session session(churn_config());
+    REQUIRE(wait_for(session, has_strategies)->universe.active);
+    session.play();
+    const std::shared_ptr<const SessionSnapshot> ended = wait_for(session, finished);
+    REQUIRE(ended->state == TransportState::Finished);
+
+    const UniverseSnapshot& universe = ended->universe;
+    INFO(universe.events_withheld << " events withheld, " << universe.forced_exits
+                                  << " forced exits, " << universe.departures.size()
+                                  << " departure rows");
+
+    // A run where this is zero has not been filtered at all. The panel colours it
+    // as a warning for the same reason.
+    CHECK(universe.events_withheld > 0);
+
+    // Every departure row is a real blotter row, not a membership event the panel
+    // assumed produced a trade. The two counts agree because the rows are read
+    // out of the ledger by the client id the engine stamps on a forced exit.
+    CHECK(universe.departures.size() == universe.forced_exits);
+    for (const DepartureRecord& record : universe.departures) {
+        CHECK_FALSE(record.ticker.empty());
+        CHECK_FALSE(record.strategy.empty());
+        CHECK(record.quantity != 0.0);
+        CHECK(record.price > 0.0);
+    }
+
+    // Ascending by time, like the events.
+    for (std::size_t i = 1; i < universe.departures.size(); ++i) {
+        CHECK(universe.departures[i - 1].ts <= universe.departures[i].ts);
+    }
+}
+
+TEST_CASE("a universe file that cannot be read fails the session", "[session][universe]") {
+    // Loudly, rather than running unfiltered. A survivorship guard that quietly
+    // did not load is worse than no guard at all: the output looks identical and
+    // nothing in it says which one produced it.
+    SessionConfig config = churn_config();
+    config.universe_file = "no_such_membership_history.csv";
+
+    Session session(config);
+    const std::shared_ptr<const SessionSnapshot> snapshot = wait_for(
+        session, [](const SessionSnapshot& s) { return s.state == TransportState::Failed; });
+
+    CHECK(snapshot->state == TransportState::Failed);
+    CHECK_FALSE(snapshot->error.empty());
+    CHECK_FALSE(snapshot->universe.active);
+}

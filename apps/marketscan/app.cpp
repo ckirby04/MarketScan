@@ -1,5 +1,7 @@
 #include "app.hpp"
 
+#include "screenshot.hpp"
+
 #include <algorithm>
 #include <cstdio>
 #include <fstream>
@@ -49,6 +51,7 @@ constexpr const char* kPanelTitles[] = {
     "Relative Strength",
     "Correlation",
     "Theory Detail",
+    "Universe",
     "Positions & P&L",
     "Transport",
     "Blotter",
@@ -257,6 +260,15 @@ int Application::run() {
         glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
+        // Before the swap, not after: on a double-buffered context the frame
+        // that was just drawn is in the *back* buffer, and what glReadPixels
+        // returns from the front one after a swap is undefined.
+        if (!options_.screenshot.empty() && glfwGetTime() >= options_.screenshot_after) {
+            (void)capture_back_buffer(options_.screenshot, width, height);
+            options_.screenshot.clear();
+            running_ = false;
+        }
+
         glfwSwapBuffers(window_);
     }
 
@@ -329,7 +341,13 @@ void Application::draw_frame() {
         if (default_focus_stage_ == 2) {
             ImGui::SetWindowFocus("Leaderboard");
         } else if (default_focus_stage_ == 0) {
-            ImGui::SetWindowFocus("Equity Curves");
+            // Last, and after the defaults, so --focus wins over them rather
+            // than being overwritten by the stage that runs next.
+            if (!options_.focus_panel.empty()) {
+                ImGui::SetWindowFocus(options_.focus_panel.c_str());
+            } else {
+                ImGui::SetWindowFocus("Equity Curves");
+            }
         }
     }
 
@@ -380,6 +398,7 @@ void Application::draw_menu_bar() {
         ImGui::MenuItem("Correlation", nullptr, &ui_.show_correlation);
         ImGui::Separator();
         ImGui::MenuItem("Theory Detail", nullptr, &ui_.show_detail);
+        ImGui::MenuItem("Universe", nullptr, &ui_.show_universe);
         ImGui::MenuItem("Positions & P&L", nullptr, &ui_.show_positions);
         ImGui::MenuItem("Blotter", nullptr, &ui_.show_blotter);
         ImGui::Separator();
@@ -569,6 +588,7 @@ void Application::build_default_layout(unsigned int dockspace_id) {
     ImGui::DockBuilderDockWindow("Correlation", centre);
 
     ImGui::DockBuilderDockWindow("Theory Detail", right_top);
+    ImGui::DockBuilderDockWindow("Universe", right_top);
     ImGui::DockBuilderDockWindow("Positions & P&L", right_bottom);
 
     ImGui::DockBuilderDockWindow("Leaderboard", bottom);

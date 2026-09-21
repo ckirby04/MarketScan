@@ -30,6 +30,7 @@ struct UiState {
     bool show_blotter = true;
     bool show_positions = true;
     bool show_detail = true;
+    bool show_universe = true;
     bool show_plugins = true;
     bool show_transport = true;
     bool show_latency = true;

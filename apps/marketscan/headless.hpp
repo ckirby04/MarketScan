@@ -69,6 +69,16 @@ struct HeadlessOptions {
     /// dashboard that has something on it.
     bool autoplay = false;
 
+    /// GUI only: capture the window to this path and quit.
+    std::string screenshot;
+
+    /// GUI only: seconds of replay before the capture.
+    double screenshot_after = 8.0;
+
+    /// A panel title to bring to the front once the GUI's layout exists.
+    /// Ignored headless. For reproducible screenshots.
+    std::string focus_panel;
+
     /// Replay speed multiplier for the GUI. Zero means as fast as possible.
     double speed = 0.0;
 };

@@ -79,6 +79,18 @@ CHURN_EQUITY = {
 column each, because the C++ side reads whichever the case under test selected
 and a test that reads the wrong column would still parse."""
 
+CHURN_UNIVERSE = REPO / "data" / "samples" / "parity_churn_universe.csv"
+"""The same membership, in the `date,TICKER,TICKER,...` snapshot layout the
+engine's `SnapshotMembershipSource` reads.
+
+Two spellings of one fact, and that is deliberate rather than sloppy.
+`parity_churn_membership.csv` is intervals, which is what a reader and the parity
+reference want; the engine's loader takes snapshots and *derives* intervals by
+diffing consecutive days, because that is the shape real membership data comes
+in. Writing both from the same bars means the Universe Inspector and the parity
+tests cannot be looking at different universes, and
+`test_the_two_membership_spellings_agree` asserts it."""
+
 CHURN_APPLIED = REPO / "data" / "samples" / "parity_churn_applied.csv"
 """Every delisting return the reference run booked, with the position and the mark
 it was measured against.
@@ -696,6 +708,14 @@ def write_churn_fixture(config: ParityConfig | None = None) -> list[Path]:
         last_session=membership["last_session"].dt.strftime("%Y-%m-%d"),
     ).to_csv(CHURN_MEMBERSHIP, index=False)
 
+    with CHURN_UNIVERSE.open("w", encoding="utf-8", newline="") as out:
+        out.write("# Membership snapshots for the M9 churn fixture, from the same bars as\n")
+        out.write("# parity_churn_membership.csv. Synthetic; not market data.\n")
+        out.write("date,members\n")
+        for date, day in bars.groupby("date"):
+            out.write(date.strftime("%Y-%m-%d") + "," +
+                      ",".join(sorted(day["symbol"])) + "\n")
+
     # Only the names that actually left. A survivor has no delisting return, and
     # writing one of zero for it would turn "nobody measured this" into "this cost
     # nothing" -- the distinction `DelistingReturns::has` exists to keep.
@@ -706,7 +726,7 @@ def write_churn_fixture(config: ParityConfig | None = None) -> list[Path]:
     delistings.sort_values("symbol").to_csv(
         CHURN_DELISTINGS, index=False, columns=["symbol", "delisting_return", "cause"])
 
-    written = [CHURN_BARS, CHURN_MEMBERSHIP, CHURN_DELISTINGS]
+    written = [CHURN_BARS, CHURN_MEMBERSHIP, CHURN_UNIVERSE, CHURN_DELISTINGS]
 
     from_file = pd.read_csv(CHURN_BARS, parse_dates=["date"])
     held_a_departure = 0

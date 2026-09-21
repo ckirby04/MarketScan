@@ -13,6 +13,7 @@
 
 #include "marketscan/core/engine.hpp"
 #include "marketscan/data/feed.hpp"
+#include "marketscan/data/universe.hpp"
 #include "marketscan/exec/fill_model.hpp"
 #include "marketscan/metrics/correlation.hpp"
 #include "marketscan/metrics/performance.hpp"
@@ -59,6 +60,18 @@ struct SessionConfig {
     /// Execution realism. Default-constructed is an instant simulator; see
     /// FillModelConfig.
     FillModelConfig fills;
+
+    /// A membership history, in the `date,TICKER,TICKER,...` snapshot layout.
+    ///
+    /// Empty means no universe, which means no survivorship guard: every symbol
+    /// in the data is in scope. That is right for one instrument and for
+    /// intraday work, and survivorship-unsafe for a cross-sectional study -- so
+    /// the Universe Inspector reports which of the two a session is, rather than
+    /// leaving a viewer to remember.
+    std::filesystem::path universe_file;
+
+    /// Corrections to the identity inference. Consulted before the threshold.
+    std::filesystem::path security_overrides;
 };
 
 /// One theory's state, copied out of the engine for the GUI to draw.
@@ -111,6 +124,92 @@ struct StrategySnapshot {
     LatencyHistogram latency;
 };
 
+/// One membership change, for the Inspector's timeline.
+struct MembershipEvent {
+    Timestamp ts = 0;
+    std::string ticker;
+    SecurityId security = kInvalidSecurity;
+    /// True for a name joining, false for one leaving.
+    bool added = false;
+};
+
+/// A member as of the session clock.
+struct UniverseMember {
+    SecurityId security = kInvalidSecurity;
+    std::string ticker;
+
+    /// When this membership period began.
+    Timestamp since = 0;
+
+    /// When it ends, or kForever. What the forced-exit path will act on.
+    Timestamp until = kForever;
+
+    /// Whether any strategy is holding it right now.
+    bool held = false;
+};
+
+/// A security that left the universe and what happened to the position.
+struct DepartureRecord {
+    Timestamp ts = 0;
+    std::string ticker;
+    std::string strategy;
+
+    /// Signed. Negative was a short.
+    Quantity quantity = 0.0;
+    Price price = 0.0;
+    Money cash_delta;
+};
+
+/// What the Universe Inspector draws.
+///
+/// Copied out like everything else in a snapshot, and assembled once per
+/// publish rather than per frame: the membership scan is O(periods) and a panel
+/// redrawing it sixty times a second would pay for it sixty times.
+struct UniverseSnapshot {
+    /// False means no universe was installed, and every symbol in the data was
+    /// in scope. Reported rather than hidden -- see `SessionConfig::universe_file`.
+    bool active = false;
+
+    /// Where it came from, for the panel's header.
+    std::string source;
+
+    std::size_t securities = 0;
+    std::size_t periods = 0;
+    Timestamp first = kNever;
+    Timestamp last = kNever;
+
+    /// Snapshot dates the source carried, when it was a snapshot file.
+    std::size_t snapshots = 0;
+
+    /// Members as of the session clock, ascending by ticker.
+    std::vector<UniverseMember> members;
+
+    /// Every add and drop, ascending by time. The whole history, not a window:
+    /// a viewer scrolling back to 1999 is the point of the panel.
+    std::vector<MembershipEvent> events;
+
+    /// Forced exits that actually happened in this run, newest last.
+    std::vector<DepartureRecord> departures;
+
+    /// The identity heuristic's decisions, with provenance.
+    std::vector<IdentityDecision> decisions;
+
+    /// Rows the membership source had that could not be used.
+    std::vector<std::string> rejected;
+
+    /// Totals across every strategy. The guard's effect as a number: a run
+    /// where `events_withheld` is zero has not been filtered at all.
+    std::uint64_t events_withheld = 0;
+    std::uint64_t forced_exits = 0;
+
+    /// Counts by provenance, so the panel can say it without recounting.
+    std::size_t split_count = 0;
+    std::size_t kept_count = 0;
+    std::size_t override_count = 0;
+    std::size_t measured_count = 0;
+    std::size_t disagreement_count = 0;
+};
+
 /// Everything the GUI draws, as of one instant.
 struct SessionSnapshot {
     TransportState state = TransportState::Ready;
@@ -141,6 +240,8 @@ struct SessionSnapshot {
     LatencyHistogram latency;
 
     std::vector<std::string> symbols;
+
+    UniverseSnapshot universe;
 };
 
 /// The engine, on its own thread.
@@ -264,6 +365,16 @@ private:
     void teardown();
     void teardown_locked();
 
+    /// Builds the membership history from `config_.universe_file` and installs
+    /// it on every strategy. A missing or unreadable file fails the session
+    /// rather than silently running unfiltered: a survivorship guard that
+    /// quietly did not load is worse than no guard at all, because the output
+    /// looks the same.
+    void install_universe_locked();
+
+    /// Assembles the per-publish half of the universe snapshot.
+    [[nodiscard]] UniverseSnapshot universe_snapshot_locked(Timestamp clock) const;
+
     SessionConfig config_;
 
     mutable std::mutex command_mutex_;
@@ -281,6 +392,18 @@ private:
     std::unique_ptr<SymbolTable> symbols_;
     std::unique_ptr<Engine> engine_;
     std::unique_ptr<IFillModel> fill_model_;
+
+    /// The universe, and the securities it names. Owned here because every
+    /// StrategyInstance borrows a pointer to it and must not outlive it, and
+    /// because a universe that could change while a replay ran would make the
+    /// run depend on when the question was asked.
+    std::unique_ptr<SecurityMaster> master_;
+    std::unique_ptr<MembershipHistory> membership_;
+
+    /// The parts of the universe snapshot that do not change during a run,
+    /// built once at setup. Only the member list and the departures are
+    /// recomputed per publish.
+    UniverseSnapshot universe_base_;
     std::deque<StrategyInstance> strategies_;
     FeedSpan span_{};
     TransportState state_ = TransportState::Ready;

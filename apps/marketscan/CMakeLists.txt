@@ -43,6 +43,7 @@ if(MARKETSCAN_BUILD_GUI)
 
     target_sources(marketscan PRIVATE
         app.cpp
+        screenshot.cpp
         theme.cpp
         panels/panels.cpp
         panels/format.cpp
@@ -51,6 +52,7 @@ if(MARKETSCAN_BUILD_GUI)
         panels/charts.cpp
         panels/tables.cpp
         panels/theory_detail.cpp
+        panels/universe.cpp
         panels/plugin_manager.cpp
         panels/transport.cpp
         panels/latency.cpp

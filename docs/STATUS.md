@@ -221,8 +221,9 @@ Part 3 owed* below for what it cost.
 | 1 | Bit-identical sizing | **done**, CI green |
 | 2 | Make delisting returns real | **done** — both layers, churn parity exact |
 | 3 | The lookahead probe | **done** — triple recorded, invariant asserted, fill-timing lookahead found and fixed |
-| 4 | Toolchain gate (GUI stack) | not reached |
-| 5–7 | Inspector, dual view, close-out | not started |
+| 4 | Toolchain gate (GUI stack) | **passed** — vswhere 17.14.37710.0, full GUI build from source |
+| 5 | Universe Inspector | **done** — panel, snapshot, five tests, screenshot committed |
+| 6–7 | Dual view, close-out | not started |
 
 ### Part 0: the baseline, and what it cost to get
 
@@ -255,6 +256,7 @@ Parts 2 and 3 then moved them, and the movement is accounted for:
 | baseline | 334 | 185 |
 | after Part 2 | 343 (+9) | 199 (+14) |
 | after Part 3 | 346 (+3) | 202 (+3) |
+| after Part 5 | 351 (+5) | 203 (+1) |
 
 Part 2's additions are all in `test_parity.cpp` — the churn fixture, the two curve
 comparisons, the row-for-row reconciliation, the flattery gate, the rolling-symbol
@@ -267,6 +269,73 @@ tree throughout.
 curve, and the two cost constants in `test_parity.cpp`. The numbers and the
 assertion that caught them are in *What Part 3 owed* below. No test changed from
 passing to failing.
+
+
+### Part 4: the toolchain gate, passed
+
+`vswhere` reports **17.14.37710.0** with `VC.Tools.x86.x64`. `cmake --preset
+release` configures with `gui ON` and builds ImGui, ImPlot and GLFW from source
+through vcpkg; the full build links 115 targets including `marketscan.exe` and
+`glfw3.dll`, and `ctest --preset release` is **351 passed, 0 failed, 1 skipped** —
+the same as the `ci` configuration, which is the point of running both.
+
+### Part 5: the Universe Inspector
+
+The survivorship guard was correct and invisible. It is now visible.
+
+`SessionConfig` takes a membership history and `--universe` reaches the GUI, so
+the live session builds a `Universe` and a `SecurityMaster` and installs them on
+every strategy — which it could not do before; only the headless path could.
+`Session::universe_snapshot_locked` assembles what the panel draws, once per
+publish rather than per frame, and **the panel computes nothing**. That is the
+same rule `SPEC_VIEW_MODES.md` sets for the dual view and it is here for the same
+reason: a panel that derived its own member list would eventually disagree with
+the guard it exists to show, and it would disagree in a screenshot first.
+
+Four tabs: members as of the session clock, every add and drop over the whole
+history, the forced exits that actually happened, and the identity decisions with
+their provenance — override, threshold, near miss — plus what the price series
+said and whether it contradicts the threshold.
+
+Two things the panel refuses to do quietly. A session with **no** universe says so
+in as many words rather than going blank, because a run without one is correct for
+a single instrument and survivorship-unsafe for a cross-section and the difference
+has to be visible. And a universe file that cannot be read **fails the session**:
+a guard that silently did not load is worse than no guard, because the output
+looks identical and nothing in it says which one produced it.
+
+![The Universe Inspector](screenshots/universe.png)
+
+On the run above: 84 securities over 84 membership periods, 500 snapshot dates,
+**336 events withheld** from the strategies and 2 forced exits. The withheld count
+is the guard as a number rather than a claim — a run where it stays at zero on a
+universe that churns is a run that was never filtered, and the panel colours it as
+a warning.
+
+**Identity provenance is present and empty on this universe, which is honest
+rather than broken.** No ticker in a synthetic history has a gap in its
+membership, so the split heuristic has nothing to decide; the panel says that
+instead of showing an empty table. The provenance columns are exercised by the
+S&P history, which cannot be committed — see *Stooq is gated* below.
+
+### Screenshots capture themselves now
+
+`scripts/capture_screenshot.ps1` read pixels off the desktop, which needs the
+window genuinely in front. Windows refuses `SetForegroundWindow` to a process
+that is not already foreground, so run from a script rather than by a person
+clicking, it produced a **white rectangle and wrote it out as though it were a
+screenshot**. `PrintWindow` does not rescue it either: an OpenGL window has no DWM
+redirection surface to hand over while it is behind something.
+
+The application captures itself instead. `--screenshot <file>` replays for
+`--screenshot-after` seconds, reads its own back buffer, writes a 24-bit BMP and
+exits; the script converts it to PNG and **refuses a capture that comes back one
+flat colour**. The window still has to exist and be rendering — this is not
+headless — but it no longer has to be visible, in front, or unobstructed, which is
+what makes a screenshot a command anybody can repeat.
+
+`--focus <panel>` picks which panel is in front, so a screenshot of one view is
+reproducible rather than arranged.
 
 ---
 

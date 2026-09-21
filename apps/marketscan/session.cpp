@@ -352,6 +352,9 @@ void Session::teardown() {
 }
 
 void Session::teardown_locked() {
+    master_.reset();
+    membership_.reset();
+    universe_base_ = UniverseSnapshot{};
     // Order matters: the engine holds raw pointers to the strategies, and the
     // strategies own the plugin instances whose destruction tells the loader
     // its modules are free again.
@@ -440,6 +443,13 @@ void Session::build_locked() {
                                  &engine_->clock());
     }
 
+    // Before start(), so no strategy has seen an event that the guard should
+    // have withheld.
+    install_universe_locked();
+    if (state_ == TransportState::Failed) {
+        return;
+    }
+
     for (StrategyInstance& strategy : strategies_) {
         strategy.resolve_subscriptions();
         engine_->add_sink(&strategy);
@@ -447,6 +457,179 @@ void Session::build_locked() {
     }
 
     state_ = TransportState::Ready;
+}
+
+void Session::install_universe_locked() {
+    master_.reset();
+    membership_.reset();
+    universe_base_ = UniverseSnapshot{};
+
+    if (config_.universe_file.empty()) {
+        // No universe. The correct configuration for one instrument, and the
+        // survivorship-unsafe one for a cross-section -- which is why the
+        // snapshot carries `active` rather than leaving a viewer to remember.
+        universe_base_.source = "none (every symbol in the data is in scope)";
+        return;
+    }
+
+    try {
+        IdentityRules rules;
+        if (!config_.security_overrides.empty()) {
+            rules = load_overrides(config_.security_overrides, rules);
+        }
+
+        const SnapshotMembershipSource source(config_.universe_file);
+        master_ = std::make_unique<SecurityMaster>(*symbols_);
+        membership_ =
+            std::make_unique<MembershipHistory>(build_membership(source, *master_, rules));
+
+        universe_base_.active = true;
+        universe_base_.source = std::string(source.describe());
+        universe_base_.snapshots = source.snapshots();
+        universe_base_.rejected = membership_->rejected;
+        universe_base_.decisions = membership_->decisions;
+    } catch (const std::exception& error) {
+        // Fails the session rather than running unfiltered. A guard that
+        // quietly did not load is worse than no guard, because the output looks
+        // identical and nothing in it says which one produced it.
+        master_.reset();
+        membership_.reset();
+        universe_base_ = UniverseSnapshot{};
+        state_ = TransportState::Failed;
+        error_ = std::string("could not load the universe: ") + error.what();
+        log::error("session", error_);
+        return;
+    }
+
+    const Universe& universe = membership_->universe;
+    universe_base_.securities = universe.security_count();
+    universe_base_.periods = universe.size();
+    universe_base_.first = universe.first();
+    universe_base_.last = universe.last();
+
+    for (const IdentityDecision& decision : universe_base_.decisions) {
+        universe_base_.split_count += decision.split ? 1 : 0;
+        universe_base_.kept_count += decision.split ? 0 : 1;
+        universe_base_.override_count += decision.rule == "override" ? 1 : 0;
+        universe_base_.measured_count += decision.measured.resolved() ? 1 : 0;
+        universe_base_.disagreement_count += decision.disagrees() ? 1 : 0;
+    }
+
+    // Adds and drops, from the periods. A period's start is an add; its end is
+    // a drop unless the name is still a member.
+    for (const MembershipPeriod& period : universe.periods()) {
+        const Security* security = master_->find(period.security);
+        // The ticker in force when the period began, not the latest one: a
+        // security that was renamed should read under the name it carried on
+        // the date the event happened.
+        const std::string ticker =
+            security != nullptr ? std::string(security->ticker_at(period.from)) : "?";
+        universe_base_.events.push_back(
+            MembershipEvent{period.from, ticker, period.security, true});
+        if (period.until != kForever) {
+            universe_base_.events.push_back(
+                MembershipEvent{period.until, ticker, period.security, false});
+        }
+    }
+    std::stable_sort(universe_base_.events.begin(),
+                     universe_base_.events.end(),
+                     [](const MembershipEvent& a, const MembershipEvent& b) {
+                         if (a.ts != b.ts) {
+                             return a.ts < b.ts;
+                         }
+                         // Drops before adds on the same instant, and then by
+                         // ticker: the order a reader expects, and deterministic.
+                         if (a.added != b.added) {
+                             return !a.added;
+                         }
+                         return a.ticker < b.ticker;
+                     });
+
+    for (StrategyInstance& strategy : strategies_) {
+        strategy.set_universe(&membership_->universe, master_.get());
+    }
+
+    log::write(MS_LOG_INFO,
+               "session",
+               "universe: " + std::to_string(universe_base_.securities) + " securities over " +
+                   std::to_string(universe_base_.periods) + " membership periods");
+}
+
+UniverseSnapshot Session::universe_snapshot_locked(Timestamp clock) const {
+    UniverseSnapshot out = universe_base_;
+    if (!out.active || membership_ == nullptr || master_ == nullptr) {
+        for (const StrategyInstance& strategy : strategies_) {
+            out.events_withheld += strategy.events_withheld();
+            out.forced_exits += strategy.forced_exits();
+        }
+        return out;
+    }
+
+    const Universe& universe = membership_->universe;
+
+    // Members as of the clock. Before the first event there is no clock yet, so
+    // the panel shows the universe's own first day rather than an empty list --
+    // an empty inspector on a loaded universe reads as a broken panel.
+    const Timestamp as_of = clock > 0 ? clock : universe.first();
+    for (const SecurityId id : universe.members_on(as_of)) {
+        UniverseMember member;
+        member.security = id;
+        const Security* security = master_->find(id);
+        member.ticker = security != nullptr ? std::string(security->ticker_at(as_of)) : "?";
+        member.until = universe.membership_ends(id, as_of);
+        for (const MembershipPeriod& period : universe.periods()) {
+            if (period.security == id && period.covers(as_of)) {
+                member.since = period.from;
+                break;
+            }
+        }
+        for (const StrategyInstance& strategy : strategies_) {
+            if (strategy.ledger().position(id) != 0.0) {
+                member.held = true;
+                break;
+            }
+        }
+        out.members.push_back(member);
+    }
+    std::stable_sort(
+        out.members.begin(),
+        out.members.end(),
+        [](const UniverseMember& a, const UniverseMember& b) { return a.ticker < b.ticker; });
+
+    // Forced exits that actually happened, read out of each blotter by the
+    // client id the engine stamps on them. Not recomputed from membership: the
+    // question the panel answers is whether the position really was closed, and
+    // only the blotter knows that.
+    for (const StrategyInstance& strategy : strategies_) {
+        out.events_withheld += strategy.events_withheld();
+        out.forced_exits += strategy.forced_exits();
+        for (const TradeRecord& row : strategy.ledger().blotter()) {
+            if (row.client_order_id != kForcedExitClientId) {
+                continue;
+            }
+            DepartureRecord record;
+            record.ts = row.ts;
+            const Security* security = master_->find(row.symbol);
+            record.ticker = security != nullptr ? std::string(security->ticker_at(row.ts)) : "?";
+            record.strategy = strategy.id();
+            record.quantity = row.side == MS_SIDE_SELL ? row.quantity : -row.quantity;
+            record.price = row.fill_price;
+            record.cash_delta = row.cash_delta;
+            out.departures.push_back(record);
+        }
+    }
+    std::stable_sort(out.departures.begin(),
+                     out.departures.end(),
+                     [](const DepartureRecord& a, const DepartureRecord& b) {
+                         if (a.ts != b.ts) {
+                             return a.ts < b.ts;
+                         }
+                         if (a.ticker != b.ticker) {
+                             return a.ticker < b.ticker;
+                         }
+                         return a.strategy < b.strategy;
+                     });
+    return out;
 }
 
 bool Session::pump() {
@@ -739,6 +922,14 @@ void Session::publish() {
     for (const StrategySnapshot& row : next->strategies) {
         next->latency.merge(row.latency);
     }
+
+    // --- The universe ----------------------------------------------------
+    //
+    // Assembled here, once per publish, rather than in the panel. A panel
+    // redrawing it at sixty frames a second would pay for the membership scan
+    // sixty times a second to answer a question whose answer changes a handful
+    // of times a year.
+    next->universe = universe_snapshot_locked(next->clock);
 
     {
         const std::lock_guard<std::mutex> guard(snapshot_mutex_);

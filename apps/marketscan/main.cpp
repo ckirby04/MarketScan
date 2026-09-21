@@ -58,12 +58,24 @@ int main(int argc, char** argv) {
         marketscan::app::AppOptions app_options;
         app_options.session.data_file = options.data_file;
         app_options.session.default_symbol = options.default_symbol;
+        // --no-universe wins, the same way it does headless: a viewer who asked
+        // for an unfiltered run gets one, and the Universe Inspector says so in
+        // as many words rather than going blank.
+        if (!options.no_universe) {
+            app_options.session.universe_file = options.universe_file;
+            if (!options.universe_file.empty()) {
+                app_options.session.security_overrides = "data/security_overrides.csv";
+            }
+        }
         app_options.session.bars_per_session = options.bars;
         app_options.session.sessions = options.sessions;
         app_options.session.seed = options.seed;
         app_options.session.starting_cash = marketscan::Money::from_double(options.starting_cash);
         app_options.session.theory_roots = marketscan::PluginLoader::default_roots(executable_dir);
         app_options.autoplay = options.autoplay;
+        app_options.focus_panel = options.focus_panel;
+        app_options.screenshot = options.screenshot;
+        app_options.screenshot_after = options.screenshot_after;
         app_options.speed = options.speed;
         app_options.assets_dir = executable_dir / "assets";
         app_options.layout_file = executable_dir / "imgui.ini";
