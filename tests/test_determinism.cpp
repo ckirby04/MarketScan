@@ -8,6 +8,7 @@
 // At this milestone the stream being hashed is the event stream. When orders
 // exist it becomes the order log as well.
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <memory>
@@ -31,10 +32,30 @@ namespace {
 
 /// Theories the committed `theories/` tree is expected to build and load.
 ///
-/// buy_and_hold and sma_crossover. Exact rather than a floor: a floor passes
-/// when one of them silently stops loading, which is precisely the failure a
-/// test that iterates the loader's output cannot otherwise notice.
-constexpr std::size_t kExpectedTheories = 2;
+/// Named rather than counted, and the difference is not cosmetic.
+///
+/// The count was `2`, which is correct: decile_parity is a parity fixture and
+/// is deliberately written to a directory the host does not scan, for the
+/// reasons its own CMakeLists gives. But a stale decile_parity.dll left in the
+/// runtime tree from before that move made four tests fail with `3 == 2`, which
+/// says nothing about which theory appeared or why -- and reads exactly like a
+/// theory having been added, which is what it was first mistaken for.
+///
+/// A named set fails with the ids, so the next person reads the name of the
+/// file that should not be there. It is equally exact: it still fails when a
+/// theory silently stops loading, and it additionally fails when one is
+/// renamed or when a stray plugin appears.
+const std::vector<std::string> kExpectedTheories = {
+    "buy_and_hold",
+    "sma_crossover",
+};
+
+/// Sorted ids, for comparison against the list above.
+[[nodiscard]] std::vector<std::string> sorted_ids(const std::vector<std::string>& ids) {
+    std::vector<std::string> out = ids;
+    std::sort(out.begin(), out.end());
+    return out;
+}
 
 /// Hashes every event the engine dispatches, in dispatch order.
 class DigestSink final : public IEventSink {
@@ -390,7 +411,13 @@ TEST_CASE("every theory's ledger balances after a full replay", "[determinism][l
     // Discovered from a directory: a run that loaded nothing would check nothing
     // and pass.
     REQUIRE_FALSE(result.theories.empty());
-    REQUIRE(result.theories.size() == kExpectedTheories);
+    {
+        std::vector<std::string> ids;
+        for (const run::TheoryResult& theory : result.theories) {
+            ids.push_back(theory.id);
+        }
+        REQUIRE(sorted_ids(ids) == kExpectedTheories);
+    }
 
     for (const run::TheoryResult& theory : result.theories) {
         INFO("theory " << theory.id);
@@ -420,7 +447,13 @@ TEST_CASE("optimistic fills flatter every theory, most where it trades most",
     std::string busiest;
 
     REQUIRE_FALSE(honest.theories.empty());
-    REQUIRE(honest.theories.size() == kExpectedTheories);
+    {
+        std::vector<std::string> ids;
+        for (const run::TheoryResult& theory : honest.theories) {
+            ids.push_back(theory.id);
+        }
+        REQUIRE(sorted_ids(ids) == kExpectedTheories);
+    }
 
     for (const run::TheoryResult& theory : honest.theories) {
         const run::TheoryResult* other = wishful.find(theory.id);
@@ -709,7 +742,13 @@ TEST_CASE("the reference theories return exactly what they did at Spec 1",
           "[determinism][golden]") {
     const run::BacktestResult result = run::run_backtest(backtest_config());
     REQUIRE(result.ok());
-    REQUIRE(result.theories.size() == 2);
+    {
+        std::vector<std::string> ids;
+        for (const run::TheoryResult& theory : result.theories) {
+            ids.push_back(theory.id);
+        }
+        REQUIRE(sorted_ids(ids) == kExpectedTheories);
+    }
 
     struct Golden {
         const char* id;

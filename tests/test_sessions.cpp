@@ -12,6 +12,7 @@
 // tested is the shim layer compiled into the plugin, so a host-side mock of a
 // strategy would test the mock and prove nothing.
 
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -34,10 +35,30 @@ namespace {
 
 /// Theories the committed `theories/` tree is expected to build and load.
 ///
-/// buy_and_hold and sma_crossover. Exact rather than a floor: a floor passes
-/// when one of them silently stops loading, which is precisely the failure a
-/// test that iterates the loader's output cannot otherwise notice.
-constexpr std::size_t kExpectedTheories = 2;
+/// Named rather than counted, and the difference is not cosmetic.
+///
+/// The count was `2`, which is correct: decile_parity is a parity fixture and
+/// is deliberately written to a directory the host does not scan, for the
+/// reasons its own CMakeLists gives. But a stale decile_parity.dll left in the
+/// runtime tree from before that move made four tests fail with `3 == 2`, which
+/// says nothing about which theory appeared or why -- and reads exactly like a
+/// theory having been added, which is what it was first mistaken for.
+///
+/// A named set fails with the ids, so the next person reads the name of the
+/// file that should not be there. It is equally exact: it still fails when a
+/// theory silently stops loading, and it additionally fails when one is
+/// renamed or when a stray plugin appears.
+const std::vector<std::string> kExpectedTheories = {
+    "buy_and_hold",
+    "sma_crossover",
+};
+
+/// Sorted ids, for comparison against the list above.
+[[nodiscard]] std::vector<std::string> sorted_ids(const std::vector<std::string>& ids) {
+    std::vector<std::string> out = ids;
+    std::sort(out.begin(), out.end());
+    return out;
+}
 
 [[nodiscard]] std::filesystem::path plugin_dir() {
     return std::filesystem::path(MARKETSCAN_TEST_PLUGIN_DIR);
@@ -310,17 +331,19 @@ TEST_CASE("a theory that ignores sessions is unaffected", "[session][plugin][abi
     // failed build, or a rename would make it iterate nothing and pass. A floor
     // of two would also pass if a third theory silently stopped loading.
     REQUIRE_FALSE(loader.plugins().empty());
-    REQUIRE(loader.plugins().size() == kExpectedTheories);
 
-    std::size_t loaded = 0;
+    std::vector<std::string> discovered;
+    std::vector<std::string> loaded;
     for (const PluginInfo& info : loader.plugins()) {
+        discovered.push_back(info.id);
         if (info.state == PluginState::Loaded) {
-            ++loaded;
+            loaded.push_back(info.id);
             INFO(info.id);
             REQUIRE(info.abi_version == MS_ABI_VERSION);
         }
     }
-    REQUIRE(loaded == kExpectedTheories);
+    REQUIRE(sorted_ids(discovered) == kExpectedTheories);
+    REQUIRE(sorted_ids(loaded) == kExpectedTheories);
 }
 
 // --------------------------------------------------------------------------
