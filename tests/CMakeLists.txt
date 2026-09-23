@@ -149,6 +149,10 @@ marketscan_add_test(test_live_broker   test_live_broker.cpp)
 # strategy exactly what the venue handed it. No socket is opened.
 marketscan_add_test(test_recorded_broker test_recorded_broker.cpp)
 
+# The tallies against the orders they claim to count. Reproduces the 128/124/0
+# bug rather than asserting that a healthy tracker is healthy.
+marketscan_add_test(test_order_tracker test_order_tracker.cpp)
+
 # ABI v2, and the promise the version-tolerant loader was built to keep.
 marketscan_add_test(test_abi_v2      test_abi_v2.cpp)
 if(TARGET test_plugin_v1_reference)

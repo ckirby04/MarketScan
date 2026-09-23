@@ -282,6 +282,12 @@ public:
 
     [[nodiscard]] LiveBrokerStats stats() const;
 
+    /// Checks the tallies in `stats()` against the orders and the blotter they
+    /// describe. Named apart from `reconcile()` above, which compares this
+    /// process's ledger against the venue's account: one reconciles with the
+    /// venue, this one reconciles the summary with itself.
+    [[nodiscard]] StatsReconciliation reconcile_stats() const { return tracker_.reconcile(); }
+
     [[nodiscard]] const OrderMap& order_map() const noexcept { return tracker_.order_map(); }
 
     /// Whether the local rails would refuse this order, and why.
@@ -299,9 +305,12 @@ public:
     /// calls this; a test calls it to drive a lifecycle without a network.
     void apply_update(const TradeUpdate& update, Timestamp now);
 
-    /// Counts a venue refusal, as submit() does when the POST comes back 4xx.
-    /// Exposed so the counter can be asserted without reaching the network.
-    void note_venue_refusal_for_test() { tracker_.note_venue_refusal(); }
+    /// Ends and counts an order as a venue refusal, exactly as submit() does
+    /// when the POST comes back 4xx. Exposed so the path can be asserted without
+    /// reaching the network.
+    void note_venue_refusal_for_test(OrderId id, Timestamp now) {
+        tracker_.note_venue_refusal(id, now);
+    }
 
     /// Registers an order without sending it, so a test can drive the update
     /// path against a known order. Returns the engine id.

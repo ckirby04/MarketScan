@@ -40,6 +40,7 @@
 #include "marketscan/live/credentials.hpp"
 #include "marketscan/live/endpoints.hpp"
 #include "marketscan/live/http.hpp"
+#include "marketscan/live/summary_audit.hpp"
 
 namespace marketscan::live {
 namespace {
@@ -50,10 +51,16 @@ struct Candidate {
     std::string body;
 };
 
-/// Sends one candidate and reports what the venue said.
+/// What the venue did with one candidate.
 ///
-/// Returns true when the venue refused it, which is the desired outcome.
-bool try_candidate(HttpClient& client, const Candidate& candidate) {
+/// Three outcomes rather than a bool, because the tally used to say "N of M
+/// candidates were refused" with the other M-N lumped together -- and a bait that
+/// was accepted and a bait that was never sent because of a rate limit are
+/// opposite results. The first means the bait is not a bait; the second means
+/// nothing at all was learned about it.
+enum class Outcome { Refused, Accepted, RateLimited };
+
+Outcome try_candidate(HttpClient& client, const Candidate& candidate) {
     std::printf("\n  %s\n    %s\n", candidate.name, candidate.why);
     std::fflush(stdout);
 
@@ -61,7 +68,7 @@ bool try_candidate(HttpClient& client, const Candidate& candidate) {
 
     if (response.rate_limited()) {
         std::printf("    RATE LIMITED -- backing off, not retrying (docs/DATA_POLICY.md)\n");
-        return false;
+        return Outcome::RateLimited;
     }
 
     if (!response.ok()) {
@@ -71,7 +78,7 @@ bool try_candidate(HttpClient& client, const Candidate& candidate) {
             message = parsed.value("message", response.body);
         }
         std::printf("    REFUSED  status %d: %s\n", response.status, message.c_str());
-        return true;
+        return Outcome::Refused;
     }
 
     // Accepted. That is a failed bait, and it left a live order behind.
@@ -89,7 +96,7 @@ bool try_candidate(HttpClient& client, const Candidate& candidate) {
     } else {
         std::printf("no id returned; run `ms_live positions --flatten` to be sure\n");
     }
-    return false;
+    return Outcome::Accepted;
 }
 
 }  // namespace
@@ -155,17 +162,42 @@ int run_bait(int argc, char** argv) {
              R"("limit_price":"1000.00"})"});
 
     std::size_t refused = 0;
+    std::size_t accepted = 0;
+    std::size_t rate_limited = 0;
     for (const Candidate& candidate : candidates) {
-        if (try_candidate(client, candidate)) {
-            ++refused;
+        switch (try_candidate(client, candidate)) {
+            case Outcome::Refused:
+                ++refused;
+                break;
+            case Outcome::Accepted:
+                ++accepted;
+                break;
+            case Outcome::RateLimited:
+                ++rate_limited;
+                break;
         }
         // A pause between attempts. A probe is not a licence to hammer.
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
     }
 
     std::printf("\n%zu of %zu candidates were refused.\n", refused, candidates.size());
+    // The rest of the denominator, named. "3 of 5 refused" used to leave the
+    // other two ambiguous, and a bait the venue accepted and a bait that was
+    // never sent are opposite outcomes: the first says the bait is no good, the
+    // second says nothing was learned about it.
+    std::printf(
+        "%zu accepted (not baits), %zu never sent (rate limited).\n", accepted, rate_limited);
     std::printf("Prefer a structural refusal -- one that does not depend on the clock, the\n"
                 "account's buying power, or what else this run has working.\n");
+
+    SummaryAudit audit;
+    audit.check("refused + accepted + rate limited == candidates",
+                static_cast<std::uint64_t>(refused + accepted + rate_limited),
+                static_cast<std::uint64_t>(candidates.size()));
+    std::printf("%s", audit.report().c_str());
+    if (audit.exit_code() != 0) {
+        return audit.exit_code();
+    }
     return refused == 0 ? 1 : 0;
 }
 

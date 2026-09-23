@@ -128,6 +128,19 @@ struct LiveFeedStats {
     /// did. Reported, never absorbed.
     std::uint64_t dropped_events = 0;
 
+    /// Events pushed onto the ring and not yet popped by the engine thread.
+    ///
+    /// Present so that `events_parsed == events_delivered + dropped_events +
+    /// queued` is an identity a summary can assert rather than an approximate
+    /// relation. Without it there is nowhere for the difference to go, and the
+    /// difference is exactly what once made a run report 609 live events against
+    /// 610 replayed: the live half stopped without draining its tail, and the
+    /// gap was read as a divergence in the strategy.
+    ///
+    /// Non-zero at the end of a run means events were parsed and never shown to
+    /// anything.
+    std::uint64_t queued = 0;
+
     std::uint64_t unknown_symbol = 0;
     std::uint64_t malformed = 0;
     std::uint64_t unhandled_kind = 0;

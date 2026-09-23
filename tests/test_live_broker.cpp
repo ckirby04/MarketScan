@@ -910,9 +910,16 @@ TEST_CASE("a venue refusal is counted, not only logged", "[live][broker][rails]"
     REQUIRE(h.broker->stats().rejected == 0);
 
     // What submit() does on a venue refusal, without a network: mark the order
-    // and count it.
-    h.broker->note_venue_refusal_for_test();
+    // and count it. One call, because two was what allowed the counter to be
+    // dropped while the marking stayed.
+    h.broker->note_venue_refusal_for_test(id, 1'000);
     REQUIRE(h.broker->stats().rejected == 1);
     REQUIRE(h.broker->rejected_count() == 1);
-    (void)id;
+
+    // The order is Rejected as well as counted, and the two agree. This is the
+    // identity that would have failed the 128/124/0 run.
+    const Order* order = h.broker->find_order(id);
+    REQUIRE(order != nullptr);
+    REQUIRE(order->status == OrderStatus::Rejected);
+    REQUIRE(h.broker->reconcile_stats().ok());
 }

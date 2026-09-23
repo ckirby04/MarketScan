@@ -274,11 +274,11 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
     }
 
     if (!response.ok()) {
+        // Ends the order and counts it, in one call. This used to be four lines
+        // of state change here plus a counter call, and a refactor kept the state
+        // change and lost the counter -- see note_venue_refusal's comment.
+        tracker_.note_venue_refusal(engine_id, now);
         Order* stored = tracker_.mutable_order(engine_id);
-        stored->status = OrderStatus::Rejected;
-        stored->reject_reason = RejectReason::NotMarketable;
-        stored->last_update_ts = now;
-        tracker_.note_venue_refusal();
         const std::string detail =
             response.error.empty()
                 ? "status " + std::to_string(response.status) + ": " + response.body

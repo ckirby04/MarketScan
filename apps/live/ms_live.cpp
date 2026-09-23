@@ -36,6 +36,7 @@
 #include "marketscan/live/http.hpp"
 #include "marketscan/live/live_feed.hpp"
 #include "marketscan/live/recorded_feed.hpp"
+#include "marketscan/live/summary_audit.hpp"
 #include "marketscan/util/logging.hpp"
 
 #include "equivalence.hpp"
@@ -340,7 +341,23 @@ int cmd_record(int argc, char** argv) {
     if (!stats.error.empty()) {
         std::printf("last error      %s\n", stats.error.c_str());
     }
-    return 0;
+
+    // Does the above agree with itself? Two of these counts are kept by this
+    // function and two by the feed, which is what makes them worth comparing:
+    // a count checked only against itself is not checked.
+    SummaryAudit audit;
+    audit.check("events parsed == drained + dropped + still queued",
+                stats.events_parsed,
+                drained + stats.dropped_events + stats.queued);
+    audit.check(
+        "this loop's drained == the feed's delivered count", drained, stats.events_delivered);
+    audit.check("nothing is left in the ring after the drain", stats.queued, 0);
+    // Every message the socket handed over was recorded, because the recorder
+    // sits on the same path. A shortfall means the fixture a replay will read is
+    // not the session that was streamed.
+    audit.check("messages received == messages recorded", stats.messages, feed.recorded_messages());
+    std::printf("%s", audit.report().c_str());
+    return audit.exit_code();
 }
 
 int cmd_replay(int argc, char** argv) {
@@ -408,7 +425,18 @@ int cmd_replay(int argc, char** argv) {
                     seconds(stats.skew_max_ns) * 1e3,
                     static_cast<unsigned long long>(stats.skew_samples));
     }
-    return 0;
+
+    // The recording's own header count against what came out of it, and the
+    // three event kinds against the total. Three numbers printed above are the
+    // same number counted three ways; nothing checked that until now.
+    SummaryAudit audit;
+    audit.check(
+        "events in the recording == bars + quotes + trades", stats.events, bars + quotes + trades);
+    if (feed.span().known) {
+        audit.check("events == the span's event count", stats.events, feed.span().event_count);
+    }
+    std::printf("%s", audit.report().c_str());
+    return audit.exit_code();
 }
 
 int cmd_guard() {

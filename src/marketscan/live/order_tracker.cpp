@@ -52,9 +52,113 @@ void OrderTracker::note_rail_refusal() {
     ++stats_.refused_by_rail;
 }
 
-void OrderTracker::note_venue_refusal() {
+void OrderTracker::note_venue_refusal(OrderId id, Timestamp now) {
+    Order* order = mutable_order(id);
+    if (order == nullptr || order->is_terminal()) {
+        // Unknown, or already over. Counting it would make `rejected` exceed the
+        // number of orders in Rejected and fail the very identity below.
+        return;
+    }
+
+    order->status = OrderStatus::Rejected;
+    order->reject_reason = RejectReason::NotMarketable;
+    order->last_update_ts = now;
+
     const std::lock_guard<std::mutex> lock(stats_mutex_);
     ++stats_.rejected;
+}
+
+bool StatsReconciliation::ok() const noexcept {
+    for (const StatsIdentity& identity : identities) {
+        if (!identity.holds()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::string StatsReconciliation::describe() const {
+    std::string out;
+    for (const StatsIdentity& identity : identities) {
+        if (identity.holds()) {
+            continue;
+        }
+        out += "  ";
+        out += identity.name;
+        out += "  ->  ";
+        out += std::to_string(identity.left);
+        out += identity.at_most ? " <= " : " != ";
+        out += std::to_string(identity.right);
+        out += "\n";
+    }
+    return out;
+}
+
+StatsReconciliation OrderTracker::reconcile() const {
+    StatsReconciliation out;
+
+    // The census: what the orders themselves say. This is the source of truth
+    // the counters are checked against, and it is derived here rather than
+    // maintained anywhere.
+    for (const Order& order : orders_) {
+        switch (order.status) {
+            case OrderStatus::Working:
+                ++out.working;
+                break;
+            case OrderStatus::PartiallyFilled:
+                ++out.partially_filled;
+                break;
+            case OrderStatus::Filled:
+                ++out.filled;
+                break;
+            case OrderStatus::Cancelled:
+                ++out.cancelled;
+                break;
+            case OrderStatus::Expired:
+                ++out.expired;
+                break;
+            case OrderStatus::Rejected:
+                ++out.rejected;
+                break;
+        }
+    }
+
+    const OrderTrackerStats s = stats();
+    const std::uint64_t registered = static_cast<std::uint64_t>(orders_.size());
+
+    // Exactly three functions push to orders_: two count a submission, one
+    // counts a registered refusal. Nothing else may create an order.
+    out.identities.push_back({"orders registered == submitted + refusals registered",
+                              registered,
+                              s.submitted + registered_refusals_,
+                              false});
+
+    // The three identities that catch a dropped terminal counter. An order
+    // enters a terminal state at most once -- apply_update short-circuits on
+    // is_terminal() -- so each of these is one-to-one rather than approximate.
+    //
+    // The second of them is the one that would have failed the 128/124/0 run.
+    out.identities.push_back({"orders in Rejected == rejected", out.rejected, s.rejected, false});
+    out.identities.push_back({"orders in Expired == expired", out.expired, s.expired, false});
+    out.identities.push_back({"orders in Cancelled == cancelled + replaced",
+                              out.cancelled,
+                              s.cancelled + s.replaced,
+                              false});
+
+    // Every blotter row came from book_fill and every book_fill wrote one row.
+    // The ledger belongs to the broker that owns this tracker and nothing else
+    // books into it, so this is an equality and not a bound.
+    out.identities.push_back({"blotter rows == fills booked",
+                              static_cast<std::uint64_t>(ledger_->blotter().size()),
+                              fills_booked_,
+                              false});
+
+    // A rail refusal always registers a refusal; a replay divergence registers
+    // one without being a rail refusal. Hence <=, stated as such.
+    out.identities.push_back(
+        {"rail refusals <= refusals registered", s.refused_by_rail, registered_refusals_, true});
+
+    return out;
 }
 
 OrderId OrderTracker::register_order(const MS_OrderRequest& request,
@@ -129,6 +233,7 @@ OrderId OrderTracker::register_refusal(const MS_OrderRequest& request,
 
     index_[order.id] = orders_.size();
     orders_.push_back(order);
+    ++registered_refusals_;
 
     {
         const std::lock_guard<std::mutex> lock(stats_mutex_);
@@ -188,6 +293,8 @@ void OrderTracker::book_fill(Order& order, Quantity quantity, Price price, Times
                                                     order.decision_ts,
                                                     ts);
     (void)record;
+    // Next to the write it counts, so the two cannot come apart.
+    ++fills_booked_;
 
     if (listener_ != nullptr) {
         MS_Fill fill{};
@@ -296,7 +403,15 @@ void OrderTracker::apply_update(const TradeUpdate& update, Timestamp now) {
             break;
 
         case UpdateKind::Replaced:
+            // A replacement ends the original order. Counted separately from a
+            // cancel, because the venue did two different things -- and counted
+            // at all only since the reconciliation went in, which is what found
+            // that it was not.
             order->status = OrderStatus::Cancelled;
+            {
+                const std::lock_guard<std::mutex> lock(stats_mutex_);
+                ++stats_.replaced;
+            }
             break;
 
         case UpdateKind::Transient:

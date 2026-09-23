@@ -212,6 +212,7 @@ LiveFeedStats LiveMarketDataFeed::stats() const {
     out.events_parsed = events_parsed_.load(std::memory_order_relaxed);
     out.events_delivered = events_delivered_.load(std::memory_order_relaxed);
     out.dropped_events = dropped_.load(std::memory_order_relaxed);
+    out.queued = static_cast<std::uint64_t>(queue_.size_approx());
     out.unknown_symbol = unknown_symbol_.load(std::memory_order_relaxed);
     out.malformed = malformed_.load(std::memory_order_relaxed);
     out.unhandled_kind = unhandled_.load(std::memory_order_relaxed);

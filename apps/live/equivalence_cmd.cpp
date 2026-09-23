@@ -32,6 +32,7 @@
 #include "marketscan/live/recorded_broker.hpp"
 #include "marketscan/live/recorded_feed.hpp"
 #include "marketscan/live/recorder.hpp"
+#include "marketscan/live/summary_audit.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
 #include "marketscan/strategy/strategy_instance.hpp"
 
@@ -125,6 +126,13 @@ int run_equivalence(int argc, char** argv) {
     LiveBrokerStats broker_stats;
     Reconciliation reconciled;
     std::string strategy_id;
+
+    // The tallies checked against the orders and the blotter they describe, and
+    // the feed's own event accounting. Captured where the objects are still
+    // alive, so the audit at the end has something to check rather than
+    // reporting on nothing.
+    StatsReconciliation live_tallies;
+    LiveFeedStats live_feed_stats;
 
     /// Measured before the file is deleted, because the last run reported an
     /// estimate and could not check it.
@@ -331,6 +339,8 @@ int run_equivalence(int argc, char** argv) {
         phase("reconciling against the venue");
         reconciled = broker.reconcile();
         broker_stats = broker.stats();
+        live_tallies = broker.reconcile_stats();
+        live_feed_stats = feed.stats();
         live_decisions = decisions_of(broker, symbols);
 
         phase("stopping the trade-updates stream");
@@ -357,6 +367,7 @@ int run_equivalence(int argc, char** argv) {
     std::size_t submissions_recorded = 0;
     std::size_t responses_delivered = 0;
     std::size_t responses_recorded = 0;
+    StatsReconciliation replay_tallies;
 
     {
         // The same plugin file. Not a rebuild and not a variant: the binary
@@ -434,6 +445,7 @@ int run_equivalence(int argc, char** argv) {
         replay_decisions = decisions_of(strategy.broker(), symbols);
         if (venue) {
             replayed_venue = true;
+            replay_tallies = venue->reconcile_stats();
             misrouted = venue->stats().foreign_updates;
             correspondence = venue->failure();
             submissions_matched = venue->submissions_matched();
@@ -450,13 +462,20 @@ int run_equivalence(int argc, char** argv) {
     std::printf("replay events    %llu\n", static_cast<unsigned long long>(replay_events));
     std::printf("live decisions   %zu\n", live_decisions.size());
     std::printf("replay decisions %zu\n", replay_decisions.size());
+    // `replaced` is new here. A replacement ends the original order and used to
+    // increment nothing at all, so it appeared in no count on this line -- not
+    // even in `cancelled`, which means no figure this line ever printed was
+    // inflated by one. It was simply missing, and whether any past run saw a
+    // replacement is not answerable from that run's output.
     std::printf("venue            %llu submitted, %llu accepted, %llu filled, %llu partial, "
-                "%llu cancelled, %llu expired, %llu rejected, %llu lost cancel races\n",
+                "%llu cancelled, %llu replaced, %llu expired, %llu rejected, "
+                "%llu lost cancel races\n",
                 static_cast<unsigned long long>(broker_stats.submitted),
                 static_cast<unsigned long long>(broker_stats.accepted),
                 static_cast<unsigned long long>(broker_stats.filled),
                 static_cast<unsigned long long>(broker_stats.partial_fills),
                 static_cast<unsigned long long>(broker_stats.cancelled),
+                static_cast<unsigned long long>(broker_stats.replaced),
                 static_cast<unsigned long long>(broker_stats.expired),
                 static_cast<unsigned long long>(broker_stats.rejected),
                 static_cast<unsigned long long>(broker_stats.lost_cancel_races));
@@ -536,6 +555,58 @@ int run_equivalence(int argc, char** argv) {
         std::printf("                 %zu of %zu symbols produced nothing at all\n",
                     silent,
                     tickers.size());
+    }
+
+    // --- Does the summary agree with itself? ------------------------------
+    //
+    // First among the gates, and deliberately so. Every verdict below is read
+    // off the same counts, so if those counts contradict each other there is
+    // nothing trustworthy left to report -- including whether the run was
+    // vacuous or equivalent.
+    SummaryAudit audit;
+    audit.absorb("live", live_tallies);
+    if (replayed_venue) {
+        audit.absorb("replay", replay_tallies);
+    }
+
+    // Every event the feed parsed was shown to the strategy, dropped for want of
+    // room, or is still sitting in the ring. A run once reported 609 live events
+    // against 610 replayed because the live half stopped without draining its
+    // tail; this is where that would now surface, as arithmetic rather than as a
+    // strategy divergence.
+    audit.check("live feed: parsed == delivered + dropped + queued",
+                live_feed_stats.events_parsed,
+                live_feed_stats.events_delivered + live_feed_stats.dropped_events +
+                    live_feed_stats.queued);
+
+    // The loop above counted one per_symbol entry for every event it dispatched,
+    // so the two ways of counting this run's events must agree.
+    std::uint64_t per_symbol_total = 0;
+    for (const std::uint64_t count : per_symbol) {
+        per_symbol_total += count;
+    }
+    audit.check(
+        "live: events dispatched == sum of per-symbol counts", live_events, per_symbol_total);
+
+    // The comparison reads one decision per order, so the decision log and the
+    // order census are two counts of the same thing and must agree. If they ever
+    // do not, the list being compared is not the list of orders that happened.
+    const auto census_total = [](const StatsReconciliation& r) {
+        return r.working + r.partially_filled + r.filled + r.cancelled + r.expired + r.rejected;
+    };
+    audit.check("live: decisions == orders registered",
+                static_cast<std::uint64_t>(live_decisions.size()),
+                census_total(live_tallies));
+    if (replayed_venue) {
+        audit.check("replay: decisions == orders registered",
+                    static_cast<std::uint64_t>(replay_decisions.size()),
+                    census_total(replay_tallies));
+    }
+
+    std::printf("%s", audit.report().c_str());
+    if (audit.exit_code() != 0) {
+        cleanup();
+        return audit.exit_code();
     }
 
     if (live_decisions.empty()) {

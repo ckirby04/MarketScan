@@ -154,6 +154,9 @@ public:
 
     [[nodiscard]] OrderTrackerStats stats() const { return tracker_.stats(); }
 
+    /// Checks the tallies against the orders and the blotter they describe.
+    [[nodiscard]] StatsReconciliation reconcile_stats() const { return tracker_.reconcile(); }
+
 private:
     [[nodiscard]] bool corresponds(const RecordedSubmission& expected,
                                    const MS_OrderRequest& actual);

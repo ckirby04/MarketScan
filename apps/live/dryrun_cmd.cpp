@@ -35,6 +35,7 @@
 #include "marketscan/core/symbol_table.hpp"
 #include "marketscan/exec/fill_model.hpp"
 #include "marketscan/live/recorded_feed.hpp"
+#include "marketscan/live/summary_audit.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
 #include "marketscan/strategy/strategy_instance.hpp"
 
@@ -156,8 +157,10 @@ int run_dryrun(int argc, char** argv) {
     std::printf("shares/order    %.0f to %.0f\n", smallest, largest);
     std::printf("notional/order  $%.0f to $%.0f\n", min_notional, max_notional);
     std::printf("by client id    ");
+    std::uint64_t by_intent_total = 0;
     for (const auto& [id, count] : by_intent) {
         std::printf("%llu=%zu  ", static_cast<unsigned long long>(id), count);
+        by_intent_total += count;
     }
     std::printf(
         "\n                (lifecycle_exercise: 1=marketable 2=resting 3=rejection bait)\n");
@@ -189,7 +192,21 @@ int run_dryrun(int argc, char** argv) {
 
     std::printf("\nNo network was touched and no order was sent. This says what the plugin\n"
                 "would ask for; it says nothing about what a venue would do with it.\n");
-    return 0;
+
+    // The counts above come from three places -- the decision log, the broker's
+    // orders and the ledger's blotter -- and describe one run.
+    SummaryAudit audit;
+    audit.check("decisions == orders the broker holds",
+                static_cast<std::uint64_t>(decisions.size()),
+                static_cast<std::uint64_t>(strategy.broker().orders().size()));
+    audit.check("decisions grouped by client id == decisions",
+                by_intent_total,
+                static_cast<std::uint64_t>(decisions.size()));
+    audit.check_at_most("blotter rows <= decisions",
+                        static_cast<std::uint64_t>(ledger.blotter().size()),
+                        static_cast<std::uint64_t>(decisions.size()));
+    std::printf("%s", audit.report().c_str());
+    return audit.exit_code();
 }
 
 }  // namespace marketscan::live

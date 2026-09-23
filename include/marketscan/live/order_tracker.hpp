@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <string>
 #include <vector>
 
 #include "marketscan/core/symbol_table.hpp"
@@ -67,6 +68,65 @@ struct OrderTrackerStats {
 
     /// Update kinds this build has never seen. Logged individually.
     std::uint64_t unknown_updates = 0;
+
+    /// Orders the venue replaced. A replacement ends the original order, so the
+    /// order's state becomes Cancelled -- but this is counted apart from
+    /// `cancelled`, which means "the venue cancelled it".
+    ///
+    /// It was not counted at all until the reconciliation below was written,
+    /// which is how the gap was found: the state census said one more order was
+    /// Cancelled than the counter did, and the identity named the difference.
+    std::uint64_t replaced = 0;
+};
+
+/// One arithmetic identity the tallies must satisfy, with both sides kept so a
+/// failure can say which arithmetic broke rather than that something did.
+struct StatsIdentity {
+    /// The identity in words, e.g. "orders in Rejected == rejected".
+    const char* name = "";
+    std::uint64_t left = 0;
+    std::uint64_t right = 0;
+
+    /// When set, the identity is `left <= right` rather than `left == right`.
+    /// Two paths register refusals and only one of them is a rail refusal, so
+    /// that relation is genuinely an inequality and is not dressed up as an
+    /// equation.
+    bool at_most = false;
+
+    [[nodiscard]] bool holds() const noexcept { return at_most ? left <= right : left == right; }
+};
+
+/// Every identity, checked. `ok()` is false when any of them fails.
+///
+/// WHY THIS EXISTS
+///
+/// A run once reported "128 submitted, 124 accepted, 0 rejected" while four
+/// orders had plainly been refused. Nothing was lost -- every refusal was in the
+/// log with its reason -- but the summary stated something untrue, and the only
+/// reason anyone knew was that a person did the subtraction and it did not work.
+/// Attention is a fine detector and a useless control: see the vacuous-pass law
+/// in docs/AUDIT.md.
+///
+/// So the counters are checked against the thing they claim to count: the orders
+/// themselves and the ledger's blotter. A counter is a second source of truth,
+/// and the bug was exactly that the second source stopped being updated when the
+/// code around it moved.
+struct StatsReconciliation {
+    std::vector<StatsIdentity> identities;
+
+    /// The order-state census the identities were derived from, reported so a
+    /// caller can print what was actually counted.
+    std::uint64_t working = 0;
+    std::uint64_t partially_filled = 0;
+    std::uint64_t filled = 0;
+    std::uint64_t cancelled = 0;
+    std::uint64_t expired = 0;
+    std::uint64_t rejected = 0;
+
+    [[nodiscard]] bool ok() const noexcept;
+
+    /// The failing identities, one per line, with both sides. Empty when ok().
+    [[nodiscard]] std::string describe() const;
 };
 
 /// Orders, their ledger, and what a venue's answers do to both.
@@ -119,15 +179,24 @@ public:
 
     void note_rail_refusal();
 
-    /// Notes that the venue refused an order the submit call had already
-    /// registered as working.
+    /// The venue refused an order the submit call had already registered as
+    /// working: ends the order *and* counts it, here, together.
     ///
-    /// Its own entry point because the rewire that extracted this class dropped
-    /// the counter on that path: a run reported "128 submitted, 124 accepted, 0
-    /// rejected" while four orders had plainly been refused and logged. Nothing
-    /// was lost -- the orders were Rejected in the log with their reasons -- but
-    /// the summary said something untrue, which is its own kind of bug.
-    void note_venue_refusal();
+    /// It takes the order id for a reason. The caller used to set
+    /// `order->status = Rejected` itself and then call a no-argument version of
+    /// this to do the counting, and the rewire that extracted this class kept
+    /// the first half and dropped the second: a run reported "128 submitted, 124
+    /// accepted, 0 rejected" while four orders sat Rejected in the log with
+    /// their reasons. Two call sites for one transition is what made that
+    /// possible, so there is now one.
+    ///
+    /// That is the guarantee. The check is `reconcile()`, which compares the
+    /// counter against a census of the orders and would have failed the run. Both
+    /// are kept: see the guarantee-and-check argument in docs/AUDIT.md, which is
+    /// about this exact pair.
+    ///
+    /// Does nothing if `id` is unknown or the order has already finished.
+    void note_venue_refusal(OrderId id, Timestamp now);
 
     [[nodiscard]] const Order* find_order(OrderId id) const noexcept;
     [[nodiscard]] Order* mutable_order(OrderId id) noexcept;
@@ -144,6 +213,12 @@ public:
     [[nodiscard]] const OrderMap& order_map() const noexcept { return order_map_; }
 
     [[nodiscard]] OrderTrackerStats stats() const;
+
+    /// Checks every tally against the orders and the blotter it claims to
+    /// describe. Call it once the run has stopped: the socket thread mutates
+    /// orders while it runs, so a mid-run census is a snapshot of a moving
+    /// target rather than a failing identity.
+    [[nodiscard]] StatsReconciliation reconcile() const;
 
     /// Tells the listener about a status. Public because a broker that refuses
     /// an order locally has to report that too.
@@ -164,6 +239,17 @@ private:
     /// dozen of them and they are read as a set.
     mutable std::mutex stats_mutex_;
     OrderTrackerStats stats_;
+
+    /// Orders created already-terminal by `register_refusal`, and fills that
+    /// actually reached the blotter.
+    ///
+    /// Not in `OrderTrackerStats` because nothing prints them; they exist so
+    /// `reconcile()` has something to compare `orders_` and the blotter against.
+    /// Both are incremented in the same function that does the thing they
+    /// count -- next to the `push_back`, next to the `apply_fill` -- which is
+    /// the difference between a counter that cannot drift and the one that did.
+    std::uint64_t registered_refusals_ = 0;
+    std::uint64_t fills_booked_ = 0;
 
     OrderId next_sequence_ = 1;
 };
