@@ -283,6 +283,36 @@ Session E reclassification -- from "blocked on Stooq" to "CRSP-dependent" -- has
 therefore nothing in the specs to overtake. The milestone exists only in the
 handoff document. **Recorded; no action.**
 
+### 7.5 Stale facts in `STATUS.md`, corrected
+
+Not spec drift — a handoff document that had fallen behind the tree it describes.
+`STATUS.md` led with "Last updated: 2026-09-21, end of Session E", claimed 367
+C++ tests in its header and 327 in its body (mutually inconsistent, both wrong),
+139 Python tests, and a plugin ABI "frozen at v1" three sessions after Session F
+froze it at v2.
+
+Corrected to the measured values: 466 C++ on `ci` and `ci-debug`, 467 on `full`
+for the reason in `AUDIT.md` check 9, 213 Python, ABI v2 per `MS_ABI_VERSION` in
+`plugin_abi.h`. These are measurements, not decisions, which is why they were
+fixed rather than reported.
+
+### 7.6 "Frozen at v1" in four places, all of them correct
+
+`EXECUTION.md:318`, `IDENTITY.md:55`, `BUILD_SPEC_2.md:67` and `STATUS.md:914`
+each say the ABI is frozen at v1. It is at v2.
+
+**None was changed**, because each is a statement about the constraint that
+applied when the surrounding passage was written — "no ABI change: `plugin_abi.h`
+is frozen at v1, so the shim can only learn a session boundary by inference" is a
+true account of why that code looks the way it does, and rewriting it to say v2
+would falsify the reasoning it records. The spec is a record of what was asked
+and is not touched at all.
+
+The residual risk is real and worth naming: a reader who lands on one of those
+lines cold could conclude the ABI is at v1 today. The authoritative statement is
+the "What exists" table in `STATUS.md`, now corrected, and `MS_ABI_VERSION` in
+the header itself. **Recorded, deliberately not "fixed".**
+
 ---
 
 ## 8. The vacuous-pass law: where it is not yet applied

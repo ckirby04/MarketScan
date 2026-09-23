@@ -3,7 +3,7 @@
 A handoff, not a changelog. What is proven and by which measurement, what is
 approximated and where, what is unresolved, and what the next phase needs.
 
-**Last updated:** 2026-09-21, end of Session E. CI green. 367 C++ tests (one
+**Last updated:** 2026-09-23, end of Session G. CI green. 466 C++ tests (one
 skipped, allowlisted), 213 Python.
 
 ---
@@ -102,7 +102,7 @@ linked and launched at once will stall regardless.
 |---|---|---|
 | **Engine** | one event loop, templated on its clock | `EngineT<SimulatedClock>` and `EngineT<SystemClock>` both compiled and both run |
 | **Money** | `int64` micro-dollars | the ledger identity holds exactly, not to a tolerance |
-| **Plugin ABI** | pure C, frozen at v1 | loader branches on declared version; a v1 plugin survives a v2 host |
+| **Plugin ABI** | pure C, frozen at v2 | loader branches on declared version; a v1 plugin survives a v2 host |
 | **Execution** | spread-crossing by default, optional latency and partial fills | [`EXECUTION.md`](EXECUTION.md) |
 | **Data** | daily bars, binary cache, one merged feed | [`DATA.md`](DATA.md) |
 | **Identity** | `SecurityId`, dated resolution, dateless overload deleted | [`IDENTITY.md`](IDENTITY.md) |
@@ -116,10 +116,11 @@ linked and launched at once will stall regardless.
 Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
-**327 C++ tests** on `debug`, `release`, `ci`, `ci-debug`; **328** on `full`.
-**139 Python tests** in `research/tests`, run by the `research` CI job on
-Linux -- deliberately, because the research layer depends on nothing in the C++
-toolchain and the first import that changes that turns the job red.
+**466 C++ tests** on `ci` and `ci-debug`, measured; **467** on `full`, for the
+reason in [`AUDIT.md`](AUDIT.md) check 9. **213 Python tests** in
+`research/tests`, run by the `research` CI job on Linux -- deliberately, because
+the research layer depends on nothing in the C++ toolchain and the first import
+that changes that turns the job red.
 
 ---
 
@@ -1069,3 +1070,86 @@ measurement.
 - **Nothing here is a statement about execution quality.** Paper fills are the
   venue's simulation, IEX is two per cent of volume, and
   [`DATA_POLICY.md`](DATA_POLICY.md) Â§7 says both on its face.
+
+---
+
+## Session G: audit and cleanup
+
+Inventory the repository, remove what should not be here, tighten what can be
+tightened, and change not one committed number. Full inventory in
+[`CLEANUP_AUDIT.md`](CLEANUP_AUDIT.md).
+
+| | | |
+|---|---|---|
+| 0 | Inventory | done — committed **before** any change, so the audit is a record rather than a justification |
+| 1 | Deletion | **nothing was deletable.** Every candidate was protected or load-bearing; the commit has no contents and the audit says so |
+| 2 | Spec and code drift | reported, not fixed — six items, including two corrections to the session brief's own assumptions |
+| 3 | The vacuous-pass law | stated as a law with all four instances, in [`AUDIT.md`](AUDIT.md) |
+| 4 | Hygiene | one finding: `.pytest_cache/` was ignored by pytest rather than by us |
+| 5 | Refactoring | two commits, eight duplicated helpers, no test edited |
+| 6 | Close | after-metrics and a ten-item deliberately-not-done list |
+
+**Net effect: 148 lines of C++ removed, 188 added as two headers, 641 lines of
+documentation written.** A cleanup session that adds more prose than it deletes
+code is the honest outcome, because tidiness was not what this repository was
+short of.
+
+### The finding worth the session
+
+Two things were load-bearing and guarded only by memory. Both are now written
+down.
+
+**The duplication between the C++ engine and the Python research layer is
+deliberate, and nothing said so.** This document and `README.md` record the
+*result* — two independent implementations agreeing to the micro-dollar — and
+never that collapsing them destroys the measurement. A reader tidying up would
+have found two things computing one answer, which describes redundancy. It is not
+redundancy: agreement is evidence only while the implementations stay causally
+independent. Delete either half and the assertion still passes having compared
+nothing; give them a shared arithmetic core and they agree because they are the
+same code, which they would do whether or not it is correct. Every printed number
+survives both moves. See [`AUDIT.md`](AUDIT.md) under "Deliberate duplication".
+
+**The engine-id guarantee and the misroute check are two mechanisms on purpose.**
+The guarantee makes the false-`EQUIVALENT` bug impossible, so the check can never
+fire — which is why it exists, not an argument for deleting it. A future cleanup
+pass will find a provably unreachable assertion and deleting unreachable code is
+normally correct. Here it re-introduces a bug that cost a live session and a
+false pass to find.
+
+### Preservation, established rather than asserted
+
+466 tests compared individually against the pre-session baseline — by test
+number, name and outcome — after each refactor and again on a clean rebuild.
+Identical every time, and the `TEST_CASE` count is unchanged at 467, which is the
+mechanical check on the claim that no test was edited to make a refactor pass.
+
+`ms_live` was compared executable against executable across 39 invocations,
+because `ctest` barely covers it and a green suite would not have been evidence.
+
+Both comparisons began with a mistake, and both are recorded with it: a diff
+showing 40 phantom differences that were `-j 3` completion order, and a
+comparison of two processes that never started, caught by the script's own
+byte-count assertion. A verification method that can fail silently is the thing
+this session spent its documentation budget warning about, so its own near-miss
+is not a footnote.
+
+### What is owed to the next phase
+
+Ten items are listed in [`CLEANUP_AUDIT.md`](CLEANUP_AUDIT.md) §11 with reasons.
+The three that matter most:
+
+- **The `ms_live` summaries do not assert their own arithmetic.** They print
+  submitted, accepted, filled, cancelled and rejected, and nothing checks the
+  parts sum to the whole. This is the exact hole the dropped venue-refusal
+  counter went through — `128 submitted, 124 accepted, 0 rejected`, caught only
+  because a person read the line. Highest-value item on the backlog; the fix is a
+  subtraction and a comparison.
+- **`istrategy.hpp` is 1,234 lines** and is both the largest available refactor
+  and the most dangerous file here to touch: every plugin compiles it and the v1
+  reference plugin's behaviour is asserted byte for byte. It wants its own session
+  with that comparison in front of it.
+- **`tests/test_stream_parser.cpp:255`** is the one genuine vacuous-law gap in 467
+  cases. One line fixes it.
+
+None is blocked. Each changes behaviour, which is why none was done here.
