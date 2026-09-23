@@ -30,6 +30,31 @@ discovered by a session that went looking. The general fix is not "commit the
 briefs" — that preserves the prompt without making the rule findable. It is to
 promote the rule *and* commit the brief.
 
+### This is the same failure twice
+
+[`AUDIT.md`](../AUDIT.md) recorded it at M0, as the first of two escalations:
+
+> **`BUILD_SPEC.md` is not in the repository.** Spec 2 names it as prerequisite
+> reading. It has never been committed; Spec 1 was delivered as a message and only
+> its conclusions reached disk. The constraints are being honoured, but a reader
+> cannot check them against the source, and neither can a future session.
+
+That was closed at the Session A close-out by committing the specs to
+[`specs/`](../specs/). The specs were fixed and **the briefs were not**, so the
+identical problem ran for another seven sessions and produced the identical
+symptom: Session H's brief cited `SESSION_G.md` as prerequisite reading, and
+Session G's cited `SESSION_D.md`, and neither existed.
+
+The M0 finding also anticipated the right response to a lost document, and it is
+the one this directory takes: *"Reconstructing it from memory would produce a
+document that looks authoritative and is not, so it has not been attempted."*
+
+The lesson the first escalation did not carry far enough is that **"prerequisite
+reading that is not in the repository" is a class, not an instance.** Specs,
+briefs, and anything else a future session is told to read first all belong on
+disk, and the rule above is the part that keeps the *content* findable once the
+document is.
+
 ### What has been promoted so far
 
 | standing rule | where it lives now |
