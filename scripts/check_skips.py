@@ -61,9 +61,20 @@ SKIP_LINE = re.compile(r"^\s*\d+\s*-\s*(?P<name>.+?)\s*\((?P<status>[A-Za-z ]+)\
 
 NOT_RUN_HEADER = "The following tests did not run:"
 
-# "100% tests passed, 0 tests failed out of 482" -- the only place ctest states
-# how many tests it knew about.
-TOTAL_LINE = re.compile(r"\b(?P<failed>\d+)\s+tests?\s+failed\s+out\s+of\s+(?P<total>\d+)\b")
+# The only place ctest states how many tests it knew about -- and it states it in
+# more than one shape, which cost a red CI run to find out:
+#
+#   100% tests passed out of 483                      (some versions, nothing failed)
+#   100% tests passed, 0 tests failed out of 483      (others, nothing failed)
+#   97% tests passed, 3 tests failed out of 483       (something failed)
+#
+# The first draft of this required the "N tests failed" clause. It matched the
+# local ctest and not the one on the CI runner, so a perfectly healthy run reported
+# "ctest reported no test total" and the gate failed the build. The failure clause
+# is therefore optional, and all three forms are in the tests.
+TOTAL_LINE = re.compile(
+    r"tests?\s+passed(?:\s*,\s*\d+\s+tests?\s+failed)?\s+out\s+of\s+(?P<total>\d+)\b"
+)
 
 # A floor, not a tracker.
 #

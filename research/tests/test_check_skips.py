@@ -142,6 +142,36 @@ def test_the_test_total_is_read_from_what_ctest_prints():
     assert check_skips.parse_total(CTEST_TAIL) == 351
 
 
+# ctest does not print one summary line. It prints at least three, and the first
+# version of parse_total matched only the one the local install happened to emit --
+# so the tests passed, CI went red on a perfectly healthy run, and the gate this
+# script exists to provide failed the build instead of guarding it.
+#
+# Every form goes in the fixture now. A parser tested against one input shape is a
+# parser tested against the shape you happened to see.
+TOTAL_LINES = [
+    ("100% tests passed out of 483", 483),
+    ("100% tests passed, 0 tests failed out of 483", 483),
+    ("97% tests passed, 3 tests failed out of 483", 483),
+    ("0% tests passed, 1 tests failed out of 1", 1),
+    ("50% tests passed, 1 test failed out of 2", 2),
+]
+
+
+@pytest.mark.parametrize("line,expected", TOTAL_LINES)
+def test_every_shape_of_ctest_summary_line_yields_its_total(line, expected):
+    assert check_skips.parse_total(line) == expected
+
+
+def test_the_ci_runner_format_is_covered():
+    """Named separately because this exact string is what went red.
+
+    The CI ctest omits the failure clause entirely when nothing failed. The local
+    one includes it with a zero.
+    """
+    assert check_skips.parse_total("100% tests passed out of 483\n") == 483
+
+
 def test_a_run_of_zero_tests_does_not_look_like_a_clean_run():
     """The shape the old summary could not tell apart from success.
 
