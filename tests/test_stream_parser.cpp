@@ -260,14 +260,62 @@ TEST_CASE("the gate leaves an already ordered stream untouched", "[live][gate]")
                              R"({"T":"t","S":"AAPL","p":3,"s":1,"t":"2026-09-21T18:00:01Z"}])",
                              table);
 
+    // Three trades in, three events out, asserted before the loop runs.
+    //
+    // Without this line every assertion below is reachable with an empty
+    // `parsed.events`: the loop would iterate nothing, the four gate counters
+    // would all read zero because the gate was never used, and the case would
+    // pass having measured nothing at all. It was the only instance of that shape
+    // in 482 test cases -- found by the scan recorded in docs/CLEANUP_AUDIT.md
+    // section 8 -- and it is exactly the vacuous pass docs/AUDIT.md is about.
+    REQUIRE(parsed.events.size() == 3);
+
     MonotonicGate gate;
+    std::size_t gated = 0;
     for (MarketEvent& event : parsed.events) {
         REQUIRE_FALSE(gate.apply(event));
+        ++gated;
     }
+    // And the loop is asserted to have run, so that the zeros below are a
+    // statement about a gate that saw three events rather than about one that saw
+    // none. The size assertion above makes this redundant today; it stays because
+    // the two say different things, and the cheap one is the one that keeps saying
+    // it if the collection ever changes shape.
+    REQUIRE(gated == 3);
+
     REQUIRE(gate.reordered() == 0);
     REQUIRE(gate.max_backwards() == 0);
     REQUIRE(gate.interval_stamped() == 0);
     REQUIRE(gate.max_interval_lag() == 0);
+}
+
+TEST_CASE("an unused gate reports the same zeros as a gate that found nothing wrong",
+          "[live][gate]") {
+    // Why the size assertion in the case above is not decoration.
+    //
+    // The empty result is reachable: a message whose elements the parser does not
+    // handle yields zero events and no error. Feed that to the case above and the
+    // loop iterates nothing, yet all four counters read exactly what they read
+    // after three well-ordered events -- because a gate that was never called and
+    // a gate that found nothing out of order are indistinguishable from their
+    // counters.
+    //
+    // That is the vacuous-pass law in two lines: the output is identical whether
+    // the mechanism ran or not. This case pins the fact down so the assertion
+    // above cannot be removed as redundant.
+    SymbolTable table = table_with({"AAPL"});
+    const ParseResult empty =
+        parse_stream_message(R"([{"T":"x","S":"AAPL","t":"2026-09-21T18:00:00Z"}])", table);
+
+    REQUIRE(empty.error.empty());
+    REQUIRE(empty.events.empty());
+    REQUIRE(empty.stats.unhandled_kind == 1);
+
+    const MonotonicGate untouched;
+    REQUIRE(untouched.reordered() == 0);
+    REQUIRE(untouched.max_backwards() == 0);
+    REQUIRE(untouched.interval_stamped() == 0);
+    REQUIRE(untouched.max_interval_lag() == 0);
 }
 
 TEST_CASE("a recording round trips to the same event sequence", "[live][recorder]") {
