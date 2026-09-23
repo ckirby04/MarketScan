@@ -7,6 +7,7 @@
  * does not establish.
  */
 
+#include "cli.hpp"
 #include "equivalence.hpp"
 
 #include <chrono>
@@ -37,8 +38,6 @@
 namespace marketscan::live {
 namespace {
 
-constexpr const char* kUserAgent = "MarketScan/0.1 (research tool)";
-
 /// Says where the run has got to, and flushes.
 ///
 /// Redirected output is block buffered, so a run that stops in one of these
@@ -47,43 +46,6 @@ constexpr const char* kUserAgent = "MarketScan/0.1 (research tool)";
 void phase(const char* what) {
     std::printf("[%s]\n", what);
     std::fflush(stdout);
-}
-
-[[nodiscard]] const char* option_value(int argc, char** argv, const char* name) {
-    for (int i = 0; i + 1 < argc; ++i) {
-        if (std::strcmp(argv[i], name) == 0) {
-            return argv[i + 1];
-        }
-    }
-    return nullptr;
-}
-
-[[nodiscard]] bool has_flag(int argc, char** argv, const char* name) {
-    for (int i = 0; i < argc; ++i) {
-        if (std::strcmp(argv[i], name) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-[[nodiscard]] std::vector<std::string> split_commas(const std::string& text) {
-    std::vector<std::string> out;
-    std::string current;
-    for (const char c : text) {
-        if (c == ',') {
-            if (!current.empty()) {
-                out.push_back(current);
-            }
-            current.clear();
-        } else {
-            current.push_back(c);
-        }
-    }
-    if (!current.empty()) {
-        out.push_back(current);
-    }
-    return out;
 }
 
 /// One loaded plugin, with the loader that owns it.

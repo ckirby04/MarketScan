@@ -19,6 +19,7 @@
  * as everywhere: a probe is not a licence to hammer.
  */
 
+#include "cli.hpp"
 #include "equivalence.hpp"
 
 #include <atomic>
@@ -40,8 +41,6 @@
 
 namespace marketscan::live {
 namespace {
-
-constexpr const char* kUserAgent = "MarketScan/0.1 (research tool)";
 
 struct Timing {
     int status = 0;

@@ -26,6 +26,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "cli.hpp"
+
 #include "marketscan/core/clock.hpp"
 #include "marketscan/core/symbol_table.hpp"
 #include "marketscan/live/calendar.hpp"
@@ -42,8 +44,6 @@ namespace {
 
 using namespace marketscan;
 using namespace marketscan::live;
-
-constexpr const char* kUserAgent = "MarketScan/0.1 (research tool)";
 
 void usage() {
     std::printf(
@@ -64,34 +64,6 @@ void usage() {
         "\n"
         "Credentials come from APCA_API_KEY_ID and APCA_API_SECRET_KEY.\n"
         "Paper endpoints only, by construction: docs/DATA_POLICY.md.\n");
-}
-
-[[nodiscard]] const char* option_value(int argc, char** argv, const char* name) {
-    for (int i = 0; i + 1 < argc; ++i) {
-        if (std::strcmp(argv[i], name) == 0) {
-            return argv[i + 1];
-        }
-    }
-    return nullptr;
-}
-
-[[nodiscard]] std::vector<std::string> split_commas(const std::string& text) {
-    std::vector<std::string> out;
-    std::string current;
-    for (const char c : text) {
-        if (c == ',') {
-            if (!current.empty()) {
-                out.push_back(current);
-            }
-            current.clear();
-        } else {
-            current.push_back(c);
-        }
-    }
-    if (!current.empty()) {
-        out.push_back(current);
-    }
-    return out;
 }
 
 /// "YYYY-MM-DD" for now plus `days`, in UTC. Close enough for a calendar

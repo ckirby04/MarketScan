@@ -14,6 +14,7 @@
  * that is not something a tool should do because it seemed convenient.
  */
 
+#include "cli.hpp"
 #include "equivalence.hpp"
 
 #include <cstdio>
@@ -27,20 +28,6 @@
 #include "marketscan/live/http.hpp"
 
 namespace marketscan::live {
-namespace {
-
-constexpr const char* kUserAgent = "MarketScan/0.1 (research tool)";
-
-[[nodiscard]] bool has_flag(int argc, char** argv, const char* name) {
-    for (int i = 0; i < argc; ++i) {
-        if (std::strcmp(argv[i], name) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-}  // namespace
 
 int run_positions(int argc, char** argv) {
     const bool flatten = has_flag(argc, argv, "--flatten");

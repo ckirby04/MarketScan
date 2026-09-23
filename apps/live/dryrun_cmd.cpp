@@ -18,6 +18,7 @@
  * that is the only thing they share.
  */
 
+#include "cli.hpp"
 #include "equivalence.hpp"
 
 #include <cmath>
@@ -38,18 +39,6 @@
 #include "marketscan/strategy/strategy_instance.hpp"
 
 namespace marketscan::live {
-namespace {
-
-[[nodiscard]] const char* option_value(int argc, char** argv, const char* name) {
-    for (int i = 0; i + 1 < argc; ++i) {
-        if (std::strcmp(argv[i], name) == 0) {
-            return argv[i + 1];
-        }
-    }
-    return nullptr;
-}
-
-}  // namespace
 
 int run_dryrun(int argc, char** argv) {
     const char* plugin_arg = option_value(argc, argv, "--plugin");

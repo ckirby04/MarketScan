@@ -26,6 +26,7 @@
  * must not be left working.
  */
 
+#include "cli.hpp"
 #include "equivalence.hpp"
 
 #include <chrono>
@@ -42,8 +43,6 @@
 
 namespace marketscan::live {
 namespace {
-
-constexpr const char* kUserAgent = "MarketScan/0.1 (research tool)";
 
 struct Candidate {
     const char* name;

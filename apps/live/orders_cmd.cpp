@@ -12,6 +12,7 @@
  * It reads and prints. It sends no orders.
  */
 
+#include "cli.hpp"
 #include "equivalence.hpp"
 
 #include <cstdio>
@@ -27,17 +28,6 @@
 
 namespace marketscan::live {
 namespace {
-
-constexpr const char* kUserAgent = "MarketScan/0.1 (research tool)";
-
-[[nodiscard]] const char* option_value(int argc, char** argv, const char* name) {
-    for (int i = 0; i + 1 < argc; ++i) {
-        if (std::strcmp(argv[i], name) == 0) {
-            return argv[i + 1];
-        }
-    }
-    return nullptr;
-}
 
 /// Null-safe, for the same reason LiveBroker needs one: the venue sends null
 /// for filled_avg_price on an order that never filled.
