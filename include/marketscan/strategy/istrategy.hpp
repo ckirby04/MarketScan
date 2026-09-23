@@ -326,15 +326,65 @@ protected:
 
     // --- Orders ---------------------------------------------------------
 
-    /// Returns the engine order id, or 0 if the order was refused. A refusal
-    /// is not an exception and not a crash; check the id if you care.
+    /// What became of a submission.
+    ///
+    /// WHY THIS IS NOT JUST AN ID
+    ///
+    /// `submit` used to return 0 for two different things: the broker refused
+    /// the order, and the order was never sent at all because there is no host
+    /// attached. One sentinel for a failure and for a null is the same shape as
+    /// the vacuous-pass class this project has been digging out -- the caller
+    /// cannot tell "the venue said no", which is information, from "nothing
+    /// happened", which is a bug in the wiring.
+    ///
+    /// A strategy that legitimately reacts to a refusal -- which is most of
+    /// them, and is what the ABI's on_order_status exists for -- needs the
+    /// difference.
+    enum class SubmitOutcome : uint8_t {
+        /// The broker took it. `id` is valid.
+        Sent = 0,
+        /// The broker refused it. A real answer, and actionable.
+        RefusedByBroker = 1,
+        /// It never left the strategy: no host, or no submit_order in the host
+        /// table. Not an answer about the order; an answer about the wiring.
+        NotSent = 2,
+    };
+
+    /// The result of a submission.
+    ///
+    /// Converts to the order id implicitly, so every existing call site that
+    /// assigns it to a `uint64_t` keeps working and keeps meaning what it meant.
+    /// The named predicates are how a caller asks the question the bare id
+    /// cannot answer.
+    struct SubmitResult {
+        uint64_t id = 0;
+        SubmitOutcome outcome = SubmitOutcome::NotSent;
+
+        constexpr operator uint64_t() const noexcept { return id; }
+
+        [[nodiscard]] constexpr bool sent() const noexcept {
+            return outcome == SubmitOutcome::Sent;
+        }
+
+        /// The venue or the local rails said no. Worth reacting to.
+        [[nodiscard]] constexpr bool refused() const noexcept {
+            return outcome == SubmitOutcome::RefusedByBroker;
+        }
+
+        /// Never sent. Almost always a wiring mistake rather than a market fact.
+        [[nodiscard]] constexpr bool not_sent() const noexcept {
+            return outcome == SubmitOutcome::NotSent;
+        }
+    };
+
+    /// Submits an order.
     ///
     /// The order is recorded here as outstanding, and stops being outstanding
     /// when fills for it add up to its quantity. That bookkeeping is what
     /// makes has_pending_order() answerable.
-    uint64_t submit(const MS_OrderRequest& request) noexcept {
+    SubmitResult submit(const MS_OrderRequest& request) noexcept {
         if (!has_host() || host_->submit_order == nullptr) {
-            return 0;
+            return SubmitResult{0, SubmitOutcome::NotSent};
         }
 
         // A fill can be delivered from inside submit_order, before it has
@@ -350,24 +400,24 @@ protected:
         submitting_ = false;
 
         if (id == 0) {
-            return 0;
+            return SubmitResult{0, SubmitOutcome::RefusedByBroker};
         }
         if (reentrant_filled_ >= request.quantity - 1e-9) {
             // Filled in full before it was ever outstanding. Recording it now
             // would create an entry nothing will ever come along to retire.
-            return id;
+            return SubmitResult{id, SubmitOutcome::Sent};
         }
 
         expire_stale_orders();
         pending_.push_back(PendingOrder{
             id, request.symbol, request.side, request.quantity, reentrant_filled_, now(), false});
-        return id;
+        return SubmitResult{id, SubmitOutcome::Sent};
     }
 
-    uint64_t submit_market(MS_SymbolId symbol,
-                           MS_Side side,
-                           double quantity,
-                           uint64_t client_order_id = 0) noexcept {
+    SubmitResult submit_market(MS_SymbolId symbol,
+                               MS_Side side,
+                               double quantity,
+                               uint64_t client_order_id = 0) noexcept {
         MS_OrderRequest request{};
         request.symbol = symbol;
         request.side = side;
@@ -378,12 +428,12 @@ protected:
         return submit(request);
     }
 
-    uint64_t submit_limit(MS_SymbolId symbol,
-                          MS_Side side,
-                          double quantity,
-                          double limit_price,
-                          MS_TimeInForce tif = MS_TIF_DAY,
-                          uint64_t client_order_id = 0) noexcept {
+    SubmitResult submit_limit(MS_SymbolId symbol,
+                              MS_Side side,
+                              double quantity,
+                              double limit_price,
+                              MS_TimeInForce tif = MS_TIF_DAY,
+                              uint64_t client_order_id = 0) noexcept {
         MS_OrderRequest request{};
         request.symbol = symbol;
         request.side = side;

@@ -96,7 +96,7 @@ LiveBroker::LiveBroker(LiveBrokerConfig config, Credentials credentials, const S
       credentials_(std::move(credentials)),
       symbols_(symbols),
       ledger_(config_.starting_cash),
-      order_map_(config_.run_token.empty() ? make_run_token() : config_.run_token) {
+      tracker_(&ledger_, config_.run_token.empty() ? make_run_token() : config_.run_token) {
     if (!credentials_.ok()) {
         throw std::invalid_argument("LiveBroker has no credentials: " + credentials_.error);
     }
@@ -112,10 +112,12 @@ LiveBroker::LiveBroker(LiveBrokerConfig config, Credentials credentials, const S
 
     log::write(MS_LOG_INFO,
                "broker",
-               "paper account, run token " + order_map_.run_token() + "; orders capped at " +
-                   number(config_.max_order_quantity, 0) + " shares, $" +
+               "paper account, run token " + tracker_.order_map().run_token() +
+                   "; orders capped at " + number(config_.max_order_quantity, 0) + " shares, $" +
                    number(static_cast<double>(config_.max_order_notional.micros()) / 1e6, 0) +
-                   " notional and " + std::to_string(config_.max_orders) + " orders");
+                   " notional, $" +
+                   number(static_cast<double>(config_.max_gross_exposure.micros()) / 1e6, 0) +
+                   " gross exposure and " + std::to_string(config_.max_orders) + " orders");
 }
 
 LiveBroker::~LiveBroker() {
@@ -132,108 +134,52 @@ void LiveBroker::reset() {
 }
 
 const Order* LiveBroker::find_order(OrderId id) const noexcept {
-    const auto it = index_.find(id);
-    return it == index_.end() ? nullptr : &orders_[it->second];
-}
-
-Order* LiveBroker::mutable_order(OrderId id) noexcept {
-    const auto it = index_.find(id);
-    return it == index_.end() ? nullptr : &orders_[it->second];
+    return tracker_.find_order(id);
 }
 
 std::vector<const Order*> LiveBroker::working_orders() const {
-    std::vector<const Order*> out;
-    for (const Order& order : orders_) {
-        if (order.is_working()) {
-            out.push_back(&order);
-        }
-    }
-    return out;
-}
-
-LiveBrokerStats LiveBroker::stats() const {
-    const std::lock_guard<std::mutex> lock(stats_mutex_);
-    return stats_;
-}
-
-void LiveBroker::emit_status(const Order& order,
-                             MS_OrderState state,
-                             bool terminal,
-                             const char* reason) {
-    if (listener_ == nullptr) {
-        return;
-    }
-    MS_OrderStatus status{};
-    status.ts = order.last_update_ts;
-    status.order_id = order.id;
-    status.client_order_id = order.request.client_order_id;
-    status.state = state;
-    status.terminal = terminal ? 1u : 0u;
-    status.filled_quantity = order.filled_quantity;
-    status.replaced_by = 0;
-    status.reason = reason;
-    listener_->on_order_status(status);
-}
-
-void LiveBroker::book_fill(Order& order, Quantity quantity, Price price, Timestamp ts) {
-    if (!(quantity > 0.0) || !(price > 0.0)) {
-        return;
-    }
-
-    const Quantity before = order.filled_quantity;
-    order.filled_quantity = before + quantity;
-    order.average_fill_price =
-        before > 0.0
-            ? (order.average_fill_price * before + price * quantity) / order.filled_quantity
-            : price;
-    order.last_update_ts = ts;
-    order.status = order.filled_quantity + 1e-9 >= order.request.quantity
-                       ? OrderStatus::Filled
-                       : OrderStatus::PartiallyFilled;
-
-    const TradeRecord& record = ledger_.apply_fill(ts,
-                                                   order.id,
-                                                   order.request.client_order_id,
-                                                   order.request.symbol,
-                                                   order.request.side,
-                                                   quantity,
-                                                   price,
-                                                   order.reference_price,
-                                                   Money{},
-                                                   order.decision_ts,
-                                                   ts);
-    (void)record;
-
-    if (listener_ != nullptr) {
-        MS_Fill fill{};
-        fill.ts = ts;
-        fill.symbol = order.request.symbol;
-        fill.order_id = order.id;
-        fill.client_order_id = order.request.client_order_id;
-        fill.side = order.request.side;
-        fill.price = price;
-        fill.quantity = quantity;
-        listener_->on_fill(fill);
-    }
+    return tracker_.working_orders();
 }
 
 OrderId LiveBroker::register_local_order_for_test(const MS_OrderRequest& request, Timestamp now) {
-    Order order;
-    order.id = config_.order_id_base + next_sequence_++;
-    order.request = request;
-    order.submitted_ts = now;
-    order.last_update_ts = now;
-    order.eligible_ts = now;
-    order.status = OrderStatus::Working;
-    order.decision_ts = kNever;
-
-    index_[order.id] = orders_.size();
-    orders_.push_back(order);
-    order_map_.record_submitted(order.id);
-    return order.id;
+    return tracker_.register_order(request, now, kNever, config_.order_id_base);
 }
 
-RejectReason LiveBroker::check_rails(const MS_OrderRequest& request) const noexcept {
+void LiveBroker::apply_update(const TradeUpdate& update, Timestamp now) {
+    tracker_.apply_update(update, now);
+}
+
+LiveBrokerStats LiveBroker::stats() const {
+    LiveBrokerStats out;
+    static_cast<OrderTrackerStats&>(out) = tracker_.stats();
+    out.reconnects = reconnects_.load(std::memory_order_relaxed);
+    out.reclaimed_after_reconnect = reclaimed_.load(std::memory_order_relaxed);
+    return out;
+}
+
+void LiveBroker::record_submission(const MS_OrderRequest& request,
+                                   OrderId engine_id,
+                                   bool returned_id_valid,
+                                   std::string_view reason) {
+    if (!config_.recorder) {
+        return;
+    }
+    const char* ticker = symbols_->c_name(request.symbol);
+    config_.recorder->record_submission(tracker_.order_map().client_id_for(engine_id),
+                                        engine_id,
+                                        ticker != nullptr ? ticker : "",
+                                        request.side,
+                                        request.type,
+                                        request.tif,
+                                        request.quantity,
+                                        request.limit_price,
+                                        request.client_order_id,
+                                        returned_id_valid,
+                                        reason,
+                                        local_now());
+}
+
+RejectReason LiveBroker::check_rails(const MS_OrderRequest& request) const {
     if (!(request.quantity > 0.0) || !std::isfinite(request.quantity)) {
         return RejectReason::InvalidQuantity;
     }
@@ -253,31 +199,34 @@ RejectReason LiveBroker::check_rails(const MS_OrderRequest& request) const noexc
             return RejectReason::InvalidQuantity;
         }
     }
+
+    if (config_.max_gross_exposure.micros() > 0 && request.type == MS_ORD_LIMIT) {
+        // Only orders that *increase* exposure are capped. Refusing a closing
+        // order would trap a run in the position the cap exists to prevent.
+        const Quantity held = ledger_.position(request.symbol);
+        const Quantity delta = request.side == MS_SIDE_SELL ? -request.quantity : request.quantity;
+        if (std::abs(held + delta) > std::abs(held)) {
+            Money gross;
+            for (const Position* position : ledger_.open_positions()) {
+                gross += Money::from_micros(std::abs(position->cost_basis.micros()));
+            }
+            gross += Money::notional(request.limit_price, request.quantity);
+            if (gross > config_.max_gross_exposure) {
+                return RejectReason::InsufficientCash;
+            }
+        }
+    }
+
     return RejectReason::None;
 }
 
 OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts) {
-    Order order;
-    order.id = config_.order_id_base + next_sequence_++;
-    order.request = request;
-    order.submitted_ts = now;
-    order.last_update_ts = now;
-    order.eligible_ts = now;
-    order.decision_ts = decision_ts;
-    order.status = OrderStatus::Working;
-
     const auto refuse = [&](RejectReason reason, const char* message) -> OrderId {
-        order.status = OrderStatus::Rejected;
-        order.reject_reason = reason;
-        index_[order.id] = orders_.size();
-        orders_.push_back(order);
-        {
-            const std::lock_guard<std::mutex> lock(stats_mutex_);
-            ++stats_.rejected;
-            ++stats_.refused_by_rail;
-        }
         log::write(MS_LOG_WARN, "broker", std::string("order refused here: ") + message);
-        emit_status(orders_.back(), MS_ORDER_REJECTED, true, message);
+        tracker_.note_rail_refusal();
+        const OrderId refused_id = tracker_.register_refusal(
+            request, now, decision_ts, config_.order_id_base, reason, message);
+        record_submission(request, refused_id, false, message);
         return kInvalidOrderId;
     };
 
@@ -292,14 +241,18 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
         case RejectReason::InvalidPrice:
             return refuse(RejectReason::InvalidPrice,
                           "limit price is not a positive finite number");
+        case RejectReason::InsufficientCash:
+            return refuse(RejectReason::InsufficientCash,
+                          "order would take this run past its gross exposure cap. Refused, not "
+                          "resized: a cap that quietly shrank an order would absorb a sizing bug "
+                          "instead of reporting one");
         default:
             break;
     }
 
     bool budget_spent = false;
     if (config_.max_orders != 0) {
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        budget_spent = stats_.submitted >= config_.max_orders;
+        budget_spent = tracker_.stats().submitted >= config_.max_orders;
     }
     if (budget_spent) {
         return refuse(RejectReason::NotMarketable,
@@ -312,9 +265,8 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
         return refuse(RejectReason::UnknownSymbol, "symbol is not in this run's symbol table");
     }
 
-    index_[order.id] = orders_.size();
-    orders_.push_back(order);
-    order_map_.record_submitted(order.id);
+    const OrderId engine_id =
+        tracker_.register_order(request, now, decision_ts, config_.order_id_base);
 
     nlohmann::json body;
     body["symbol"] = ticker;
@@ -322,7 +274,7 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
     body["side"] = request.side == MS_SIDE_SELL ? "sell" : "buy";
     body["type"] = request.type == MS_ORD_LIMIT ? "limit" : "market";
     body["time_in_force"] = tif_name(request.tif);
-    body["client_order_id"] = order_map_.client_id_for(order.id);
+    body["client_order_id"] = tracker_.order_map().client_id_for(engine_id);
     if (request.type == MS_ORD_LIMIT) {
         body["limit_price"] = number(request.limit_price, 2);
         if (config_.allow_extended_hours && request.tif == MS_TIF_DAY) {
@@ -331,11 +283,6 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
             // hoped about.
             body["extended_hours"] = true;
         }
-    }
-
-    {
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        ++stats_.submitted;
     }
 
     const HttpResponse response = http_->post("/v2/orders", body.dump());
@@ -348,25 +295,23 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
                    "broker",
                    "order submit was rate limited; not retrying. The order's state is unknown "
                    "until the trade-updates stream says otherwise.");
-        return order.id;
+        record_submission(request, engine_id, true, "rate limited; state unknown");
+        return engine_id;
     }
 
     if (!response.ok()) {
-        Order* stored = mutable_order(order.id);
+        Order* stored = tracker_.mutable_order(engine_id);
         stored->status = OrderStatus::Rejected;
         stored->reject_reason = RejectReason::NotMarketable;
         stored->last_update_ts = now;
-        {
-            const std::lock_guard<std::mutex> lock(stats_mutex_);
-            ++stats_.rejected;
-        }
         const std::string detail =
             response.error.empty()
                 ? "status " + std::to_string(response.status) + ": " + response.body
                 : response.error;
         log::write(MS_LOG_WARN, "broker", "venue refused the order: " + detail);
-        order_map_.retire(order.id);
-        emit_status(*stored, MS_ORDER_REJECTED, true, "refused by the venue");
+        tracker_.order_map().retire(engine_id);
+        tracker_.emit_status(*stored, MS_ORDER_REJECTED, true, "refused by the venue");
+        record_submission(request, engine_id, false, detail);
         return kInvalidOrderId;
     }
 
@@ -374,28 +319,24 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
     if (!accepted.is_discarded() && accepted.is_object()) {
         const auto id = accepted.find("id");
         if (id != accepted.end() && id->is_string()) {
-            order_map_.record_acknowledged(order.id, id->get<std::string>());
+            tracker_.order_map().record_acknowledged(engine_id, id->get<std::string>());
         }
     }
 
-    {
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        ++stats_.accepted;
-    }
-    Order* stored = mutable_order(order.id);
-    emit_status(*stored, MS_ORDER_ACCEPTED, false, "accepted by the venue");
-    return order.id;
+    Order* stored = tracker_.mutable_order(engine_id);
+    tracker_.emit_status(*stored, MS_ORDER_ACCEPTED, false, "accepted by the venue");
+    record_submission(request, engine_id, true, {});
+    return engine_id;
 }
 
 bool LiveBroker::cancel(OrderId id, Timestamp now) {
-    Order* order = mutable_order(id);
+    Order* order = tracker_.mutable_order(id);
     if (order == nullptr || order->is_terminal()) {
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        ++stats_.lost_cancel_races;
+        tracker_.note_lost_cancel_race();
         return false;
     }
 
-    const OrderLink* link = order_map_.find(id);
+    const OrderLink* link = tracker_.order_map().find(id);
     if (link == nullptr || link->broker_order_id.empty()) {
         // Sent, not yet acknowledged. There is nothing to address a cancel to
         // yet; saying so is better than sending one into the void.
@@ -419,168 +360,11 @@ bool LiveBroker::cancel(OrderId id, Timestamp now) {
     // process lost, not a failure to send -- and the terminal state will
     // arrive on the socket like any other.
     if (response.status == 404 || response.status == 422) {
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        ++stats_.lost_cancel_races;
+        tracker_.note_lost_cancel_race();
         return false;
     }
 
     return response.ok() || response.status == 204;
-}
-
-void LiveBroker::apply_update(const TradeUpdate& update, Timestamp now) {
-    const std::optional<OrderId> engine_id = order_map_.engine_id_for(update.client_order_id);
-    if (!engine_id.has_value()) {
-        // Another run's order on the same account, or a manual one. Counted so
-        // that "the venue reported a fill nobody booked" is never silent.
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        ++stats_.foreign_updates;
-        return;
-    }
-
-    Order* order = mutable_order(*engine_id);
-    if (order == nullptr) {
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        ++stats_.foreign_updates;
-        return;
-    }
-
-    if (order->is_terminal()) {
-        // Already over here. The reclaim after a reconnect re-reads every order
-        // the venue knows about, so this is the ordinary case rather than an
-        // odd one -- and applying it again would emit a second terminal status
-        // for one order.
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        ++stats_.stale_updates;
-        return;
-    }
-
-    if (!update.broker_order_id.empty()) {
-        order_map_.record_acknowledged(order->id, update.broker_order_id);
-    }
-
-    const Timestamp ts = update.ts != 0 ? update.ts : now;
-    order->last_update_ts = ts;
-
-    switch (update.kind) {
-        case UpdateKind::Accepted: {
-            const std::lock_guard<std::mutex> lock(stats_mutex_);
-            ++stats_.accepted;
-            break;
-        }
-
-        case UpdateKind::PartialFill:
-        case UpdateKind::Fill: {
-            // The venue's cumulative number, not a running sum of our own. A
-            // sum that missed one message would be quietly wrong forever;
-            // reading the cumulative figure means a missed message costs one
-            // blotter row's granularity and nothing else.
-            const Quantity already = order->filled_quantity;
-            Quantity increment = update.cumulative_filled - already;
-            if (!(increment > 0.0)) {
-                increment = update.fill_quantity;
-            }
-            const Price price =
-                update.fill_price > 0.0 ? update.fill_price : update.average_fill_price;
-
-            if (increment > 0.0 && price > 0.0) {
-                book_fill(*order, increment, price, ts);
-            }
-
-            const std::lock_guard<std::mutex> lock(stats_mutex_);
-            if (update.kind == UpdateKind::Fill) {
-                ++stats_.filled;
-            } else {
-                ++stats_.partial_fills;
-            }
-            break;
-        }
-
-        case UpdateKind::Cancelled:
-            order->status = OrderStatus::Cancelled;
-            {
-                const std::lock_guard<std::mutex> lock(stats_mutex_);
-                ++stats_.cancelled;
-            }
-            break;
-
-        case UpdateKind::Expired:
-            order->status = OrderStatus::Expired;
-            {
-                const std::lock_guard<std::mutex> lock(stats_mutex_);
-                ++stats_.expired;
-            }
-            break;
-
-        case UpdateKind::Rejected:
-            order->status = OrderStatus::Rejected;
-            order->reject_reason = RejectReason::NotMarketable;
-            {
-                const std::lock_guard<std::mutex> lock(stats_mutex_);
-                ++stats_.rejected;
-            }
-            break;
-
-        case UpdateKind::Replaced:
-            order->status = OrderStatus::Cancelled;
-            break;
-
-        case UpdateKind::Transient:
-            // Alive, nothing to do, and deliberately not silence: the order
-            // stays working and the next message decides.
-            return;
-
-        case UpdateKind::Unknown: {
-            {
-                const std::lock_guard<std::mutex> lock(stats_mutex_);
-                ++stats_.unknown_updates;
-            }
-            log::write(MS_LOG_ERROR,
-                       "broker",
-                       "unknown trade update '" + update.raw_event + "' for order " +
-                           std::to_string(order->id) +
-                           "; the order is left working rather than assumed finished");
-            return;
-        }
-    }
-
-    if (update.kind == UpdateKind::Fill && order->status != OrderStatus::Filled) {
-        // The venue says the order is done and our arithmetic says it is not.
-        // Believe the venue about the state, say so about the difference.
-        log::write(MS_LOG_ERROR,
-                   "broker",
-                   "order " + std::to_string(order->id) + " filled " +
-                       number(order->filled_quantity, 4) + " of " +
-                       number(order->request.quantity, 4) +
-                       " but the venue calls it complete. Booking it complete and reporting the "
-                       "difference rather than correcting it silently.");
-        order->status = OrderStatus::Filled;
-    }
-
-    if (order->is_terminal()) {
-        MS_OrderState state = MS_ORDER_CANCELLED;
-        const char* reason = "cancelled";
-        switch (order->status) {
-            case OrderStatus::Filled:
-                // A complete fill is reported through on_fill, and a terminal
-                // status as well, so a strategy that only implements one of
-                // the two callbacks still learns the order is over.
-                state = MS_ORDER_ACCEPTED;
-                reason = "filled";
-                break;
-            case OrderStatus::Expired:
-                state = MS_ORDER_EXPIRED;
-                reason = "expired at the venue";
-                break;
-            case OrderStatus::Rejected:
-                state = MS_ORDER_REJECTED;
-                reason = update.reason.empty() ? "rejected by the venue" : update.reason.c_str();
-                break;
-            default:
-                break;
-        }
-        emit_status(*order, state, true, reason);
-        order_map_.retire(order->id);
-    }
 }
 
 void LiveBroker::on_market_event(SymbolId symbol, Timestamp now) {
@@ -635,8 +419,8 @@ void LiveBroker::reclaim_after_reconnect(Timestamp now) {
             continue;
         }
         const std::optional<OrderId> engine_id =
-            order_map_.engine_id_for(client->get<std::string_view>());
-        if (!engine_id.has_value() || mutable_order(*engine_id) == nullptr) {
+            tracker_.order_map().engine_id_for(client->get<std::string_view>());
+        if (!engine_id.has_value() || tracker_.mutable_order(*engine_id) == nullptr) {
             continue;
         }
 
@@ -675,10 +459,7 @@ void LiveBroker::reclaim_after_reconnect(Timestamp now) {
         ++reclaimed;
     }
 
-    {
-        const std::lock_guard<std::mutex> lock(stats_mutex_);
-        stats_.reclaimed_after_reconnect += reclaimed;
-    }
+    reclaimed_.fetch_add(reclaimed, std::memory_order_relaxed);
     log::write(MS_LOG_INFO,
                "broker",
                "reconnected; reclaimed " + std::to_string(reclaimed) +
@@ -686,8 +467,8 @@ void LiveBroker::reclaim_after_reconnect(Timestamp now) {
 }
 
 void LiveBroker::cancel_all_open(Timestamp now) {
-    for (const OrderLink& link : order_map_.live()) {
-        Order* order = mutable_order(link.engine_id);
+    for (const OrderLink& link : tracker_.order_map().live()) {
+        Order* order = tracker_.mutable_order(link.engine_id);
         if (order == nullptr || order->is_terminal()) {
             continue;
         }
@@ -928,6 +709,13 @@ void LiveBroker::run_socket() {
                     continue;
                 }
 
+                if (config_.recorder) {
+                    // Raw, like market data, and for the same reason: replay
+                    // re-parses with this same function rather than a second
+                    // one that might disagree.
+                    config_.recorder->record_response(message.text, local_now());
+                }
+
                 const TradeUpdateParse parsed = parse_trade_update(message.text);
                 if (!parsed.error.empty()) {
                     log::write(MS_LOG_WARN, "broker", parsed.error);
@@ -957,10 +745,7 @@ void LiveBroker::run_socket() {
             return;
         }
 
-        {
-            const std::lock_guard<std::mutex> lock(stats_mutex_);
-            ++stats_.reconnects;
-        }
+        reconnects_.fetch_add(1, std::memory_order_relaxed);
         log::write(MS_LOG_WARN,
                    "broker",
                    "trade-updates connection lost (" + reason + "); retrying in " +

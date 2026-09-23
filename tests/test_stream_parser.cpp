@@ -318,7 +318,10 @@ TEST_CASE("a recording round trips to the same event sequence", "[live][recorder
     SymbolTable replay_table;
     RecordedFeed feed(path, replay_table);
 
-    REQUIRE(feed.header().version == 1);
+    // 2 since Session F2, when recordings started carrying the venue side as
+    // well as market data. Version 1 files are still readable and simply have
+    // no submissions and no responses.
+    REQUIRE(feed.header().version == 2);
     REQUIRE(feed.header().feed == "iex");
     REQUIRE(feed.header().symbols == std::vector<std::string>{"AAPL", "SPY"});
     REQUIRE(feed.stats().messages == messages.size());

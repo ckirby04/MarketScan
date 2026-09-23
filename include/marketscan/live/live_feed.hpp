@@ -93,7 +93,19 @@ struct LiveFeedConfig {
     std::uint32_t max_reconnect_attempts = 0;
 
     /// Where to write the recording. Empty means do not record.
+    ///
+    /// Only consulted when `recorder` is null: a caller that wants the venue
+    /// side in the same file passes a recorder both the feed and the broker
+    /// hold, and this is then irrelevant.
     std::filesystem::path recording_path;
+
+    /// A recorder shared with the broker, so market data, orders out and
+    /// answers back land in one file in one arrival order.
+    ///
+    /// When this is set the feed does not own it and will not close it -- the
+    /// broker may still be writing after the feed has stopped, which is exactly
+    /// what happens when a session ends by cancelling everything.
+    std::shared_ptr<StreamRecorder> recorder;
 
     std::string user_agent = "MarketScan/0.1 (research tool)";
 };
@@ -264,7 +276,10 @@ private:
 
     /// Socket thread only, after construction.
     MonotonicGate gate_;
-    std::unique_ptr<StreamRecorder> recorder_;
+    std::shared_ptr<StreamRecorder> recorder_;
+
+    /// True when this feed created the recorder and must therefore close it.
+    bool owns_recorder_ = false;
 
     /// The socket the pump is currently using, so stop() can end a receive
     /// that would otherwise never return. Owned by the pump thread's stack;

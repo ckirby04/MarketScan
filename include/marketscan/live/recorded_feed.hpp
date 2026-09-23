@@ -75,6 +75,13 @@ struct RecordedFeedStats {
 /// A feed that reads a recording written by StreamRecorder.
 class RecordedFeed final : public IMarketDataFeed {
 public:
+    /// Reports progress through the recording, so a RecordedBroker alongside
+    /// this knows which venue responses have come due.
+    ///
+    /// Borrowed and may be null, which is what a market-data-only replay
+    /// passes.
+    void set_position_sink(ReplayPosition* sink) noexcept { position_ = sink; }
+
     /// Interns the recording's own symbol list, in the order the header lists
     /// it, so that a replay assigns the same ids the live session did when the
     /// same table is used. Throws std::runtime_error if the file is missing,
@@ -112,6 +119,11 @@ private:
     std::vector<SymbolId> symbol_ids_;
     std::vector<MarketEvent> events_;
     std::vector<Timestamp> received_;
+
+    /// The recording line each event came from, so progress can be reported in
+    /// the recording's own sequence numbers rather than in an event index.
+    std::vector<std::uint64_t> sequences_;
+    ReplayPosition* position_ = nullptr;
     std::size_t cursor_ = 0;
     FeedSpan span_;
     RecordedFeedStats stats_;

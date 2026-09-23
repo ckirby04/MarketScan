@@ -134,12 +134,20 @@ marketscan_add_test(test_paper_only  test_paper_only.cpp)
 # The live seam's offline half. The parser, the monotonic gate, the recorder
 # round trip and the calendar, none of which touch a network: every message in
 # these is hand-written to the vendor's documented shape with invented prices.
+# Part 0 of Session F2: a refusal and a never-sent order stopped sharing one
+# sentinel. Header-only IStrategy, instantiated directly -- no DLL, no engine.
+marketscan_add_test(test_submit_outcome test_submit_outcome.cpp)
+
 marketscan_add_test(test_stream_parser test_stream_parser.cpp)
 marketscan_add_test(test_calendar      test_calendar.cpp)
 
 # The live broker's order lifecycle, driven through the same apply_update the
 # socket pump calls. No socket is opened.
 marketscan_add_test(test_live_broker   test_live_broker.cpp)
+
+# Part 1 of Session F2: a recording carries the venue side, and a replay hands a
+# strategy exactly what the venue handed it. No socket is opened.
+marketscan_add_test(test_recorded_broker test_recorded_broker.cpp)
 
 # ABI v2, and the promise the version-tolerant loader was built to keep.
 marketscan_add_test(test_abi_v2      test_abi_v2.cpp)

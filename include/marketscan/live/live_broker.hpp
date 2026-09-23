@@ -48,6 +48,8 @@
 #include "marketscan/live/credentials.hpp"
 #include "marketscan/live/http.hpp"
 #include "marketscan/live/order_map.hpp"
+#include "marketscan/live/order_tracker.hpp"
+#include "marketscan/live/recorder.hpp"
 #include "marketscan/live/trade_updates.hpp"
 
 namespace marketscan::live {
@@ -98,6 +100,31 @@ struct LiveBrokerConfig {
     /// Zero disables it.
     Money max_order_notional = Money::from_dollars(60'000);
 
+    /// The most gross exposure this run may hold, in dollars.
+    ///
+    /// The per-order caps bound one order; this bounds the position they add up
+    /// to. Needed because they do add up in ways the per-order caps cannot see:
+    /// a run whose orders were each $15k finished holding 599 shares of one name
+    /// worth $201,317 against $99,897 of equity -- 2.0x levered, buying power
+    /// zero -- because fifty *partial* fills accumulated on a leg that only ever
+    /// bought.
+    ///
+    /// REFUSES, NEVER CLAMPS
+    ///
+    /// An order that would breach this is rejected and reported, exactly like
+    /// the notional cap. A cap that silently resized an order down to fit would
+    /// stop being able to tell anyone a sizing bug exists -- it would absorb
+    /// one instead, which is the failure mode this whole project keeps finding.
+    ///
+    /// An order that *reduces* exposure is always allowed, whatever the cap
+    /// says: refusing to close a position is how a rail turns into the thing it
+    /// was protecting against.
+    ///
+    /// Measured from cost basis rather than from marks, because this class has
+    /// no MarketView and a stale mark is worse than a known-conservative one.
+    /// Zero disables it.
+    Money max_gross_exposure = Money::from_dollars(150'000);
+
     /// Orders this run may send in total. Zero means no limit.
     ///
     /// The other rail. A loop that submits on every quote would send thousands
@@ -121,6 +148,14 @@ struct LiveBrokerConfig {
     /// field exists, exactly as nothing above it knows how a time in force is
     /// spelled on the wire.
     bool allow_extended_hours = false;
+
+    /// Where to record submissions and venue responses. Shared with the market
+    /// data feed so that the three streams -- market data, orders out, answers
+    /// back -- land in one file in one arrival order.
+    ///
+    /// Null means do not record, which is what every test and every synthetic
+    /// run passes.
+    std::shared_ptr<StreamRecorder> recorder;
 
     std::string user_agent = "MarketScan/0.1 (research tool)";
 };
@@ -148,38 +183,13 @@ struct Reconciliation {
     }
 };
 
-struct LiveBrokerStats {
-    std::uint64_t submitted = 0;
-    std::uint64_t accepted = 0;
-    std::uint64_t filled = 0;
-    std::uint64_t partial_fills = 0;
-    std::uint64_t cancelled = 0;
-    std::uint64_t expired = 0;
-    std::uint64_t rejected = 0;
-
-    /// Cancels the venue answered after the order had already finished. Not an
-    /// error: a race that was lost is a fact about how fast this process is.
-    std::uint64_t lost_cancel_races = 0;
-
-    /// Orders refused here rather than sent, by the size or count rails.
-    std::uint64_t refused_by_rail = 0;
-
-    /// Trade updates naming an order this run did not submit. Expected when
-    /// another run shares the account; counted so it is never silent.
-    std::uint64_t foreign_updates = 0;
-
-    /// Updates about an order that had already finished here.
-    ///
-    /// Expected after a reconnect: the reclaim re-reads every order the venue
-    /// knows about, including the ones this run already saw end. Counted and
-    /// dropped, because re-applying a terminal state would deliver a second
-    /// terminal on_order_status for one order -- and a strategy that cleaned up
-    /// on the first would do it twice.
-    std::uint64_t stale_updates = 0;
-
-    /// Update kinds this build has never seen. Logged individually.
-    std::uint64_t unknown_updates = 0;
-
+/// The broker's own numbers: the venue's answers, plus what this transport did
+/// to stay connected.
+///
+/// Inherits the venue-side tallies rather than restating them, so there is one
+/// definition of "how many partials were there" and a caller cannot read a
+/// stale copy of it.
+struct LiveBrokerStats : OrderTrackerStats {
     std::uint32_t reconnects = 0;
 
     /// Orders that were live when the socket dropped and were found again
@@ -209,7 +219,9 @@ public:
 
     // --- IBroker ----------------------------------------------------------
 
-    void set_fill_listener(IFillListener* listener) noexcept override { listener_ = listener; }
+    void set_fill_listener(IFillListener* listener) noexcept override {
+        tracker_.set_fill_listener(listener);
+    }
 
     OrderId
     submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts = kNever) override;
@@ -228,15 +240,19 @@ public:
 
     [[nodiscard]] const Ledger& ledger() const noexcept override { return ledger_; }
 
-    [[nodiscard]] const std::vector<Order>& orders() const noexcept override { return orders_; }
+    [[nodiscard]] const std::vector<Order>& orders() const noexcept override {
+        return tracker_.orders();
+    }
 
     [[nodiscard]] const Order* find_order(OrderId id) const noexcept override;
     [[nodiscard]] std::vector<const Order*> working_orders() const override;
 
-    [[nodiscard]] std::uint64_t rejected_count() const noexcept override { return stats_.rejected; }
+    [[nodiscard]] std::uint64_t rejected_count() const noexcept override {
+        return tracker_.stats().rejected;
+    }
 
     [[nodiscard]] std::uint64_t late_cancel_count() const noexcept override {
-        return stats_.lost_cancel_races;
+        return tracker_.stats().lost_cancel_races;
     }
 
     /// Refuses. A live account cannot be rewound, and quietly doing nothing
@@ -266,7 +282,7 @@ public:
 
     [[nodiscard]] LiveBrokerStats stats() const;
 
-    [[nodiscard]] const OrderMap& order_map() const noexcept { return order_map_; }
+    [[nodiscard]] const OrderMap& order_map() const noexcept { return tracker_.order_map(); }
 
     /// Whether the local rails would refuse this order, and why.
     ///
@@ -275,7 +291,9 @@ public:
     /// sending anything: a test that had to call submit() to find out would
     /// have to reach the network for every case the rails *allow*, and "no test
     /// touches the network" is a property this project keeps.
-    [[nodiscard]] RejectReason check_rails(const MS_OrderRequest& request) const noexcept;
+    ///
+    /// Not noexcept: reading the ledger's open positions allocates.
+    [[nodiscard]] RejectReason check_rails(const MS_OrderRequest& request) const;
 
     /// Applies one trade update as if it had arrived on the socket. The pump
     /// calls this; a test calls it to drive a lifecycle without a network.
@@ -288,27 +306,33 @@ public:
 private:
     void run_socket();
 
+    /// Writes one submission to the recording, when there is one.
+    ///
+    /// `returned_id_valid` is what submit() is about to return, not whether the
+    /// venue was pleased. Replay has to answer the strategy exactly as live did,
+    /// so what gets recorded is the answer the strategy got -- a rate-limited
+    /// order, for instance, is left live and reported as valid even though the
+    /// venue never confirmed it.
+    void record_submission(const MS_OrderRequest& request,
+                           OrderId engine_id,
+                           bool returned_id_valid,
+                           std::string_view reason);
+
     /// Re-reads the venue's open orders and matches them to this run's by
     /// client order id. Called after every reconnect.
     void reclaim_after_reconnect(Timestamp now);
-
-    Order* mutable_order(OrderId id) noexcept;
-
-    void emit_status(const Order& order, MS_OrderState state, bool terminal, const char* reason);
-
-    /// Books a fill into the ledger and tells the listener.
-    void book_fill(Order& order, Quantity quantity, Price price, Timestamp ts);
 
     LiveBrokerConfig config_;
     Credentials credentials_;
     const SymbolTable* symbols_;
 
+    /// Declared before the tracker, which borrows it.
     Ledger ledger_;
-    IFillListener* listener_ = nullptr;
 
-    std::vector<Order> orders_;
-    std::map<OrderId, std::size_t> index_;
-    OrderMap order_map_;
+    /// The orders, and the one definition of what a venue answer means. Shared
+    /// with RecordedBroker so that a replay applies responses identically --
+    /// see order_tracker.hpp.
+    OrderTracker tracker_;
 
     /// The REST client. Used from the caller's thread only.
     std::unique_ptr<HttpClient> http_;
@@ -327,8 +351,9 @@ private:
     std::atomic<bool> listening_{false};
     std::atomic<bool> fatal_{false};
 
-    mutable std::mutex stats_mutex_;
-    LiveBrokerStats stats_;
+    /// Transport-side only. The venue-side tallies live in the tracker.
+    std::atomic<std::uint32_t> reconnects_{0};
+    std::atomic<std::uint64_t> reclaimed_{0};
 
     mutable std::mutex error_mutex_;
     std::string error_;
@@ -339,8 +364,6 @@ private:
     /// case here -- it is the common one. See WebSocket::request_close().
     mutable std::mutex socket_mutex_;
     class WebSocket* active_socket_ = nullptr;
-
-    OrderId next_sequence_ = 1;
 };
 
 }  // namespace marketscan::live

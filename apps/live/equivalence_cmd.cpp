@@ -24,9 +24,13 @@
 #include "marketscan/core/symbol_table.hpp"
 #include "marketscan/exec/fill_model.hpp"
 #include "marketscan/live/credentials.hpp"
+#include "marketscan/live/endpoints.hpp"
 #include "marketscan/live/live_broker.hpp"
 #include "marketscan/live/live_feed.hpp"
+#include "marketscan/live/order_map.hpp"
+#include "marketscan/live/recorded_broker.hpp"
 #include "marketscan/live/recorded_feed.hpp"
+#include "marketscan/live/recorder.hpp"
 #include "marketscan/strategy/plugin_loader.hpp"
 #include "marketscan/strategy/strategy_instance.hpp"
 
@@ -160,6 +164,11 @@ int run_equivalence(int argc, char** argv) {
     Reconciliation reconciled;
     std::string strategy_id;
 
+    /// Measured before the file is deleted, because the last run reported an
+    /// estimate and could not check it.
+    std::uintmax_t recording_bytes = 0;
+    std::uint64_t recorded_lines = 0;
+
     // --- The live half ----------------------------------------------------
     {
         const LoadedPlugin loaded = load_plugin(plugin);
@@ -171,15 +180,35 @@ int run_equivalence(int argc, char** argv) {
 
         SymbolTable symbols;
 
+        // One recorder, shared by the feed and the broker, so market data,
+        // orders out and answers back land in one file in one arrival order.
+        // That interleaving is the whole point: a recording of only one
+        // direction is what made the last equivalence run wrong.
+        const std::string run_token = make_run_token();
+
+        RecordingHeader header;
+        header.host = std::string(kMarketDataStreamHost);
+        header.path = std::string(kMarketDataStreamPath);
+        header.feed = "iex";
+        header.symbols = tickers;
+        header.run_token = run_token;
+        {
+            const SystemClock started;
+            header.started = started.now();
+        }
+        auto recorder = std::make_shared<StreamRecorder>(recording, header);
+
         LiveFeedConfig feed_config;
         feed_config.symbols = tickers;
-        feed_config.recording_path = recording;
+        feed_config.recorder = recorder;
         feed_config.user_agent = kUserAgent;
         LiveMarketDataFeed feed(feed_config, credentials, symbols);
 
         LiveBrokerConfig broker_config;
         broker_config.user_agent = kUserAgent;
         broker_config.allow_extended_hours = extended;
+        broker_config.run_token = run_token;
+        broker_config.recorder = recorder;
         LiveBroker broker(broker_config, credentials, &symbols);
 
         // The strategy needs a fill model and a market view because the
@@ -341,11 +370,27 @@ int run_equivalence(int argc, char** argv) {
 
         phase("stopping the trade-updates stream");
         broker.stop();
+
+        // Closed here, after both writers are done, and measured before
+        // anything deletes it.
+        recorder->close();
+        recorded_lines = recorder->messages();
+        std::error_code size_error;
+        recording_bytes = std::filesystem::file_size(recording, size_error);
+        if (size_error) {
+            recording_bytes = 0;
+        }
     }
 
     // --- The replay half --------------------------------------------------
     std::vector<Decision> replay_decisions;
     std::uint64_t replay_events = 0;
+    bool replayed_venue = false;
+    CorrespondenceFailure correspondence;
+    std::size_t submissions_matched = 0;
+    std::size_t submissions_recorded = 0;
+    std::size_t responses_delivered = 0;
+    std::size_t responses_recorded = 0;
 
     {
         // The same plugin file. Not a rebuild and not a variant: the binary
@@ -358,8 +403,18 @@ int run_equivalence(int argc, char** argv) {
 
         phase("replaying the recording");
         SymbolTable symbols;
+
+        // Read once, to find out what this file can answer for. A recording with
+        // a venue side replays the venue; one without falls back to the fill
+        // simulator. Decided by the file's contents, never by a flag -- and
+        // nothing in the engine or the strategy can tell which it got.
+        const RecordingContents contents = read_recording_contents(recording);
+
         auto feed = std::make_unique<RecordedFeed>(recording, symbols);
         replay_events = feed->stats().events;
+
+        ReplayPosition position;
+        feed->set_position_sink(&position);
 
         SpreadCrossingFillModel fill_model{};
         Engine engine;
@@ -367,6 +422,18 @@ int run_equivalence(int argc, char** argv) {
 
         StrategyRuntimeConfig runtime;
         runtime.order_id_base = 1'000'000;
+
+        std::unique_ptr<RecordedBroker> venue;
+        if (contents.has_venue_side()) {
+            venue = std::make_unique<RecordedBroker>(contents.submissions,
+                                                     contents.responses,
+                                                     &symbols,
+                                                     runtime.starting_cash,
+                                                     runtime.order_id_base,
+                                                     contents.header.run_token);
+            venue->set_position_source(&position);
+            runtime.broker = venue.get();
+        }
 
         PluginInstance instance = loaded.loader->create(loaded.info->id);
         if (!instance.valid()) {
@@ -389,9 +456,24 @@ int run_equivalence(int argc, char** argv) {
         engine.add_sink(&strategy);
         strategy.start();
         engine.run();
+
+        if (venue) {
+            // A session ends by cancelling everything, and those answers arrive
+            // after the last market event. Without this they would never be
+            // applied and the two ledgers would differ for no good reason.
+            venue->drain_remaining(engine.now());
+        }
         strategy.stop();
 
         replay_decisions = decisions_of(strategy.broker(), symbols);
+        if (venue) {
+            replayed_venue = true;
+            correspondence = venue->failure();
+            submissions_matched = venue->submissions_matched();
+            submissions_recorded = venue->submissions_recorded();
+            responses_delivered = venue->responses_delivered();
+            responses_recorded = venue->responses_recorded();
+        }
     }
 
     // --- The comparison ---------------------------------------------------
@@ -459,6 +541,22 @@ int run_equivalence(int argc, char** argv) {
         std::printf("recording        deleted (market data; see docs/DATA_POLICY.md)\n");
     };
 
+    std::printf("recording       %llu lines, %llu bytes (%.2f MB)\n",
+                static_cast<unsigned long long>(recorded_lines),
+                static_cast<unsigned long long>(recording_bytes),
+                static_cast<double>(recording_bytes) / (1024.0 * 1024.0));
+    if (replayed_venue) {
+        std::printf("venue side      replayed from the recording: %zu of %zu submissions "
+                    "matched, %zu of %zu responses delivered\n",
+                    submissions_matched,
+                    submissions_recorded,
+                    responses_delivered,
+                    responses_recorded);
+    } else {
+        std::printf("venue side      NOT in the recording -- replay used the fill simulator, so "
+                    "refusals and partials did not reproduce\n");
+    }
+
     std::printf("events per sym  ");
     std::size_t silent = 0;
     for (std::size_t i = 0; i < tickers.size(); ++i) {
@@ -491,6 +589,18 @@ int run_equivalence(int argc, char** argv) {
                         "--period.\n");
         }
         return 3;
+    }
+
+    // The correspondence assertion fires before the decision comparison does,
+    // because it knows *which* order first disagreed and the comparison only
+    // knows that two lists differ.
+    if (correspondence.happened) {
+        cleanup();
+        std::printf("\nDIVERGED: replay stopped corresponding to the recording.\n\n%s\n",
+                    correspondence.describe().c_str());
+        std::printf("\nReported where it happened rather than fed forward. The comparison is "
+                    "not relaxed to make it pass.\n");
+        return 1;
     }
 
     const DecisionDiff diff = compare(live_decisions, replay_decisions);

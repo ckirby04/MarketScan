@@ -51,6 +51,7 @@ RecordedFeed::RecordedFeed(const std::filesystem::path& path, SymbolTable& symbo
             gate.apply(event);
             events_.push_back(event);
             received_.push_back(message.received);
+            sequences_.push_back(message.sequence);
             ++stats_.events;
         }
     }
@@ -77,6 +78,9 @@ bool RecordedFeed::next(MarketEvent& out) {
         return false;
     }
     out = events_[cursor_];
+    if (position_ != nullptr && cursor_ < sequences_.size()) {
+        position_->sequence = sequences_[cursor_];
+    }
     ++cursor_;
     return true;
 }

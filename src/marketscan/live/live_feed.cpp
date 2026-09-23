@@ -117,14 +117,18 @@ LiveMarketDataFeed::LiveMarketDataFeed(LiveFeedConfig config,
     std::sort(symbol_ids_.begin(), symbol_ids_.end());
     symbol_ids_.erase(std::unique(symbol_ids_.begin(), symbol_ids_.end()), symbol_ids_.end());
 
-    if (!config_.recording_path.empty()) {
+    if (config_.recorder) {
+        // Shared with the broker. Not ours to close.
+        recorder_ = config_.recorder;
+    } else if (!config_.recording_path.empty()) {
         RecordingHeader header;
         header.host = std::string(kMarketDataStreamHost);
         header.path = std::string(kMarketDataStreamPath);
         header.feed = "iex";
         header.symbols = config_.symbols;
         header.started = local_now();
-        recorder_ = std::make_unique<StreamRecorder>(config_.recording_path, header);
+        recorder_ = std::make_shared<StreamRecorder>(config_.recording_path, header);
+        owns_recorder_ = true;
     }
 }
 
@@ -158,7 +162,7 @@ void LiveMarketDataFeed::stop() {
         thread_.join();
     }
     state_.store(FeedState::Stopped, std::memory_order_release);
-    if (recorder_) {
+    if (recorder_ && owns_recorder_) {
         recorder_->close();
     }
 }

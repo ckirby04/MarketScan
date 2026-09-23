@@ -12,18 +12,35 @@
 //     Fills, usually at once. Exercises the ordinary path, and alternating
 //     keeps the position near flat -- which stopped being cosmetic the moment
 //     the orders stopped being one share; see submit_marketable.
-//   - A non-marketable limit a few basis points below the bid. It rests, and
-//     is reachable, and is then cancelled after a dwell. Exercises a working
-//     order, a partial, and a cancel -- states a zero-latency simulator cannot
-//     produce, because it answers every order before the next event.
+//   - A non-marketable limit a few basis points inside the touch, on a
+//     *different instrument*, alternating sides. It rests, and is reachable,
+//     and is then cancelled after a dwell. Exercises a working order, a
+//     partial, and a cancel -- states a zero-latency simulator cannot produce,
+//     because it answers every order before the next event.
+//
 //   - A cancel sent a rotation after the marketable order. Sometimes it wins
 //     and sometimes it loses the race, and the losing case is the one worth
 //     having: a strategy whose cancels are routinely too late is assuming an
 //     execution speed it does not have.
-//   - One order with a sub-penny limit price, which the venue must refuse.
-//     Exercises the rejection path in any session, unlike the short-sell IOC
-//     it replaced -- that one was refused only *outside* market hours, so in a
-//     regular session it silently became an ordinary short instead.
+//   - One order the venue must refuse, to exercise the rejection path.
+//
+// TWO INSTRUMENTS, AND WHY
+//
+// Both legs used to work the same name, and 24 of 27 venue refusals in the
+// first regular-session run were "potential wash trade detected" -- the
+// marketable leg trading against this exercise's own resting bid. A rejection
+// the exercise inflicted on itself teaches nothing; separating the legs means
+// any refusal that does occur is informative.
+//
+// AND WHY BOTH LEGS ALTERNATE
+//
+// The resting leg only ever bought, and it is the leg most likely to fill in
+// pieces. Fifty partials accumulated a structural long that the alternating
+// marketable leg never offset: the run finished holding 599 shares worth
+// $201,317 against $99,897 of equity, 2.0x levered with buying power at zero.
+// Alternating both legs keeps each one's position oscillating about flat, and
+// LiveBrokerConfig::max_gross_exposure is the backstop for when the fill
+// pattern defeats that anyway.
 //
 // SIZED SO A PARTIAL IS POSSIBLE AT ALL
 //
@@ -32,21 +49,30 @@
 // a notional target and the current ask -- the same dollar size whichever
 // instrument is being worked, across a fourfold price range. See `notional`.
 //
-// WHY THE DECISIONS DO NOT DEPEND ON FILLS
+// IT MAY REACT TO ITS OWN ORDERS, AND IT DOES
 //
-// This is the plugin the equivalence test runs, live and then again against a
-// recording of that same session. Live it gets the venue's fills; in replay it
-// gets the simulator's, and those differ -- they are supposed to. So the
-// *decisions* here are a function of the event stream alone: a counter of
-// events seen, and nothing else. Fills and order statuses are counted into
-// metrics and never consulted.
+// An earlier version of this comment claimed the opposite: that the decisions
+// here are a function of the event stream alone, so that the equivalence test
+// would hold. That was the wrong conclusion drawn from a real failure, and it
+// is worth recording because it is the more tempting mistake.
 //
-// That is a real constraint and it is worth being plain about what it buys and
-// what it does not. It buys a comparison in which any difference is a
-// difference in the pipeline, because nothing else could have caused one. It
-// does not prove that a fill-dependent strategy would agree across the two --
-// and such a strategy would not, which is a true statement about that
-// strategy rather than a defect in the seam. See docs/EXECUTION.md.
+// The first regular-session run diverged. Live, the venue refused orders and
+// this exercise resubmitted; in replay the fill simulator accepted them and it
+// did not. The reflex was to forbid the branch -- to make the theory ignore
+// what became of its own orders. But reacting to a rejection, a partial or a
+// lost cancel race is what a live strategy is *for*; it is why M1b built the
+// order lifecycle and why ABI v2 added on_order_status. A theory forbidden from
+// observing its own order state is a theory that cannot trade, and the rule
+// would have outlawed every realistic strategy this platform exists to run.
+//
+// The gap was in the recording, which held market data and no venue responses,
+// so replay could only invent answers. It now holds both, and a replay hands
+// this exercise exactly what the venue handed it -- so it may branch on order
+// state freely and still replay identically. See live/recorded_broker.hpp.
+//
+// What a passing equivalence test therefore says is stronger than before: the
+// seam holds for strategies that react to their own orders, not only for ones
+// that ignore them. See docs/EXECUTION.md.
 
 #include <cmath>
 
@@ -71,8 +97,10 @@ public:
                               63.0,
                               0.0),
         marketscan::param_int("follow_first",
-                              "Work whichever instrument shows the first two-sided quote, "
-                              "rather than a fixed index. 1 to enable.",
+                              "Work whichever instruments show the first two-sided quotes, "
+                              "rather than fixed indices. The marketable leg takes the "
+                              "first and the resting leg the second, so the two cannot "
+                              "cross each other. 1 to enable.",
                               0.0,
                               1.0,
                               1.0),
@@ -116,7 +144,8 @@ public:
                                  "points. Was a percentage, and 20 per cent meant the "
                                  "order could never be reached at all -- an order that "
                                  "cannot fill cannot partially fill either. A few basis "
-                                 "points rests, and is reachable within seconds.",
+                                 "points rests, and is reachable within seconds. Applied "
+                                 "below the bid for a buy and above the ask for a sell.",
                                  0.5,
                                  5000.0,
                                  4.0),
@@ -158,10 +187,26 @@ public:
     // strategy no way to ask what the current quote is -- which is what keeps
     // a strategy a function of the events it was shown.
     void on_quote(const MS_Quote& quote) override {
-        if (follow_first_ >= 0.5 && followed_ == 0 && quote.bid_px > 0.0 && quote.ask_px > 0.0) {
-            followed_ = quote.symbol;
-            log_info("working the first instrument with a two-sided quote");
+        if (follow_first_ >= 0.5 && quote.bid_px > 0.0 && quote.ask_px > 0.0) {
+            if (followed_ == 0) {
+                followed_ = quote.symbol;
+                log_info("marketable leg: the first instrument with a two-sided quote");
+            } else if (second_ == 0 && quote.symbol != followed_) {
+                second_ = quote.symbol;
+                log_info("resting leg: a second instrument, so the two legs cannot cross");
+            }
         }
+
+        // The resting leg's own touch, kept apart from the marketable leg's.
+        if (quote.symbol == resting_target()) {
+            if (quote.bid_px > 0.0) {
+                rest_bid_ = quote.bid_px;
+            }
+            if (quote.ask_px > 0.0) {
+                rest_ask_ = quote.ask_px;
+            }
+        }
+
         if (quote.symbol != target()) {
             return;
         }
@@ -264,6 +309,20 @@ private:
         return index < symbol_count() ? index + 1 : 1;
     }
 
+    /// The instrument the resting leg works: deliberately not `target()`.
+    ///
+    /// Zero until a second instrument has quoted, and the resting leg simply
+    /// does not run until then. Working both legs in one name is what produced
+    /// two dozen self-inflicted wash-trade refusals, and one leg idle is a
+    /// better outcome than that.
+    [[nodiscard]] MS_SymbolId resting_target() const noexcept {
+        if (follow_first_ >= 0.5) {
+            return second_;
+        }
+        const auto index = static_cast<uint32_t>(symbol_index_) + 1;
+        return index < symbol_count() ? index + 1 : 0;
+    }
+
     void step() {
         ++events_;
         if (!(bid_ > 0.0) || !(ask_ > 0.0)) {
@@ -333,6 +392,21 @@ private:
         return count;
     }
 
+    /// Shares for the resting leg, from its own instrument's ask.
+    [[nodiscard]] double resting_shares() const noexcept {
+        if (!(rest_ask_ > 0.0)) {
+            return 1.0;
+        }
+        double count = std::floor(notional_ / rest_ask_ + 0.5);
+        if (count < 1.0) {
+            count = 1.0;
+        }
+        if (count > max_shares_) {
+            count = max_shares_;
+        }
+        return count;
+    }
+
     void submit_marketable() {
         // Through the touch, so it is marketable now and stays marketable for
         // the moment it takes to arrive. A limit rather than a market order:
@@ -363,15 +437,26 @@ private:
     }
 
     void submit_resting() {
-        // Just below the bid: not marketable, so it rests, but close enough
-        // that an ordinary downtick reaches it. That is the point -- a resting
-        // order partially taken during a brief dip is the likeliest way a
-        // partial fill actually happens against paper.
+        // Just inside the touch: not marketable, so it rests, but close enough
+        // that an ordinary tick reaches it. That is the point -- a resting order
+        // partially taken during a brief move is the likeliest way a partial
+        // fill actually happens against paper.
+        //
+        // On its own instrument, and alternating sides: see the header comment
+        // for what both of those cost when they were absent.
         if (resting_id_ != 0) {
             return;  // One at a time, so the dwell means something.
         }
-        const double price = round_to_penny(bid_ * (1.0 - rest_bps_ / 10'000.0));
-        resting_id_ = submit_limit(target(), MS_SIDE_BUY, shares(), price, MS_TIF_DAY, 2);
+        const MS_SymbolId symbol = resting_target();
+        if (symbol == 0 || !(rest_bid_ > 0.0) || !(rest_ask_ > 0.0)) {
+            return;  // No second instrument has quoted yet.
+        }
+
+        const bool buying = (resting_count_++ % 2) == 0;
+        const double price = buying ? round_to_penny(rest_bid_ * (1.0 - rest_bps_ / 10'000.0))
+                                    : round_to_penny(rest_ask_ * (1.0 + rest_bps_ / 10'000.0));
+        resting_id_ = submit_limit(
+            symbol, buying ? MS_SIDE_BUY : MS_SIDE_SELL, resting_shares(), price, MS_TIF_DAY, 2);
         resting_turn_ = turn_;
         ++submits_;
         publish();
@@ -442,6 +527,7 @@ private:
         publish_metric("expiries", static_cast<double>(expiries_));
         publish_metric("events_seen", static_cast<double>(events_));
         publish_metric("instrument", static_cast<double>(target()));
+        publish_metric("resting_instrument", static_cast<double>(resting_target()));
 
         // The derived share count and what it is worth, so a report says how
         // big the orders actually were rather than only what was asked for.
@@ -453,6 +539,12 @@ private:
     double symbol_index_ = 0.0;
     double follow_first_ = 1.0;
     MS_SymbolId followed_ = 0;
+
+    /// The resting leg's instrument, and its own touch. Separate from the
+    /// marketable leg's so the two cannot trade against each other.
+    MS_SymbolId second_ = 0;
+    double rest_bid_ = 0.0;
+    double rest_ask_ = 0.0;
     double period_ = 200.0;
     double notional_ = 15'000.0;
     double max_shares_ = 300.0;
@@ -470,6 +562,9 @@ private:
     /// Alternates the marketable order's side. A counter, not a clock and
     /// not a coin: replay has to make the same choice.
     uint64_t marketable_count_ = 0;
+
+    /// Alternates the resting leg's side, for the same reason.
+    uint64_t resting_count_ = 0;
 
     double bid_ = 0.0;
     double ask_ = 0.0;

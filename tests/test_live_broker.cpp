@@ -717,6 +717,9 @@ TEST_CASE("a zero notional rail disables the check", "[live][broker][rails]") {
     config.run_token = "testrun";
     config.max_order_quantity = 300.0;
     config.max_order_notional = Money{};
+    // The exposure cap is a different rail and would otherwise catch this
+    // order first, which would make the test pass for the wrong reason.
+    config.max_gross_exposure = Money{};
     Harness h(config);
 
     MS_OrderRequest request{};
@@ -779,4 +782,118 @@ TEST_CASE("the rails refuse a price or quantity that is not a number", "[live][b
 
     request.limit_price = std::numeric_limits<double>::infinity();
     REQUIRE(h.broker->check_rails(request) == RejectReason::InvalidPrice);
+}
+
+// --------------------------------------------------------------------------
+// The gross exposure cap
+// --------------------------------------------------------------------------
+
+TEST_CASE("the exposure cap refuses rather than resizing", "[live][broker][rails]") {
+    // The condition this cap was approved under. A cap that quietly shrank an
+    // order to fit would stop being able to tell anyone a sizing bug exists --
+    // it would absorb one instead, which is the failure mode this project keeps
+    // finding in other guises.
+    LiveBrokerConfig config;
+    config.run_token = "testrun";
+    config.max_order_notional = Money{};  // isolate the exposure rail
+    config.max_gross_exposure = Money::from_dollars(50'000);
+    Harness h(config);
+
+    MS_OrderRequest request{};
+    request.symbol = h.aapl;
+    request.side = MS_SIDE_BUY;
+    request.type = MS_ORD_LIMIT;
+    request.tif = MS_TIF_DAY;
+    request.quantity = 300.0;
+    request.limit_price = 200.0;  // $60,000, over the cap with nothing held
+
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InsufficientCash);
+
+    // Refused whole. The quantity the caller asked for is untouched -- there is
+    // no path that could have changed it, because check_rails takes a const
+    // reference and returns a reason.
+    REQUIRE_THAT(request.quantity, WithinAbs(300.0, 1e-12));
+}
+
+TEST_CASE("exposure accumulates across fills", "[live][broker][rails]") {
+    // The failure it exists to prevent: orders that are individually small
+    // adding up to a levered position. Fifty partial fills did exactly this.
+    LiveBrokerConfig config;
+    config.run_token = "testrun";
+    config.max_order_notional = Money{};
+    config.max_gross_exposure = Money::from_dollars(30'000);
+    Harness h(config);
+
+    MS_OrderRequest request{};
+    request.symbol = h.aapl;
+    request.side = MS_SIDE_BUY;
+    request.type = MS_ORD_LIMIT;
+    request.tif = MS_TIF_DAY;
+    request.quantity = 100.0;
+    request.limit_price = 200.0;  // $20,000
+
+    // Nothing held: fits.
+    REQUIRE(h.broker->check_rails(request) == RejectReason::None);
+
+    // Now hold $20,000 of it, and the same order no longer fits.
+    const OrderId id = h.place(100.0);
+    TradeUpdate filled = h.update(id, UpdateKind::Fill);
+    filled.fill_quantity = 100.0;
+    filled.fill_price = 200.0;
+    filled.cumulative_filled = 100.0;
+    h.broker->apply_update(filled, 2000);
+
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InsufficientCash);
+}
+
+TEST_CASE("an order that reduces exposure is always allowed", "[live][broker][rails]") {
+    // Refusing to close a position is how a rail turns into the thing it was
+    // protecting against: the account would be stuck at the cap forever.
+    LiveBrokerConfig config;
+    config.run_token = "testrun";
+    config.max_order_notional = Money{};
+    config.max_gross_exposure = Money::from_dollars(1);  // absurdly tight
+    Harness h(config);
+
+    const OrderId id = h.place(100.0);
+    TradeUpdate filled = h.update(id, UpdateKind::Fill);
+    filled.fill_quantity = 100.0;
+    filled.fill_price = 200.0;
+    filled.cumulative_filled = 100.0;
+    h.broker->apply_update(filled, 2000);
+    REQUIRE_THAT(h.broker->ledger().position(h.aapl), WithinAbs(100.0, 1e-9));
+
+    MS_OrderRequest closing{};
+    closing.symbol = h.aapl;
+    closing.side = MS_SIDE_SELL;
+    closing.type = MS_ORD_LIMIT;
+    closing.tif = MS_TIF_DAY;
+    closing.quantity = 100.0;
+    closing.limit_price = 200.0;
+    REQUIRE(h.broker->check_rails(closing) == RejectReason::None);
+
+    // And one that would flip the position further short than it is long is
+    // increasing exposure again, so it is capped.
+    //
+    // 250 rather than 400: the share cap is 300 and would otherwise answer
+    // first, which would make this pass on the wrong rail.
+    closing.quantity = 250.0;
+    REQUIRE(h.broker->check_rails(closing) == RejectReason::InsufficientCash);
+}
+
+TEST_CASE("a zero exposure cap disables the check", "[live][broker][rails]") {
+    LiveBrokerConfig config;
+    config.run_token = "testrun";
+    config.max_order_notional = Money{};
+    config.max_gross_exposure = Money{};
+    Harness h(config);
+
+    MS_OrderRequest request{};
+    request.symbol = h.aapl;
+    request.side = MS_SIDE_BUY;
+    request.type = MS_ORD_LIMIT;
+    request.tif = MS_TIF_DAY;
+    request.quantity = 300.0;
+    request.limit_price = 9'000.0;
+    REQUIRE(h.broker->check_rails(request) == RejectReason::None);
 }

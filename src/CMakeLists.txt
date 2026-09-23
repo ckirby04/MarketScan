@@ -44,6 +44,8 @@ add_library(marketscan_core STATIC
     marketscan/live/live_broker.cpp
     marketscan/live/live_feed.cpp
     marketscan/live/order_map.cpp
+    marketscan/live/order_tracker.cpp
+    marketscan/live/recorded_broker.cpp
     marketscan/live/recorded_feed.cpp
     marketscan/live/recorder.cpp
     marketscan/live/stream_parser.cpp
