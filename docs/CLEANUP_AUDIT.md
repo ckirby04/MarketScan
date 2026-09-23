@@ -370,20 +370,187 @@ planned for has no contents.
 
 ## 10. Repository hygiene
 
-Checked, with results in §11 after the work is done.
+Six checks. Five found nothing; the one finding is small.
 
-- `.gitignore` completeness against build trees, caches, credential paths,
-  editor state, the data cache and recording output.
-- Tree and history scanned for anything resembling a credential.
-- No market data and no session recording tracked.
-- Line endings and `.gitattributes`.
-- `LICENSE` present; vendored font licences present and compatible.
-- No tracked build artifact or file over a few megabytes.
+**`.gitignore` completeness — one gap, fixed.** `.pytest_cache/` was ignored, but
+by pytest rather than by this repository: pytest writes a `.gitignore` containing
+`*` inside its own cache directory. `git status` was clean for a reason that
+appeared nowhere in the tree and that a pytest release could withdraw. An ignore
+rule that works because of a third party's incidental behaviour is
+indistinguishable from one that works, which is §8's law in a different costume.
+Named explicitly, with the reason.
+
+Everything else is covered and commented: build trees, vcpkg, MSVC state, the
+data cache, the credential filename conventions, and recordings under three
+patterns.
+
+**Credentials, tree and history — none.** Scanning `HEAD` answers the wrong
+question, because a key deleted in a later commit is still fetchable and still
+compromised. The scan walked all **679 blobs across every commit on every ref**
+against eight patterns, and asserted its own blob count before reporting, since a
+credential scan that examined nothing prints the same clean result as one that
+examined everything. Three hits, all verified benign rather than assumed:
+
+| hit | what it actually is |
+|---|---|
+| `.github/workflows/ci.yml`, `vcpkg.json` (40-char strings) | the pinned vcpkg baseline git SHA |
+| `tests/test_paper_only.cpp:202` (`PK`-prefixed, 20 chars) | `PKTESTTESTTESTTESTTE`, the synthetic input to the test asserting that redaction redacts |
+
+Broker keys come from the environment and from nowhere else, and
+`scripts/check_no_secrets.py` enforces that in CI because a `.gitignore` is a
+convenience that one `git add -f` defeats.
+
+**Market data and recordings — nothing tracked.** `data/*` is ignored with four
+explicit exceptions, all curated fixtures. No `*.ndjson` anywhere.
+
+**Line endings — already correct, and better than this session's brief assumed.**
+`.gitattributes` is committed and all 307 tracked text files are **LF in the
+index**: no CRLF, no mixed, nothing to normalize, nothing to commit. What produced
+CRLF warnings was the local *working copy*, stale from before `.gitattributes`
+existed, together with `core.autocrlf=true` inherited from Git for Windows' system
+configuration — not repo-local, not global. Renormalized locally so that what is
+built matches what CI checks out. Two files did have genuinely mixed endings in
+the working copy, `AUDIT.md` and `EXECUTION.md`, from appending LF text to CRLF
+files; the index had normalized both, so the committed bytes were right either
+way.
+
+**Licences — present and consistent.** `LICENSE` is MIT and matches the `license`
+field in `vcpkg.json`. Both vendored font licences are present, as those licences
+require.
+
+**Size — nothing to answer for.** The largest tracked file is a 580 KB figure
+JSON. No build artifact is tracked and nothing exceeds a megabyte. After a full
+build, a full `ctest` run and several `ms_live` invocations, `git status
+--untracked-files=all` is empty.
 
 ---
 
 ## 11. Close
 
-Completed at the end of the session: after-metrics beside before-metrics, the
-statement that every golden value and determinism hash is unchanged and how that
-was verified, and the backlog this audit produced.
+Measured at the end of the session, on a clean rebuild, against §1.
+
+| | before | after | |
+|---|---|---|---|
+| tracked files | 315 | 318 | +3: `CLEANUP_AUDIT.md`, `live/detail.hpp`, `apps/live/cli.hpp` |
+| tracked bytes | 6,358,758 | 6,391,631 | +32,873, almost all of it prose |
+| C++ `.cpp` lines | 34,692 | 34,544 | −148 |
+| C++ `.hpp` lines | 11,292 | 11,480 | +188, two new headers |
+| C++ `.h` lines | 328 | 328 | `plugin_abi.h` untouched, as required |
+| Python lines | 12,040 | 12,050 | +10, one docstring |
+| Markdown lines | 6,409 | 7,050 | +641 |
+| `TEST_CASE` blocks | 467 | 467 | **no test was added, removed or edited** |
+| ctest registers | 466 | 466 | |
+| permitted skips | 1 | 1 | the same one, still allowlisted |
+| Python tests | 213 | 213 | |
+| built binaries | 37, 20,697,600 B | 37, 20,698,624 B | +1,024 B |
+| full rebuild, `-j 3` | 71 s | 67 s | inside run-to-run variance |
+
+Net effect on code: **148 lines of C++ removed from translation units, 188 added
+as two headers, and 641 lines of documentation written.** A cleanup session that
+adds more prose than it deletes code is the honest outcome here, because what
+this repository was short of was not tidiness.
+
+### Preservation, and how it was established rather than asserted
+
+- **466 tests compared individually against the pre-session baseline** -- by test
+  number, name and outcome, not by totals -- after each refactor and again on a
+  clean rebuild at the end. Identical every time.
+- The first such comparison appeared to show 40 differences. They were `-j 3`
+  completion order: comparing the ordered output of a parallel run is a mistake,
+  not a finding. Sorted by test id, the runs were the same run.
+- **Not one test file was edited to make a refactor pass.** The only change to a
+  test file in this session is a comment in `test_parity.cpp` warning against
+  deleting the duplication it depends on. `TEST_CASE` count is unchanged at 467,
+  which is the mechanical check on that claim.
+- **`ms_live` was compared binary against binary**, because ctest barely covers
+  it and a green suite would not have been evidence. The pre-refactor executable
+  was built from stashed sources and both were driven through 39 invocations --
+  every subcommand, options present, options absent, options given no value,
+  malformed `--set` pairs, and `"SPY,,QQQ,"` for `split_commas` -- with identical
+  exit codes, stdout and stderr throughout.
+- That comparison's **first run failed its own byte-count assertion**: 39
+  invocations, 0 bytes of output, because both binaries had been copied away from
+  their DLLs and neither had started. Without the assertion it would have printed
+  `IDENTICAL` on the strength of two processes that never ran. Recorded because
+  it happened in the same session that wrote the vacuous-pass law down, and
+  because it is the cheapest possible demonstration that the law is not a story
+  about the past.
+- Both presets build clean with `MARKETSCAN_WERROR=ON`, release and debug.
+- The full CI gate run locally: `check_skips.py` (466 tests, 1 allowlisted skip),
+  `check_no_live_endpoints.py` on the tree and on all 37 binaries,
+  `check_no_secrets.py`, and clang-format 19.1.1 across all 189 C and C++ files.
+  All clean.
+
+### Commits
+
+One thing per commit, deletion never mixed with refactoring, and no commit
+touched more than 8 files.
+
+| commit | what |
+|---|---|
+| Part 0 | this audit, committed before any change |
+| Parts 2-3 | the vacuous-pass law and the deliberate-duplication rationale; docs and comments only |
+| Part 4 | `.pytest_cache/` named explicitly in `.gitignore` |
+| Part 5 refactor 1 | four helpers into `include/marketscan/live/detail.hpp` |
+| Part 5 refactor 2 | `ms_live`'s argument parsing into `apps/live/cli.hpp` |
+| Part 6 | this section |
+
+**Part 1, the deletion commit, does not exist.** Every candidate a mechanical
+sweep would have removed turned out to be protected or load-bearing, and the one
+file with no home -- `scripts/format.ps1` -- needs documenting rather than
+deleting. An empty commit asserting that nothing was deleted would be worse than
+its absence; this paragraph is the record.
+
+### One new finding, from doing the work
+
+`kUserAgent` was defined six times across `apps/live/`, identically. §5 missed it
+because the duplication scan looked for functions and this is a constant.
+
+It is worth more than its size, because it forced the rule that separates the two
+constants this session treated differently:
+
+> Collapse repetition when divergence would be a bug. Keep it when divergence
+> would be a decision.
+
+`kUserAgent` says who is calling, to a venue entitled to a straight answer; six
+definitions were six chances to disagree about the identity of one program, so it
+collapsed. `kReceiveTimeoutMs` is 250 in two files that own two different sockets,
+which may legitimately want different timeouts, so it stayed. Both reasons are
+now written in the headers rather than inferable from the diff.
+
+### Deliberately not done
+
+Everything below was classified **needs a decision** or **protected**. None of it
+is blocked on anything; each is a judgement that is not a cleanup pass's to make.
+
+| | why not |
+|---|---|
+| Split `istrategy.hpp` (1,234 lines) | the largest available refactor and the most dangerous file to touch: every plugin compiles it and the v1 reference plugin's behaviour is asserted byte for byte. Deserves its own session with that comparison in front of it. |
+| Split `session.cpp`, `plugin_loader.cpp`, `universe.cpp` | each is long because it does one coherent job. No seam was found that was not arbitrary. |
+| Delete the nine uncalled public names | public API on documented classes; `param_enum` exists for plugin authors, who are outside this tree by construction, and the GUI is `OFF` in CI so "green without it" proves less here. |
+| Collapse `tif_name`/`type_name`'s third copies in `apps/live/equivalence.cpp` | sharing a formatting helper between the library and an app decides that the library owns display formatting. A design choice, not a refactor. |
+| Document `scripts/format.ps1` | it works, nothing references it, and nothing tells a developer it exists. A docs decision about developer workflow. |
+| Fix `test_stream_parser.cpp:255` | the one genuine vacuous-law gap in 467 cases. Changes a test, which is behaviour. Inventoried in `AUDIT.md`. |
+| Assert the `ms_live` summaries reconcile | the highest-value item on the whole backlog and the exact hole the dropped venue-refusal counter went through. Changes behaviour. Inventoried in `AUDIT.md`. |
+| Assert a minimum test count in `check_skips.py` | the gate is sound; its summary line is not. Changes behaviour. Inventoried in `AUDIT.md`. |
+| Reconcile `BUILD_SPEC_2.md` further, or touch the other spec drift | specs record what was asked. The Stooq claim got a dated editorial note beneath unmodified original text; M3b's absence from the specs is reported and left. |
+| Anything in `STATUS.md`'s three open items | out of scope by instruction, and the first of them is now correctly recorded as a wrong prescription rather than an open task. |
+
+### What this session did not find
+
+Worth stating, because a cleanup report that finds nothing reads as a cleanup
+that did not look:
+
+no commented-out code; no `TODO`, `FIXME`, `HACK` or `XXX` in any source, script
+or document; no unreferenced header; no untracked file after a full build and
+test run; no credential in the working tree or anywhere in history across 679
+blobs; no market data or recording tracked; no build artifact tracked; nothing
+over a megabyte; no CRLF or mixed line ending in the index; and no missing
+licence.
+
+The one thing it did find, and the reason it was worth running at all, was an
+absence rather than a presence: the most important instrument in this repository
+was documented by its result and nowhere by its rationale, and a future reader
+tidying up would have found two implementations of one strategy agreeing exactly,
+with nothing on the page to say that collapsing them destroys the measurement
+while leaving every printed number intact.
