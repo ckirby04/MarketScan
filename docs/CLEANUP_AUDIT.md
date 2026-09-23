@@ -285,6 +285,12 @@ handoff document. **Recorded; no action.**
 
 ### 7.5 Stale facts in `STATUS.md`, corrected
 
+> **Session H made this a rule.** The distinction §7.5 and §7.6 draw by hand --
+> descriptive facts may be corrected, historical statements may not, measured
+> results are frozen absolutely -- is written up as [`FREEZE_CONTRACT.md`](FREEZE_CONTRACT.md)
+> so the next freeze does not have to derive it again under a brief that says
+> otherwise.
+
 Not spec drift — a handoff document that had fallen behind the tree it describes.
 `STATUS.md` led with "Last updated: 2026-09-21, end of Session E", claimed 367
 C++ tests in its header and 327 in its body (mutually inconsistent, both wrong),

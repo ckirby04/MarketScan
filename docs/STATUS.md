@@ -3,8 +3,13 @@
 A handoff, not a changelog. What is proven and by which measurement, what is
 approximated and where, what is unresolved, and what the next phase needs.
 
-**Last updated:** 2026-09-23, end of Session G. CI green. 466 C++ tests (one
-skipped, allowlisted), 213 Python.
+**Last updated:** 2026-09-23, end of Session H. CI green. 483 C++ tests (one
+skipped, allowlisted), 228 Python.
+
+The counts and version identifiers in this document are descriptive facts about
+the tree and are corrected whenever they are found wrong. Measured results are
+not: see [`FREEZE_CONTRACT.md`](FREEZE_CONTRACT.md) for which is which and why a
+freeze that protects both protects the wrong thing.
 
 ---
 
@@ -116,8 +121,8 @@ linked and launched at once will stall regardless.
 Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
-**466 C++ tests** on `ci` and `ci-debug`, measured; **467** on `full`, for the
-reason in [`AUDIT.md`](AUDIT.md) check 9. **213 Python tests** in
+**483 C++ tests** on `ci` and `ci-debug`, measured; **484** on `full`, for the
+reason in [`AUDIT.md`](AUDIT.md) check 9. **228 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import
 that changes that turns the job red.
@@ -1153,3 +1158,102 @@ The three that matter most:
   cases. One line fixes it.
 
 None is blocked. Each changes behaviour, which is why none was done here.
+
+---
+
+## Session H: closing the inventoried gaps
+
+Session G inventoried what it could not do without changing behaviour. This did
+those things.
+
+| | | |
+|---|---|---|
+| 1 | Summaries assert their own arithmetic | done — six identities per broker, checked against the orders and the blotter, hard failure on exit 4 |
+| 2 | The deliberate duplication, enforced | done — an import-graph guard on the two modules whose independence is the measurement |
+| 3 | The three inventoried vacuous-law gaps | done — all three closed, one commit each |
+| 4 | Instance five of the law | done — it happened while the law was being written down |
+| 5 | The freeze contract | done — [`FREEZE_CONTRACT.md`](FREEZE_CONTRACT.md) |
+
+### What the counters are now checked against
+
+`OrderTracker` no longer trusts the tallies it prints. The counters naming an
+order's terminal state are compared with a census of the orders themselves,
+derived at print time from the one structure that cannot drift from the run:
+
+```
+orders registered  == submitted + refusals registered
+orders in Rejected == rejected           <- the identity that fails 128/124/0
+orders in Expired  == expired
+orders in Cancelled == cancelled + replaced
+blotter rows       == fills booked
+rail refusals      <= refusals registered
+```
+
+Each is one-to-one rather than approximate, because `apply_update` short-circuits
+on `is_terminal()` and an order enters a terminal state at most once. The
+inequality is written as one instead of being dressed up as an equation.
+
+`SummaryAudit` collects these across every `ms_live` subcommand that prints counts
+and exits **4, `INCONSISTENT SUMMARY`**, distinct from 1 diverged, 2 could not
+run and 3 vacuous. A pass prints how many identities held; an audit with no
+identities in it is itself a failure.
+
+**Two findings came straight out of building it.** `UpdateKind::Replaced` set an
+order to Cancelled and incremented nothing, so a replacement was counted nowhere
+at all — not even in `cancelled`, which means no figure that line ever printed was
+inflated. It was missing rather than mistaken, and it now has its own counter and
+field. And `ms_live bait` was reporting "N of M candidates were refused" while
+lumping together "the venue accepted it" and "it was never sent because of a rate
+limit" — opposite outcomes, since the first says the bait is no good and the
+second says nothing was learned about it.
+
+### The duplication now has a mechanism, and its limits are stated
+
+`research/tests/test_layer_independence.py` fails if `research.sizing` or
+`research.parity` reaches the pybind11 `marketscan` module, directly or
+transitively; if either module is deleted; or if anything in their closure uses
+`importlib` or `__import__`, which is the one-line way round an import-graph
+guard.
+
+It is static analysis, because the `research` CI job runs on Linux with no built
+bindings — a runtime check would pass there for the wrong reason. The bindings are
+not banned anywhere; only the two modules whose independence *is* a measurement
+are constrained, named one at a time rather than by a pattern, and a test asserts
+the known legitimate binding users fall outside the guarded set.
+
+**What it does not catch** is in [`AUDIT.md`](AUDIT.md): transliterating the C++
+into Python line by line produces two files that are textually independent and
+causally one, and no import graph can see that. The cheap accidents now fail the
+build; the expensive deliberate version still needs a person to read the argument.
+
+### Instance five
+
+Session G's `ms_live` comparison reported 39 invocations and **0 bytes of
+output**, and failed on its own byte-count assertion: both binaries had been
+copied away from the DLLs they link against and neither process started. It would
+otherwise have printed `IDENTICAL` about two programs that never ran, as proof
+that a refactor was safe.
+
+It was caught by a line written minutes earlier for no reason except that the law
+had just been documented — and the first thing that line did was catch the law
+being broken by the person documenting it. The same shape then recurred twice more
+in this session's own patch scripts and was caught the same way, by assertions on
+the expected match count.
+
+Which yields the rule that generalises, narrower and more useful than the law:
+**any comparison must assert that it compared something, and any edit must assert
+that it changed something.**
+
+### What is owed to the next phase
+
+**Nothing in the engineering backlog that does not need data.** The three
+inventoried gaps are closed, the one architectural invariant without enforcement
+now has some, and the items Session G left as decisions are still decisions:
+splitting `istrategy.hpp`, the nine uncalled public names, documenting
+`scripts/format.ps1`, and the third copies of `tif_name`/`type_name`. Those are
+listed with their reasons in [`CLEANUP_AUDIT.md`](CLEANUP_AUDIT.md) §11.
+
+What remains open is in **What is unresolved** above and is mostly not
+engineering: the rejection bait confirmed in isolation and not in place, the
+position drift that alternating bounds but does not remove, the event-rate model
+with no figure for the open, and M3b, which is CRSP-dependent.
