@@ -4,18 +4,13 @@
 #include <optional>
 #include <utility>
 
+#include "marketscan/live/detail.hpp"
 #include "marketscan/util/logging.hpp"
 
 namespace marketscan::live {
 namespace {
 
-/// A number for a log line. Local here as well as in live_broker.cpp, because
-/// the alternative is a utility header nobody asked for.
-[[nodiscard]] std::string number(double value, int decimals) {
-    char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), "%.*f", decimals, value);
-    return buffer;
-}
+using detail::number;
 
 }  // namespace
 

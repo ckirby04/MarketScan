@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "marketscan/live/detail.hpp"
 #include "marketscan/live/trade_updates.hpp"
 #include "marketscan/util/logging.hpp"
 
@@ -19,17 +20,7 @@ namespace {
     return type == MS_ORD_LIMIT ? "limit" : "market";
 }
 
-[[nodiscard]] const char* tif_name(MS_TimeInForce tif) noexcept {
-    switch (tif) {
-        case MS_TIF_IOC:
-            return "ioc";
-        case MS_TIF_GTC:
-            return "gtc";
-        case MS_TIF_DAY:
-        default:
-            return "day";
-    }
-}
+using detail::tif_name;
 
 [[nodiscard]] std::string describe(std::string_view symbol,
                                    Side side,

@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include "marketscan/core/clock.hpp"
+#include "marketscan/live/detail.hpp"
 #include "marketscan/live/endpoints.hpp"
 #include "marketscan/live/websocket.hpp"
 #include "marketscan/util/logging.hpp"
@@ -41,21 +42,8 @@ constexpr int kReceiveTimeoutMs = 250;
     }
 }
 
-[[nodiscard]] Timestamp local_now() noexcept {
-    static const SystemClock clock;
-    return clock.now();
-}
-
-/// Sleeps in slices so a stop request is noticed inside a long backoff.
-void interruptible_sleep(int total_ms, const std::atomic<bool>& stopping) {
-    constexpr int kSlice = 100;
-    int slept = 0;
-    while (slept < total_ms && !stopping.load(std::memory_order_relaxed)) {
-        const int slice = std::min(kSlice, total_ms - slept);
-        std::this_thread::sleep_for(std::chrono::milliseconds(slice));
-        slept += slice;
-    }
-}
+using detail::interruptible_sleep;
+using detail::local_now;
 
 }  // namespace
 

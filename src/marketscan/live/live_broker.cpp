@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include "marketscan/core/clock.hpp"
+#include "marketscan/live/detail.hpp"
 #include "marketscan/live/endpoints.hpp"
 #include "marketscan/live/websocket.hpp"
 #include "marketscan/util/logging.hpp"
@@ -16,29 +17,14 @@
 namespace marketscan::live {
 namespace {
 
+/// This socket's receive timeout, deliberately not shared with live_feed.cpp's
+/// identical value: see the note in detail.hpp.
 constexpr int kReceiveTimeoutMs = 250;
 
-[[nodiscard]] Timestamp local_now() noexcept {
-    static const SystemClock clock;
-    return clock.now();
-}
-
-void interruptible_sleep(int total_ms, const std::atomic<bool>& stopping) {
-    constexpr int kSlice = 100;
-    int slept = 0;
-    while (slept < total_ms && !stopping.load(std::memory_order_relaxed)) {
-        const int slice = std::min(kSlice, total_ms - slept);
-        std::this_thread::sleep_for(std::chrono::milliseconds(slice));
-        slept += slice;
-    }
-}
-
-/// The venue takes quantities and prices as strings.
-[[nodiscard]] std::string number(double value, int decimals) {
-    char buffer[64];
-    std::snprintf(buffer, sizeof(buffer), "%.*f", decimals, value);
-    return buffer;
-}
+using detail::interruptible_sleep;
+using detail::local_now;
+using detail::number;
+using detail::tif_name;
 
 /// A field the venue may send as a string, as a number, or as null.
 ///
@@ -74,18 +60,6 @@ text_or(const nlohmann::json& obj, const char* key, const char* fallback) {
         return std::stod(raw);
     } catch (const std::exception&) {
         return 0.0;
-    }
-}
-
-[[nodiscard]] const char* tif_name(MS_TimeInForce tif) noexcept {
-    switch (tif) {
-        case MS_TIF_IOC:
-            return "ioc";
-        case MS_TIF_GTC:
-            return "gtc";
-        case MS_TIF_DAY:
-        default:
-            return "day";
     }
 }
 
