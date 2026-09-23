@@ -467,8 +467,8 @@ cannot be audited by reading it.
 # The vacuous-pass law
 
 The three shapes above were written up one at a time, each as a surprise. They
-are not three surprises. They are one law with four instances, and stating it as
-a law is what lets the fourth be recognised in minutes instead of days:
+are not three surprises. They are one law with five instances, and stating it as
+a law is what lets a new one be recognised in minutes instead of days:
 
 > **Any mechanism whose output looks the same whether it is working or absent
 > will eventually be absent.**
@@ -478,15 +478,15 @@ counters, guards, gates, reports. The question to ask of each is not *is it
 correct* but *what would it print if someone deleted it*. If the answer is "the
 same thing", it is already gone; nobody has noticed yet.
 
-## The four instances
+## The five instances
 
-| | Session D | Session F Part 0 | Session F Part 5 | Session F2 Part 3 |
-|---|---|---|---|---|
-| shape | a skip read as a pass | an empty fixture directory read as a pass | an empty comparison read as a pass | a correct comparison over misrouted state read as a pass |
-| what was absent | four tests, silently not running | the fixtures the parity test compares | any decision at all to compare | every venue response, applied to nothing |
-| what the output said | `PASS` | `PASS` | `EQUIVALENT` | `EQUIVALENT`, on 111 decisions |
-| caught by | accident | a deliberate audit | reading the output | checking a number that was not the verdict |
-| now fails via | `scripts/check_skips.py` | a gate on a checked count, not on a directory existing | `VACUOUS`, exit 3, with both counts printed | an engine-id guarantee **and** a fatal misroute check |
+| | Session D | Session F Part 0 | Session F Part 5 | Session F2 Part 3 | Session G Part 5 |
+|---|---|---|---|---|---|
+| shape | a skip read as a pass | an empty fixture directory read as a pass | an empty comparison read as a pass | a correct comparison over misrouted state read as a pass | a comparison of two processes that never started |
+| what was absent | four tests, silently not running | the fixtures the parity test compares | any decision at all to compare | every venue response, applied to nothing | both programs being compared |
+| what the output said | `PASS` | `PASS` | `EQUIVALENT` | `EQUIVALENT`, on 111 decisions | would have said `IDENTICAL`, on 39 invocations |
+| caught by | accident | a deliberate audit | reading the output | checking a number that was not the verdict | the script's own byte-count assertion |
+| now fails via | `scripts/check_skips.py` | a gate on a checked count, not on a directory existing | `VACUOUS`, exit 3, with both counts printed | an engine-id guarantee **and** a fatal misroute check | an assertion that the comparison produced any output at all |
 
 The first three are the same defect: a report that did not say *how much* it
 measured. Each fix makes the report state its own denominator.
@@ -547,12 +547,65 @@ Apply the law to the check itself: its output is identical whether it is working
 or absent, which is precisely why it must be kept rather than why it may go.
 `RecordedBroker` and this pair are on Session G's protected list for this reason.
 
+## The fifth instance happened while this section was being written
+
+Session G's second refactor moved `ms_live`'s argument parsing into a shared
+header. `ctest` barely covers `ms_live` — it is an executable, not a library under
+test — so a green suite would not have been evidence that the refactor preserved
+behaviour. The verification was therefore a comparison of executables: build the
+pre-refactor `ms_live` from the stashed sources, drive both binaries through 39
+invocations covering every subcommand, and require identical exit codes, stdout
+and stderr.
+
+**The first run of that comparison reported 39 invocations and 0 bytes of output,
+and failed on its own byte-count assertion.** Both binaries had been copied to a
+scratch directory away from the `fmt` and `spdlog` DLLs they link against. Neither
+process started. Windows returns a loader error and no output at all, which
+`subprocess` reports as an empty string rather than as a failure.
+
+Without that assertion the comparison would have printed `IDENTICAL: same exit
+code, same stdout, same stderr, every invocation` — a true statement about two
+programs that never ran, offered as proof that a refactor was safe. Two empty
+outputs are equal for exactly the same reason two empty decision lists are equal,
+which is the Session F Part 5 shape in a different costume.
+
+**What caught it was not cleverness.** It was a line in the script asserting that
+the comparison had produced some output, put there for no better reason than that
+the law had just been written down on the previous page. The first thing it did
+was catch the law being broken by the person writing it down.
+
+**Why that is the most useful instance of the five.** The other four can be read
+as history — bugs found, mechanisms added, lesson learned. This one says the lesson
+does not transfer. Noticing the pattern, describing it, giving it a name and
+writing a document about it confers no immunity from it, because the pattern is not
+a mistake anyone makes through ignorance. It is the default shape of a
+verification: you build a thing to compare two states, and the case where it
+compares nothing looks exactly like the case where the two states agree. The only
+defence is the boring one, applied every time, including by people who have just
+finished explaining it.
+
+**The same shape recurred twice more in Session H's own tooling**, and was caught
+the same cheap way. Two scripts that patched source files by string replacement
+asserted their expected match count before writing; both fired, once because the
+working copy is CRLF and the patterns were LF, once because this shell's heredocs
+eat backslash escapes. Either would otherwise have reported success having changed
+nothing. A patch that matches nothing and a patch that was already applied are
+indistinguishable from their output.
+
+**So the rule that generalises** from all three of these is narrower and more
+useful than the law itself:
+
+> Any comparison must assert that it compared something. Any edit must assert that
+> it changed something. The quantity is cheap to record and the absence of it is
+> what the failure looks like.
+
 ## Attention does not run in CI
 
-Of the four, one was found by a deliberate audit. The other three were found by a
-person reading output that had already been printed and accepted.
+Of the five, one was found by a deliberate audit and one by an assertion written
+minutes earlier. The other three were found by a person reading output that had
+already been printed and accepted.
 
-And a fifth that never became a bug: a run reported `128 submitted, 124
+And a sixth that never became a bug: a run reported `128 submitted, 124
 accepted, 0 rejected`. Four orders had plainly been refused — they were in the
 log, with their reasons, correctly. The refactor that extracted `OrderTracker`
 had dropped the venue-refusal counter, so the summary under-reported by exactly
@@ -568,43 +621,87 @@ something the build refuses.
 
 > **A mechanism guarded only by someone noticing is not yet guarded.**
 
-## Where the law is not yet applied
+## Where the law was not yet applied, and what closed each gap
 
-Inventory, current as of Session G. None of these are fixed here: each changes
-behaviour, and Session G is behaviour-preserving by contract. They are written
-down so the next session does not have to rediscover them.
+Session G inventoried three places and deliberately left all three alone, because
+applying them changes behaviour and that session was behaviour-preserving by
+contract. Session H applied all three. The inventory is kept rather than deleted:
+what the gap was is the useful part, and a closed item with no description of what
+it used to be is a note saying "fixed".
 
-**1. `tests/test_stream_parser.cpp:255` — "the gate leaves an already ordered
-stream untouched".** Parses three trades from a literal and loops over
-`parsed.events` making four assertions. Nothing pins the length. A parser change
-that returned zero events would iterate nothing and pass. One line fixes it:
-`REQUIRE(parsed.events.size() == 3)`.
+**1. `tests/test_stream_parser.cpp` — "the gate leaves an already ordered stream
+untouched". CLOSED, Session H Part 3a.**
 
-This is the only instance in 467 test cases. The scan that found it produced two
-false positives before it was rewritten to track brace depth, and that history is
-recorded in `docs/CLEANUP_AUDIT.md` §8.1 rather than quietly discarded.
+It parsed three trades from a literal, looped over `parsed.events` making four
+assertions, and nothing anywhere pinned the length of what it looped over. A
+parser change returning zero events would have iterated nothing and passed.
 
-**2. The `ms_live` summaries do not assert their own arithmetic.** They print
-submitted, accepted, filled, partially filled, cancelled and rejected, and
-nothing checks that the parts sum to the whole. This is the exact hole the dropped
-venue-refusal counter went through, it is still open, and it is the
-highest-value unapplied item here because the fix is a subtraction and a
-comparison. An assertion that submitted equals accepted plus rail refusals plus
-venue refusals plus unresolved would have failed that run instead of printing a
-wrong number that a person happened to catch.
+Now `REQUIRE(parsed.events.size() == 3)` before the loop, plus a count of the
+loop's own iterations. A companion case pins down *why* that matters, rather than
+leaving it to a comment: a message of an unhandled kind yields zero events and no
+error, and against that input all four gate counters read exactly what they read
+after three well-ordered events — because a gate that was never called and a gate
+that found nothing wrong are indistinguishable from their counters. That is the
+law in two lines, and it is the reason the size assertion must not later be
+removed as redundant.
 
-**3. `scripts/check_skips.py` writes a claim it cannot support.** When no test
-reports as skipped it emits "None. Every registered test ran." It does not know
-that. It knows nothing printed as skipped, which is also true when nothing ran.
+This was the only instance of the shape in 482 cases. The scan that found it
+produced two false positives before it was rewritten to track brace depth, and
+that history is in `docs/CLEANUP_AUDIT.md` §8.1 rather than quietly discarded.
 
-The *outcome* here is guarded, and by measurement rather than assumption: `ctest`
-with a filter matching no test prints `No tests were found!!!` and exits
-non-zero, and the script returns that code, so a zero-test run fails the job. But
-`write_summary` runs before the exit-code check, so the job summary asserts that
-every registered test ran while the job fails around it. The gate holds and the
-report is wrong — and the report is what a person reads. Asserting a minimum test
-count would close it.
+**2. The `ms_live` summaries did not assert their own arithmetic. CLOSED, Session
+H Part 1, and more thoroughly than this entry asked for.**
 
+The inventory wanted an assertion that the printed parts sum to the whole. What
+went in instead follows the preferred fix: the counters naming an order's terminal
+state are no longer trusted at all, but checked against a census of the orders
+themselves, derived at print time from the one thing that cannot drift from the
+run. `OrderTracker::reconcile()` returns six identities, of which `orders in
+Rejected == rejected` is the one that would have failed the `128 submitted, 124
+accepted, 0 rejected` run.
+
+`SummaryAudit` collects those identities across every `ms_live` subcommand that
+prints counts and exits **4, `INCONSISTENT SUMMARY`** when any fails — a hard
+failure, because a guard that logs and continues is a guard that gets scrolled
+past. A passing audit prints how many identities held, and an audit with no
+identities in it is itself a failure.
+
+Two counters remain, for structural reasons, and both are incremented inside the
+function that does the thing they count — next to the `push_back`, next to the
+`apply_fill`. That is the difference between a counter that cannot drift and the
+one that did, which lived four lines away in another file.
+
+The identity found a second gap on its first run: `UpdateKind::Replaced` set an
+order to Cancelled and incremented nothing, so a replacement was counted nowhere.
+No printed figure was wrong as a result — `cancelled` was never inflated, it was
+simply missing — and `replaced` now has its own counter and its own field.
+
+**3. `scripts/check_skips.py` wrote a claim it could not support. CLOSED, Session
+H Part 3b.**
+
+It printed "None. Every registered test ran." whenever the skip list came back
+empty, which is also exactly what a run of zero tests produces.
+
+The *outcome* was guarded even then, and by measurement rather than assumption:
+`ctest` with a filter matching no test prints `No tests were found!!!` and exits
+non-zero, and the script returned that code. But `write_summary` ran before the
+exit-code check, so the job summary asserted something it did not know while the
+job failed around it — and the summary is what a person reads.
+
+It now parses the total from ctest's own output, prints it (`483 tests registered,
+482 ran`), and fails both when no total is reported and when the total falls below
+`--min-tests`. The floor is 400 against a real suite of 483: it is there to catch a
+run that tested almost nothing, and deliberately not to track the exact count,
+which would make it a chore rather than a guard. A test asserts the floor can
+actually fire and does not fire on the real suite, because a floor at zero and a
+floor above the count are both guards whose output is identical when they are
+absent.
+
+### What remains
+
+Nothing inventoried. That is a statement about this list and not about the
+codebase: the next instance will have a shape nobody has thought of, which is what
+the previous version of this document said before the fourth and fifth arrived.
 
 ---
 

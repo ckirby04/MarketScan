@@ -560,11 +560,20 @@ is blocked on anything; each is a judgement that is not a cleanup pass's to make
 | Delete the nine uncalled public names | public API on documented classes; `param_enum` exists for plugin authors, who are outside this tree by construction, and the GUI is `OFF` in CI so "green without it" proves less here. |
 | Collapse `tif_name`/`type_name`'s third copies in `apps/live/equivalence.cpp` | sharing a formatting helper between the library and an app decides that the library owns display formatting. A design choice, not a refactor. |
 | Document `scripts/format.ps1` | it works, nothing references it, and nothing tells a developer it exists. A docs decision about developer workflow. |
-| Fix `test_stream_parser.cpp:255` | the one genuine vacuous-law gap in 467 cases. Changes a test, which is behaviour. Inventoried in `AUDIT.md`. |
-| Assert the `ms_live` summaries reconcile | the highest-value item on the whole backlog and the exact hole the dropped venue-refusal counter went through. Changes behaviour. Inventoried in `AUDIT.md`. |
-| Assert a minimum test count in `check_skips.py` | the gate is sound; its summary line is not. Changes behaviour. Inventoried in `AUDIT.md`. |
+| ~~Fix `test_stream_parser.cpp:255`~~ | the one genuine vacuous-law gap in 467 cases. Changes a test, which is behaviour. Inventoried in `AUDIT.md`. **Closed in Session H Part 3a.** |
+| ~~Assert the `ms_live` summaries reconcile~~ | the highest-value item on the whole backlog and the exact hole the dropped venue-refusal counter went through. Changes behaviour. Inventoried in `AUDIT.md`. **Closed in Session H Part 1**, by deriving the state counts from the orders rather than only asserting the printed ones. |
+| ~~Assert a minimum test count in `check_skips.py`~~ | the gate is sound; its summary line is not. Changes behaviour. Inventoried in `AUDIT.md`. **Closed in Session H Part 3b.** |
 | Reconcile `BUILD_SPEC_2.md` further, or touch the other spec drift | specs record what was asked. The Stooq claim got a dated editorial note beneath unmodified original text; M3b's absence from the specs is reported and left. |
 | Anything in `STATUS.md`'s three open items | out of scope by instruction, and the first of them is now correctly recorded as a wrong prescription rather than an open task. |
+
+### Three of these were closed by Session H
+
+The three vacuous-law items above are struck through. They were correctly left
+alone here -- each changes behaviour, and this session was behaviour-preserving by
+contract -- and Session H existed to apply them. The rows are kept rather than
+deleted, because what the gap was is the useful part of the record.
+
+Everything else in the table remains open and remains a decision.
 
 ### What this session did not find
 
