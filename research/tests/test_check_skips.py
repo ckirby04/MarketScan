@@ -126,3 +126,62 @@ def test_comments_and_blank_lines_are_ignored(tmp_path):
 def test_a_missing_allowlist_is_empty_rather_than_an_error(tmp_path):
     """An empty allowlist makes every skip unexpected, which is the safe direction."""
     assert check_skips.load_allowlist(tmp_path / "nope.txt") == {}
+
+
+# ---------------------------------------------------------------------------
+# The denominator
+#
+# This script used to print "None. Every registered test ran." off an empty skip
+# list -- which is also what a run of zero tests produces. The gate held anyway,
+# because ctest exits non-zero when nothing matches, but the summary asserted
+# something it could not know and the summary is what a person reads.
+# ---------------------------------------------------------------------------
+
+
+def test_the_test_total_is_read_from_what_ctest_prints():
+    assert check_skips.parse_total(CTEST_TAIL) == 351
+
+
+def test_a_run_of_zero_tests_does_not_look_like_a_clean_run():
+    """The shape the old summary could not tell apart from success.
+
+    No skips reported, because nothing ran. The skip list is empty and the total
+    is zero, and it is the total that distinguishes this from a healthy run.
+    """
+    nothing = "No tests were found!!!\n"
+    assert check_skips.parse_skips(nothing) == []
+    assert check_skips.parse_total(nothing) is None
+
+
+def test_a_missing_total_is_none_rather_than_a_guess():
+    assert check_skips.parse_total("some unrelated output\n") is None
+    assert check_skips.parse_total("") is None
+
+
+def test_the_last_total_wins_when_ctest_prints_more_than_one():
+    """Two runs in one log: the later line is the one that describes this run."""
+    text = "100% tests passed, 0 tests failed out of 12\n" + CTEST_TAIL
+    assert check_skips.parse_total(text) == 351
+
+
+def test_a_failing_run_still_reports_its_total():
+    """The total must be readable when tests fail, or the floor stops applying
+    exactly when the output matters most."""
+    text = "97% tests passed, 3 tests failed out of 482\n"
+    assert check_skips.parse_total(text) == 482
+
+
+def test_the_floor_is_below_the_real_suite_and_above_a_collapse():
+    """The floor has to be able to fire, and must not fire on the real suite.
+
+    A floor set above the current count would fail every run; one set at zero
+    would never fire. Both are guards whose output is the same when they are
+    absent, so the value is asserted against the suite it guards.
+    """
+    floor = check_skips.DEFAULT_MIN_TESTS
+    assert floor > 0
+    # The C++ suite is 482 tests as of Session H. The floor must leave room for
+    # tests to be added without maintenance, and still refuse a run that
+    # collapsed to a handful.
+    assert floor <= 482
+    assert floor > 100

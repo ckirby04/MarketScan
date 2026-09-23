@@ -13,6 +13,21 @@ So: every skip is named in the job summary with its reason, and a skip that is
 not in `tests/allowed_skips.txt` fails the build. Allowlisting is a deliberate
 act with a written justification, not a default.
 
+AND IT STATES ITS OWN DENOMINATOR
+
+This script used to print "None. Every registered test ran." whenever the skip
+list came back empty -- which is a claim it could not support, because an empty
+skip list is also exactly what a run of zero tests produces. The *gate* held even
+then: ctest exits non-zero when no test matches, which was measured rather than
+assumed, and that exit code is returned. But `write_summary` runs first, so the
+summary asserted something it did not know while the job failed around it, and the
+summary is what a person reads.
+
+Now the test total is parsed from ctest's own output, printed, and required: a run
+that does not report a total fails, and so does one below `--min-tests`. A report
+that cannot name its denominator has nothing to say -- see the vacuous-pass law in
+docs/AUDIT.md.
+
 WHY IT PARSES THE CONSOLE RATHER THAN THE JUNIT XML
 
 `ctest --output-junit` does not emit skipped tests at all. A run with 351 passes
@@ -45,6 +60,19 @@ ALLOWLIST = REPO / "tests" / "allowed_skips.txt"
 SKIP_LINE = re.compile(r"^\s*\d+\s*-\s*(?P<name>.+?)\s*\((?P<status>[A-Za-z ]+)\)\s*$")
 
 NOT_RUN_HEADER = "The following tests did not run:"
+
+# "100% tests passed, 0 tests failed out of 482" -- the only place ctest states
+# how many tests it knew about.
+TOTAL_LINE = re.compile(r"\b(?P<failed>\d+)\s+tests?\s+failed\s+out\s+of\s+(?P<total>\d+)\b")
+
+# A floor, not a tracker.
+#
+# It exists to catch a run that tested almost nothing -- the wrong --test-dir, a
+# preset whose test set collapsed, a -R filter matching a handful -- and not to
+# record the exact count, which changes every time a case is added and would make
+# this a chore rather than a guard. Raise it when the suite grows a lot; it should
+# stay comfortably below the real total.
+DEFAULT_MIN_TESTS = 400
 
 
 def load_allowlist(path: Path) -> dict[str, str]:
@@ -86,6 +114,20 @@ def parse_skips(output: str) -> list[tuple[str, str]]:
     return skipped
 
 
+def parse_total(output: str) -> int | None:
+    """How many tests ctest knew about, or None when it did not say.
+
+    None is a failure rather than a shrug: a summary that cannot name its own
+    denominator has nothing to report.
+    """
+    total: int | None = None
+    for line in output.splitlines():
+        match = TOTAL_LINE.search(line)
+        if match:
+            total = int(match.group("total"))
+    return total
+
+
 def write_summary(lines: list[str]) -> None:
     """Appends to the GitHub step summary when running in Actions, stdout otherwise."""
     text = "\n".join(lines) + "\n"
@@ -102,6 +144,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--preset", help="ctest preset to run")
     parser.add_argument("--test-dir", help="build directory to run ctest in")
     parser.add_argument("--allowlist", type=Path, default=ALLOWLIST)
+    parser.add_argument(
+        "--min-tests",
+        type=int,
+        default=DEFAULT_MIN_TESTS,
+        help="fail if ctest registered fewer tests than this (default: %(default)s)",
+    )
     parser.add_argument("rest", nargs=argparse.REMAINDER,
                         help="further arguments passed to ctest, after --")
     # parse_known_args, not parse_args: ctest flags like -j 3 are meant to reach
@@ -125,10 +173,35 @@ def main(argv: list[str] | None = None) -> int:
 
     allowed = load_allowlist(args.allowlist)
     skipped = parse_skips(output)
+    total = parse_total(output)
 
+    # How many tests there were, before anything is said about how many ran.
+    #
+    # This block used to say "None. Every registered test ran." on the strength of
+    # an empty skip list -- a claim it could not support, because an empty skip
+    # list is also what a run of zero tests produces. The gate held even then
+    # (ctest exits non-zero when no test matches, measured), but the job summary
+    # asserted something it did not know, and the summary is what a person reads.
+    # See docs/AUDIT.md, "Where the law is not yet applied".
     lines = ["## Skipped tests", ""]
+    if total is None:
+        lines += [
+            "**ctest did not report a test total, so this summary cannot say how many "
+            "tests ran.** Nothing below should be read as a pass.",
+            "",
+        ]
+    elif total < args.min_tests:
+        lines += [
+            f"**Only {total} test{'' if total == 1 else 's'} {'was' if total == 1 else 'were'} "
+            f"registered, below the floor of {args.min_tests}.** A run this small has not "
+            "exercised the suite, whatever it reports about skips.",
+            "",
+        ]
+    else:
+        lines += [f"{total} tests registered, {total - len(skipped)} ran.", ""]
+
     if not skipped:
-        lines.append("None. Every registered test ran.")
+        lines.append("None skipped." if total is not None else "No skips were reported.")
     else:
         lines.append(f"{len(skipped)} test(s) did not run. A skip is not a pass.")
         lines.append("")
@@ -161,6 +234,20 @@ def main(argv: list[str] | None = None) -> int:
         return completed.returncode
     if unexpected:
         print(f"{len(unexpected)} unexpected skip(s); see the summary above.", file=sys.stderr)
+        return 1
+    if total is None:
+        print(
+            "ctest reported no test total, so this run cannot be confirmed to have tested "
+            "anything.",
+            file=sys.stderr,
+        )
+        return 1
+    if total < args.min_tests:
+        print(
+            f"only {total} test{'' if total == 1 else 's'} registered, below the --min-tests "
+            f"floor of {args.min_tests}. A run this small has not exercised the suite.",
+            file=sys.stderr,
+        )
         return 1
     return 0
 
