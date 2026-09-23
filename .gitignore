@@ -62,6 +62,12 @@ __pycache__/
 .venv/
 venv/
 
+# .pytest_cache was already ignored, but only because pytest writes its own
+# .gitignore inside it. That is a third-party tool's incidental behaviour
+# standing in for one of our rules, and it looks identical to being properly
+# ignored right up until a pytest release stops doing it. Named explicitly.
+.pytest_cache/
+
 # --- OS ---
 Thumbs.db
 desktop.ini
