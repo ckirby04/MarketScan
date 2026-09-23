@@ -27,6 +27,10 @@ measures **1.810**. Below the bar.
 assertion between two independent implementations, a per-fill timestamp triple, and an
 empirically measured null threshold. None of them was built to look for it.
 
+Those two implementations are duplicated deliberately, and collapsing them would leave the
+assertion passing while measuring nothing — see [`docs/AUDIT.md`](docs/AUDIT.md) under
+"Deliberate duplication".
+
 That is the thing worth handing over. Not a result — a set of instruments that can tell you when
 you do not have one. The full account is in [`docs/STATUS.md`](docs/STATUS.md).
 

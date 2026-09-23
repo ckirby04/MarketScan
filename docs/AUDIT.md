@@ -460,3 +460,235 @@ The common element is not a bug in any assertion. In all three the assertion was
 correct and had nothing to assert about. A test's inputs deserve the same
 scepticism as its outputs, and a report that does not say *how much* it measured
 cannot be audited by reading it.
+
+
+---
+
+# The vacuous-pass law
+
+The three shapes above were written up one at a time, each as a surprise. They
+are not three surprises. They are one law with four instances, and stating it as
+a law is what lets the fourth be recognised in minutes instead of days:
+
+> **Any mechanism whose output looks the same whether it is working or absent
+> will eventually be absent.**
+
+It is not a rule about tests. It is a rule about mechanisms — assertions,
+counters, guards, gates, reports. The question to ask of each is not *is it
+correct* but *what would it print if someone deleted it*. If the answer is "the
+same thing", it is already gone; nobody has noticed yet.
+
+## The four instances
+
+| | Session D | Session F Part 0 | Session F Part 5 | Session F2 Part 3 |
+|---|---|---|---|---|
+| shape | a skip read as a pass | an empty fixture directory read as a pass | an empty comparison read as a pass | a correct comparison over misrouted state read as a pass |
+| what was absent | four tests, silently not running | the fixtures the parity test compares | any decision at all to compare | every venue response, applied to nothing |
+| what the output said | `PASS` | `PASS` | `EQUIVALENT` | `EQUIVALENT`, on 111 decisions |
+| caught by | accident | a deliberate audit | reading the output | checking a number that was not the verdict |
+| now fails via | `scripts/check_skips.py` | a gate on a checked count, not on a directory existing | `VACUOUS`, exit 3, with both counts printed | an engine-id guarantee **and** a fatal misroute check |
+
+The first three are the same defect: a report that did not say *how much* it
+measured. Each fix makes the report state its own denominator.
+
+## The fourth instance is the one that changed the response
+
+`ms_live equivalence` replayed a recording, compared 111 live decisions against
+111 replayed decisions, found every one identical, and printed `EQUIVALENT`. It
+was a true statement about the decisions and a false impression of the system.
+
+The driver never set `order_id_base`, so the live run numbered its engine ids
+from 0 and the replay numbered its from 1,000,000. All 391 venue responses
+arrived carrying ids that matched no order on the other side. `apply_update`
+looked for the order, did not find it, and did nothing — which is the correct
+behaviour for a response to an unknown order, and the wrong outcome for every
+response in the run.
+
+The decisions agreed because at each step the strategy's next decision did not
+happen to depend on the response it had just been given. The test compared the
+one quantity that survived the bug.
+
+**Why the first three fixes would not have caught it.** Every one of them makes a
+passing report state how much it compared. This report did state how much it
+compared: 111 decisions on each side, a large and entirely real number. Printing
+it more loudly changes nothing. The count was not the lie.
+
+**What caught it** was reading a number other than the verdict — the submitted,
+accepted and filled tallies, which could not be reconciled with 111 matched
+decisions. The law's extension is therefore about arithmetic *between*
+mechanisms, not about any one mechanism's output:
+
+> A report that can only be checked against itself cannot be checked.
+
+## The response: a guarantee and a check, deliberately not one mechanism
+
+Two things went in, and they do not do the same job.
+
+**The guarantee.** `RecordedBroker` no longer allocates engine ids. It registers
+each order with the id the recording says that order had, through
+`register_order_with_id`. The two sides cannot number differently, because only
+one side numbers at all. This makes the bug impossible.
+
+**The check.** A venue response whose engine id matches no live order is a fatal
+error that stops the run, rather than a lookup that quietly finds nothing.
+
+Given the guarantee, the check can never fire. That is not an argument for
+removing it — it is the reason it exists. The guarantee is one refactor, one new
+code path, or one caller doing its own numbering away from being untrue, and on
+the day it stops holding, the check is the difference between a stopped run and
+another false `EQUIVALENT`.
+
+**So the pair must not be collapsed, and the temptation to collapse it will look
+exactly like good housekeeping.** A future cleanup pass — including a future
+session working from a brief much like Session G's — will find an assertion that
+provably cannot fire, and deleting unreachable code is normally correct. Here it
+re-introduces a bug that cost a live market session and a false pass to find.
+Apply the law to the check itself: its output is identical whether it is working
+or absent, which is precisely why it must be kept rather than why it may go.
+`RecordedBroker` and this pair are on Session G's protected list for this reason.
+
+## Attention does not run in CI
+
+Of the four, one was found by a deliberate audit. The other three were found by a
+person reading output that had already been printed and accepted.
+
+And a fifth that never became a bug: a run reported `128 submitted, 124
+accepted, 0 rejected`. Four orders had plainly been refused — they were in the
+log, with their reasons, correctly. The refactor that extracted `OrderTracker`
+had dropped the venue-refusal counter, so the summary under-reported by exactly
+the number it no longer counted. Nothing was lost and nothing was wrong except
+the report. It was caught because somebody read the line and the arithmetic did
+not work.
+
+Attention is an excellent detector and a worthless control. It does not run on
+every commit. It does not run at 2am. It does not run once the person already
+trusts the line, which is the state every stable report eventually reaches. Every
+fix listed above is the same move: convert something a person noticed into
+something the build refuses.
+
+> **A mechanism guarded only by someone noticing is not yet guarded.**
+
+## Where the law is not yet applied
+
+Inventory, current as of Session G. None of these are fixed here: each changes
+behaviour, and Session G is behaviour-preserving by contract. They are written
+down so the next session does not have to rediscover them.
+
+**1. `tests/test_stream_parser.cpp:255` — "the gate leaves an already ordered
+stream untouched".** Parses three trades from a literal and loops over
+`parsed.events` making four assertions. Nothing pins the length. A parser change
+that returned zero events would iterate nothing and pass. One line fixes it:
+`REQUIRE(parsed.events.size() == 3)`.
+
+This is the only instance in 467 test cases. The scan that found it produced two
+false positives before it was rewritten to track brace depth, and that history is
+recorded in `docs/CLEANUP_AUDIT.md` §8.1 rather than quietly discarded.
+
+**2. The `ms_live` summaries do not assert their own arithmetic.** They print
+submitted, accepted, filled, partially filled, cancelled and rejected, and
+nothing checks that the parts sum to the whole. This is the exact hole the dropped
+venue-refusal counter went through, it is still open, and it is the
+highest-value unapplied item here because the fix is a subtraction and a
+comparison. An assertion that submitted equals accepted plus rail refusals plus
+venue refusals plus unresolved would have failed that run instead of printing a
+wrong number that a person happened to catch.
+
+**3. `scripts/check_skips.py` writes a claim it cannot support.** When no test
+reports as skipped it emits "None. Every registered test ran." It does not know
+that. It knows nothing printed as skipped, which is also true when nothing ran.
+
+The *outcome* here is guarded, and by measurement rather than assumption: `ctest`
+with a filter matching no test prints `No tests were found!!!` and exits
+non-zero, and the script returns that code, so a zero-test run fails the job. But
+`write_summary` runs before the exit-code check, so the job summary asserts that
+every registered test ran while the job fails around it. The gate holds and the
+report is wrong — and the report is what a person reads. Asserting a minimum test
+count would close it.
+
+
+---
+
+# Deliberate duplication
+
+This section exists because of a gap found by Session G's cleanup audit: the
+repository documented the *result* of its most important instrument and never
+once documented that the instrument must not be dismantled. Everything below was
+true for eight sessions and written down nowhere.
+
+## The claim a cleanup pass will encounter
+
+`README.md`, `docs/STATUS.md` and `docs/SIZING.md` all say some version of:
+
+> Two independent implementations of one strategy agree to the micro-dollar.
+
+`theories/decile_parity/` implements the decile rule in C++ against the engine.
+`research/parity.py` implements the same rule in Python against a pandas panel.
+`tests/test_parity.cpp` replays the committed fixture through the engine and
+asserts the equity curves are identical — not close, identical, in integer
+micro-dollars.
+
+Read as an engineering fact rather than as an instrument, that is a description of
+redundancy. Two things compute the same answer; one of them could go, or they
+could share a common core. Both moves are wrong, and both are the sort of thing a
+cleanup pass is *for*.
+
+## Why neither half may be deleted, and why they may not share code
+
+**The agreement is the measurement.** The value of the parity assertion is not
+that the strategy works. It is that two people, writing in two languages against
+two data representations, with two separate ideas of what equity means, produced
+the same number. That evidence exists only because the implementations are
+causally independent. Delete either half and the number is still printed and
+proves nothing — no comparison is being made. Factor the shared arithmetic into
+one function both halves call and the number is still printed and proves nothing
+— both halves now agree because they are the same code, which they would do
+whether or not that code is correct.
+
+This is the vacuous-pass law with a longer fuse. The report looks identical in all
+three cases: two implementations, one implementation, or one implementation wearing
+two hats. Only the first one is measuring anything.
+
+**It has already paid, twice.** The two halves diverged by $606.07 at session 1 of
+126 on one symbol — small enough that any tolerance at all would have absorbed it,
+and it was a real defect in decision-time equity. Later, the same instrument was
+one of three that caught the lookahead which had produced an apparent Sharpe above
+the bar; corrected, the strategy measures 1.810 and is below it. A shared core
+would have found neither, because a shared core cannot disagree.
+
+**The duplication is not accidental, and it is not technical debt.** It is the
+cost of the measurement, paid deliberately and on purpose. The maintenance burden
+is real: a change to the sizing rule must be made twice, and `docs/SIZING.md`
+exists to specify the arithmetic precisely enough that making it twice is
+possible. That burden is the price, not a defect in need of correction.
+
+## What is therefore forbidden
+
+- Deleting `research/parity.py`, or `theories/decile_parity/`, because the other
+  one computes the same thing.
+- Extracting the sizing, marking, or equity arithmetic into a single
+  implementation that both halves call — in either direction, including a Python
+  binding of the C++ engine or a C++ port of the Python.
+- Generating one half from the other.
+- Relaxing the comparison to a tolerance. A tolerance is how $606.07 stays
+  invisible.
+
+## What is not forbidden
+
+Duplication *within* one layer is ordinary copy-paste and may be collapsed
+freely, and Session G did exactly that inside the live layer. The rule here is
+specifically about the C++ engine and the Python research layer as two
+implementations of one rule. It is a rule about the seam between them, not a
+licence for repetition on either side of it.
+
+## Where this is enforced
+
+Nowhere mechanical, which is worth stating plainly rather than implying a guard
+that does not exist. `tests/test_parity.cpp` fails if the two disagree, so a
+divergence is caught; nothing fails if someone removes one half or merges their
+arithmetic, because at that point there is nothing left to disagree. The
+protection is this section, the pointers to it from both halves, and Session G's
+protected list.
+
+That makes it exactly the kind of mechanism the vacuous-pass law is about, and
+the honest thing to say is that it is guarded by reading rather than by the
+build.

@@ -30,6 +30,12 @@ Three instruments caught it, and none of them was looking for it:
 | **The per-fill timestamp triple** | Decision horizon, price timestamp, fill timestamp, recorded on every fill. It turned an argument about the engine into a count: zero honest fills in either run. |
 | **The empirical null from M8** | Without a measured threshold, 2.414 and 1.810 are both just numbers. The threshold is what makes the correction mean something, and it is why the sweep was worth 1,512 runs. |
 
+The first of those three is duplication on purpose, and it is the one most likely
+to be removed by someone tidying up: two implementations agreeing is evidence
+only while they stay causally independent. Deleting either half, or giving them a
+shared arithmetic core, leaves the assertion passing and measuring nothing. See
+[`docs/AUDIT.md`](AUDIT.md) under "Deliberate duplication" for what that forbids.
+
 **The 0.60 is not a constant.** It is one effect, on one small synthetic fixture,
 under one rebalance rule. What transfers is the shape of the thing: a lookahead
 does not announce itself as a bug, it announces itself as a *result*, and the

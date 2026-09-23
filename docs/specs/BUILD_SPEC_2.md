@@ -168,6 +168,16 @@ results.
 **Definition of Done:** `marketscan.exe` replays a multi-year daily dataset for a few hundred
 symbols; fetch-and-cache is idempotent and resumable; every test runs offline.
 
+> **Editorial note added in Session G, 2026-09-23.** The Stooq requirement above is
+> **superseded by observation and was never met.** Stooq put a proof-of-work browser
+> challenge in front of that endpoint; solving it programmatically was considered and
+> declined. `scripts/fetch_stooq.py` exists and is kept because it reports the gate
+> correctly rather than because it fetches anything. See
+> [`docs/DATA_POLICY.md`](../DATA_POLICY.md) for the decision and
+> [`docs/STATUS.md`](../STATUS.md) for what M3b depends on instead. The original text is
+> left exactly as written: this spec is a record of what was asked, not of what turned
+> out to be possible.
+
 ---
 
 ## 6. M3 — Universe and point-in-time membership

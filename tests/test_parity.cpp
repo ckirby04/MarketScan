@@ -16,6 +16,12 @@
 // of every position, in integer micro-dollars, rounding half away from zero.
 // Agreement to the micro-dollar is two implementations doing the same
 // arithmetic, not a tolerance chosen to make them agree.
+//
+// The duplication between the two implementations is deliberate and must not be
+// removed. Two implementations agreeing is evidence only while they are causally
+// independent: delete either half, or factor their shared arithmetic into one
+// place both call, and this test still passes while measuring nothing. See
+// `docs/AUDIT.md` under "Deliberate duplication".
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>

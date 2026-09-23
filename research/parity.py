@@ -8,6 +8,16 @@ and once here. Same panel, same rule, two entirely separate implementations of
 the accounting. Under optimistic fills and zero costs the equity curves have to
 match to floating-point tolerance, and if they do not, one of them is wrong.
 
+DO NOT COLLAPSE THIS INTO THE C++ IMPLEMENTATION
+
+This module is not redundant with `theories/decile_parity/`; the redundancy IS
+the instrument. Two implementations agreeing is evidence only while they are
+causally independent, so deleting this half, or factoring the shared arithmetic
+into one place both halves call, silently converts a real measurement into a
+tautology that still prints a pass. It has already caught a $606.07 divergence
+and contributed to catching the lookahead. The full argument, and what is
+forbidden, is in `docs/AUDIT.md` under "Deliberate duplication".
+
 CHURN-FREE FIRST, AND THAT ORDERING IS THE POINT
 
 On a panel where nothing leaves the universe there is **no legitimate source of
