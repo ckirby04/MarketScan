@@ -682,13 +682,54 @@ licence for repetition on either side of it.
 
 ## Where this is enforced
 
-Nowhere mechanical, which is worth stating plainly rather than implying a guard
-that does not exist. `tests/test_parity.cpp` fails if the two disagree, so a
-divergence is caught; nothing fails if someone removes one half or merges their
-arithmetic, because at that point there is nothing left to disagree. The
-protection is this section, the pointers to it from both halves, and Session G's
-protected list.
+Session G wrote the argument above down and recorded that **nothing mechanical
+enforced it** — a guard that existed only as prose. Session H built the
+mechanism. What follows says exactly how much it covers, because a guard
+described more broadly than it works is worse than an admitted gap.
 
-That makes it exactly the kind of mechanism the vacuous-pass law is about, and
-the honest thing to say is that it is guarded by reading rather than by the
-build.
+### What now fails the build
+
+**`research/tests/test_layer_independence.py`** reads the import graph of the two
+Python halves and fails if either reaches the pybind11 `marketscan` module,
+directly or transitively. It runs in the `research` CI job.
+
+| it catches | how |
+|---|---|
+| `import marketscan` in a guarded module | the import graph |
+| a helper that imports the bindings, imported by a guarded module | the graph is walked transitively, through relative imports too |
+| either guarded module being **deleted** | the walk fails when the module has no file, so removing a half fails rather than passing quietly |
+| a dynamic import used to evade the graph | `importlib` and `__import__` are refused outright inside the guarded closure |
+
+The guarded modules are named one at a time — `research.sizing` and
+`research.parity` — rather than matched by a pattern, because a pattern quietly
+grows to cover modules nobody decided about. The bindings are **not** banned from
+`research/` or anywhere else; they are used legitimately by
+`scripts/make_quickstart_notebook.py` and
+`bindings/python/examples/smoke_test.py`, and a test asserts that those users are
+outside the guarded set, so the guard is checked for overreach as well as for
+reach.
+
+Removing the C++ halves is caught separately and by accident rather than by
+design: `tests/test_parity.cpp` creates the theory by the literal id
+`"decile_parity"`, so deleting that plugin fails the test.
+
+### What still is not enforced, and cannot easily be
+
+- **Transliteration.** Someone could rewrite the Python half line by line from
+  the C++ and produce two files that are textually independent and causally one.
+  The comparison would then be as tautological as a shared core, and no import
+  graph can see it. This is the real residual risk, and it is a review question
+  rather than a mechanical one.
+- **Coverage is two pairs.** A third cross-layer comparison built later is
+  unguarded until someone adds it to `GUARDED`. The test cannot know about a
+  measurement that did not exist when it was written.
+- **The C++ side calling the Python.** Implausible, and nothing checks it.
+- **The decision itself.** If the duplication is genuinely to be abandoned, all
+  these tests do is make it a decision taken deliberately in this document
+  instead of a side effect of an import. That is the whole of what a mechanism can
+  buy here.
+
+So: the cheap ways to destroy this measurement by accident now fail the build,
+and the expensive way to destroy it on purpose still requires a person to read
+this section. That is a better position than prose alone and it is not the same
+as safe.
