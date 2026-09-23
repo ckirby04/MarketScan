@@ -9,11 +9,28 @@ hundred-and-twenty-six-session fixture. Neither was wrong against a written
 specification, because there was no written specification. There is now, and both
 implementations are written against *this page* rather than against each other.
 
-> **Both layers implement this independently.** The research layer does not call
-> into the engine and never will: `BUILD_SPEC_2.md` §2 keeps it a separate
-> implementation, and the Linux `research` CI job exists to enforce that. Two
-> implementations of one written rule, cross-tested, is the point — a shared
-> implementation would agree with itself and prove nothing.
+> **Both layers implement this independently, and that is the measurement.** Two
+> implementations of one written rule, cross-tested with no tolerance, is the
+> point — a shared implementation would agree with itself and prove nothing, while
+> printing exactly the numbers it prints today. The full argument and what it
+> forbids are in [`AUDIT.md`](AUDIT.md) under "Deliberate duplication".
+>
+> What enforces it: `research/tests/test_layer_independence.py` fails if
+> `research.sizing` or `research.parity` reaches the pybind11 bindings, directly or
+> transitively. `BUILD_SPEC_2.md` §2 separately forbids routing the research
+> pipeline through the event engine, though for a different reason — keeping M4–M8
+> in Python — and without mentioning this pair.
+>
+> **What nothing can enforce**, and the question to ask in review instead:
+>
+> > Was this change derived from this page, or from the other implementation?
+>
+> A line-by-line transliteration produces two files that are textually independent
+> and causally one, and no test will ever see that. A change derived from this page
+> can cite the step it implements. A change derived from the other half reads like
+> a translation of it — same intermediate quantities, same order of operations even
+> where this page does not require one, no reason given beyond matching. **A change
+> to either half that cannot point at a step below is the finding.**
 
 ---
 

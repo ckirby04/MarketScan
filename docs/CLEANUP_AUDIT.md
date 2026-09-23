@@ -239,6 +239,28 @@ Python research layer; the duplication is deliberate,* and it cites
 
 **Neither says so. Nowhere in this repository says so.**
 
+> **Correction, Session H.** That last sentence is too strong, and the
+> overstatement is worth fixing because this audit's value rests on its claims
+> being exact. `BUILD_SPEC_2.md` §2 *does* carry a relevant prohibition:
+>
+> > Do **NOT** implement the research pipeline in C++ or route it through the
+> > event engine. M4–M8 are Python, pandas, numpy, scipy, scikit-learn.
+>
+> That forbids the mechanism by which the two layers would be collapsed. What it
+> does not do is give the reason that makes the prohibition load-bearing: it sits
+> under "Architecture", it is about keeping the research milestones in Python, and
+> it never mentions the parity pair or says that the agreement between the two
+> implementations is the measurement. `SIZING.md` also said both implementations
+> are "written against *this page* rather than against each other", which is the
+> right instruction with no statement of what it is protecting — and it cited
+> `BUILD_SPEC_2.md` §2 for a claim that section does not make.
+>
+> So the finding stands in its important half and not in its absolute form: **the
+> rationale was documented nowhere, and a partial prohibition existed with a
+> different reason attached.** Corrected rather than left, because "nowhere in
+> this repository says so" is the kind of sweeping claim that gets an audit
+> dismissed when one counter-example turns up.
+
 What the repository contains is the *result* -- `STATUS.md` line 130, "Two
 independent implementations of one strategy agree to the micro-dollar", and
 `README.md` line 27 in the same spirit. A reader encountering those, and no

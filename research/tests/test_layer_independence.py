@@ -26,6 +26,20 @@ modules whose independence *is* a measurement are constrained, and they are name
 one by one below rather than matched by a pattern, because a pattern would quietly
 grow to cover modules nobody decided about.
 
+WHAT NO TEST CAN GUARD, AND THE QUESTION THAT REPLACES IT
+
+A line-by-line transliteration of the C++ into Python produces two files that are
+textually independent and causally one. No import graph can see that, and nothing
+in CI ever will. The mitigation is a review question, and it is answerable because
+both halves implement a written spec:
+
+    Was this derived from docs/SIZING.md, or from the other implementation?
+
+A change derived from the spec cites the step it implements. A change derived from
+the other implementation reads like a translation of it -- same intermediate
+quantities, same order of operations even where the spec does not require one, and
+no reason given beyond matching. A person can tell those apart in a diff.
+
 WHY STATIC ANALYSIS RATHER THAN A RUNTIME IMPORT CHECK
 
 The `research` CI job runs on Linux with no C++ toolchain and no built bindings,

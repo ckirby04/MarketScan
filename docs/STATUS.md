@@ -4,12 +4,22 @@ A handoff, not a changelog. What is proven and by which measurement, what is
 approximated and where, what is unresolved, and what the next phase needs.
 
 **Last updated:** 2026-09-23, end of Session H. CI green. 483 C++ tests (one
-skipped, allowlisted), 228 Python.
+skipped, allowlisted), 234 Python.
 
 The counts and version identifiers in this document are descriptive facts about
 the tree and are corrected whenever they are found wrong. Measured results are
 not: see [`FREEZE_CONTRACT.md`](FREEZE_CONTRACT.md) for which is which and why a
 freeze that protects both protects the wrong thing.
+
+**Before removing anything from this repository, read
+[`PROTECTED.md`](PROTECTED.md).** It enumerates the things that look like cruft and
+are load-bearing — a fixture whose value is that it is stale, a test that fails on
+purpose, an assertion that cannot fire — with the reason beside each. Deleting any
+of them leaves the build green and the repository measuring less, which is the one
+failure this project has hit five times.
+
+Standing rules live in `docs/`; the instructions each session was given live in
+[`briefs/`](briefs/README.md), which also explains why the two are kept apart.
 
 ---
 
@@ -122,7 +132,7 @@ Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
 **483 C++ tests** on `ci` and `ci-debug`, measured; **484** on `full`, for the
-reason in [`AUDIT.md`](AUDIT.md) check 9. **228 Python tests** in
+reason in [`AUDIT.md`](AUDIT.md) check 9. **234 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import
 that changes that turns the job red.

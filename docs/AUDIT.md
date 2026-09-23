@@ -708,9 +708,17 @@ the previous version of this document said before the fourth and fifth arrived.
 # Deliberate duplication
 
 This section exists because of a gap found by Session G's cleanup audit: the
-repository documented the *result* of its most important instrument and never
-once documented that the instrument must not be dismantled. Everything below was
-true for eight sessions and written down nowhere.
+repository documented the *result* of its most important instrument and never once
+documented **why** the instrument must not be dismantled.
+
+To be precise about what was and was not there, since Session G's own wording
+overstated it and was corrected in `CLEANUP_AUDIT.md` §7.1: `BUILD_SPEC_2.md` §2
+forbade routing the research pipeline through the event engine, and `SIZING.md`
+instructed that both implementations be written against the spec rather than
+against each other. So the *mechanism* was prohibited in two places. What existed
+nowhere was the reason — that the agreement between the two is the measurement, and
+that collapsing them leaves every printed number intact while destroying it. A
+prohibition without its reason is one an efficiency argument wins.
 
 ## The claim a cleanup pass will encounter
 
@@ -815,8 +823,28 @@ design: `tests/test_parity.cpp` creates the theory by the literal id
 - **Transliteration.** Someone could rewrite the Python half line by line from
   the C++ and produce two files that are textually independent and causally one.
   The comparison would then be as tautological as a shared core, and no import
-  graph can see it. This is the real residual risk, and it is a review question
-  rather than a mechanical one.
+  graph can see it. Nothing in CI will ever catch this. It is the real residual
+  risk, and it is a review question — but it is a *specific* review question
+  rather than a vague call for vigilance, because both halves are supposed to
+  implement a written specification:
+
+  > Was this derived from [`SIZING.md`](SIZING.md), or from the other
+  > implementation?
+
+  That is answerable from a diff by a person, which is what makes it a usable
+  mitigation rather than a restatement of the problem. A change derived from the
+  spec cites the step it implements and can be checked against the spec's own
+  wording; a change derived from the other implementation reads like a translation
+  of it — same variable names, same intermediate quantities, same order of
+  operations even where the spec does not require one, and no reason given for any
+  of it beyond matching.
+
+  This is also why `SIZING.md` specifies the arithmetic step by step, naming the
+  type of every intermediate and the order of evaluation. It was written that way
+  so making the same change twice is possible, and it doubles as the thing a
+  reviewer checks each half against instead of against each other. **A change to
+  either half that cannot point at the step of the spec it implements is the
+  finding.**
 - **Coverage is two pairs.** A third cross-layer comparison built later is
   unguarded until someone adds it to `GUARDED`. The test cannot know about a
   measurement that did not exist when it was written.
