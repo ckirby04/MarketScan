@@ -111,6 +111,11 @@ struct DecisionDiff {
 /// admire it. Reads only.
 [[nodiscard]] int run_orders(int argc, char** argv);
 
+/// The `ms_live dryrun` subcommand: run a plugin against a recording with no
+/// network, to find out what it would ask for before a live session is spent
+/// discovering that a parameter was wrong. Not the equivalence test.
+[[nodiscard]] int run_dryrun(int argc, char** argv);
+
 }  // namespace marketscan::live
 
 #endif  // MARKETSCAN_APPS_LIVE_EQUIVALENCE_HPP

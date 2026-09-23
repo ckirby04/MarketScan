@@ -55,6 +55,7 @@ void usage() {
         "  ms_live record --out FILE [--symbols AAPL,SPY] [--seconds N] [--drop-after N]\n"
         "  ms_live equivalence --plugin DLL --out FILE [--symbols ..] [--seconds N] [--period N]\n"
         "  ms_live replay FILE\n"
+        "  ms_live dryrun --plugin DLL --recording FILE [--set name=value]\n"
         "  ms_live orders [--limit N] [--run TOKEN]\n"
         "  ms_live positions [--flatten --yes] [--limit]\n"
         "  ms_live probe\n"
@@ -513,6 +514,9 @@ int main(int argc, char** argv) {
         }
         if (command == "equivalence") {
             return run_equivalence(argc, argv);
+        }
+        if (command == "dryrun") {
+            return run_dryrun(argc, argv);
         }
         if (command == "orders") {
             return run_orders(argc, argv);

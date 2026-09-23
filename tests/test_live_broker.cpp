@@ -18,6 +18,7 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -651,4 +652,131 @@ TEST_CASE("a null field in a venue response does not throw", "[live][broker][upd
     // No timestamp anywhere, so the caller's clock is used rather than zero
     // being passed off as an instant.
     REQUIRE(update.ts == 0);
+}
+
+TEST_CASE("the notional rail refuses an order the share cap would allow", "[live][broker][rails]") {
+    // The reason the share cap could be raised from 10 to 300 at all. These
+    // instruments span a fourfold price range, so a share count is not a safety
+    // limit: 300 shares is $54k of one and $232k of another, and only one of
+    // those is a sane order on a $100k account.
+    //
+    // Asserted through check_rails rather than submit(), because a rail that
+    // *allows* an order can only be observed through submit() by letting that
+    // order reach the venue -- and no test here touches the network.
+    LiveBrokerConfig config;
+    config.run_token = "testrun";
+    config.max_order_quantity = 300.0;
+    config.max_order_notional = Money::from_dollars(60'000);
+    Harness h(config);
+
+    MS_OrderRequest request{};
+    request.symbol = h.aapl;
+    request.side = MS_SIDE_BUY;
+    request.type = MS_ORD_LIMIT;
+    request.tif = MS_TIF_DAY;
+
+    // Well inside the share cap, well outside the notional cap.
+    request.quantity = 200.0;
+    request.limit_price = 800.0;  // $160,000
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InvalidQuantity);
+
+    // The same share count on a cheaper instrument is allowed through.
+    request.limit_price = 100.0;  // $20,000
+    REQUIRE(h.broker->check_rails(request) == RejectReason::None);
+
+    // And exactly at the cap is allowed: the rail refuses more than, not equal.
+    request.quantity = 600.0;
+    request.limit_price = 100.0;  // $60,000 exactly
+    config.max_order_quantity = 1000.0;
+    Harness generous(config);
+    REQUIRE(generous.broker->check_rails(request) == RejectReason::None);
+}
+
+TEST_CASE("the share cap still fires inside the notional cap", "[live][broker][rails]") {
+    // Both rails matter, and each has a case the other misses. This is the
+    // fat-finger-in-a-cheap-instrument case: trivial notional, absurd size.
+    LiveBrokerConfig config;
+    config.run_token = "testrun";
+    config.max_order_quantity = 300.0;
+    config.max_order_notional = Money::from_dollars(60'000);
+    Harness h(config);
+
+    MS_OrderRequest request{};
+    request.symbol = h.aapl;
+    request.side = MS_SIDE_BUY;
+    request.type = MS_ORD_LIMIT;
+    request.tif = MS_TIF_DAY;
+    request.quantity = 5'000.0;
+    request.limit_price = 1.0;  // $5,000
+
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InvalidQuantity);
+}
+
+TEST_CASE("a zero notional rail disables the check", "[live][broker][rails]") {
+    LiveBrokerConfig config;
+    config.run_token = "testrun";
+    config.max_order_quantity = 300.0;
+    config.max_order_notional = Money{};
+    Harness h(config);
+
+    MS_OrderRequest request{};
+    request.symbol = h.aapl;
+    request.side = MS_SIDE_BUY;
+    request.type = MS_ORD_LIMIT;
+    request.tif = MS_TIF_DAY;
+    request.quantity = 300.0;
+    request.limit_price = 9'000.0;  // $2.7m, and deliberately allowed
+
+    REQUIRE(h.broker->check_rails(request) == RejectReason::None);
+}
+
+TEST_CASE("a market order passes the notional rail on the share cap alone",
+          "[live][broker][rails]") {
+    // Stated in the header and asserted here, because the alternative -- a
+    // silent gap in a safety rail -- is only found when it matters. LiveBroker
+    // has no MarketView, so a market order carries no price it could check.
+    LiveBrokerConfig config;
+    config.run_token = "testrun";
+    config.max_order_quantity = 300.0;
+    config.max_order_notional = Money::from_dollars(1);
+    Harness h(config);
+
+    MS_OrderRequest request{};
+    request.symbol = h.aapl;
+    request.side = MS_SIDE_BUY;
+    request.type = MS_ORD_MARKET;
+    request.tif = MS_TIF_DAY;
+    request.quantity = 300.0;
+
+    REQUIRE(h.broker->check_rails(request) == RejectReason::None);
+
+    // The share cap still holds for it.
+    request.quantity = 301.0;
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InvalidQuantity);
+}
+
+TEST_CASE("the rails refuse a price or quantity that is not a number", "[live][broker][rails]") {
+    Harness h;
+
+    MS_OrderRequest request{};
+    request.symbol = h.aapl;
+    request.side = MS_SIDE_BUY;
+    request.type = MS_ORD_LIMIT;
+    request.tif = MS_TIF_DAY;
+    request.quantity = 10.0;
+    request.limit_price = 100.0;
+    REQUIRE(h.broker->check_rails(request) == RejectReason::None);
+
+    request.quantity = 0.0;
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InvalidQuantity);
+
+    request.quantity = std::numeric_limits<double>::quiet_NaN();
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InvalidQuantity);
+
+    request.quantity = 10.0;
+    request.limit_price = -1.0;
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InvalidPrice);
+
+    request.limit_price = std::numeric_limits<double>::infinity();
+    REQUIRE(h.broker->check_rails(request) == RejectReason::InvalidPrice);
 }

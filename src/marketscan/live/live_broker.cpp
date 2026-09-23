@@ -113,8 +113,9 @@ LiveBroker::LiveBroker(LiveBrokerConfig config, Credentials credentials, const S
     log::write(MS_LOG_INFO,
                "broker",
                "paper account, run token " + order_map_.run_token() + "; orders capped at " +
-                   number(config_.max_order_quantity, 0) + " shares and " +
-                   std::to_string(config_.max_orders) + " orders");
+                   number(config_.max_order_quantity, 0) + " shares, $" +
+                   number(static_cast<double>(config_.max_order_notional.micros()) / 1e6, 0) +
+                   " notional and " + std::to_string(config_.max_orders) + " orders");
 }
 
 LiveBroker::~LiveBroker() {
@@ -232,6 +233,29 @@ OrderId LiveBroker::register_local_order_for_test(const MS_OrderRequest& request
     return order.id;
 }
 
+RejectReason LiveBroker::check_rails(const MS_OrderRequest& request) const noexcept {
+    if (!(request.quantity > 0.0) || !std::isfinite(request.quantity)) {
+        return RejectReason::InvalidQuantity;
+    }
+    if (request.type == MS_ORD_LIMIT &&
+        (!(request.limit_price > 0.0) || !std::isfinite(request.limit_price))) {
+        return RejectReason::InvalidPrice;
+    }
+    if (request.quantity > config_.max_order_quantity) {
+        return RejectReason::InvalidQuantity;
+    }
+    if (config_.max_order_notional.micros() > 0 && request.type == MS_ORD_LIMIT) {
+        // From the limit price, which is the only price this class has. A market
+        // order carries none and passes on the share cap alone -- stated here
+        // and asserted in tests/test_live_broker.cpp, rather than left to be
+        // discovered at the moment it matters.
+        if (Money::notional(request.limit_price, request.quantity) > config_.max_order_notional) {
+            return RejectReason::InvalidQuantity;
+        }
+    }
+    return RejectReason::None;
+}
+
 OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timestamp decision_ts) {
     Order order;
     order.id = config_.order_id_base + next_sequence_++;
@@ -257,21 +281,21 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
         return kInvalidOrderId;
     };
 
-    if (!(request.quantity > 0.0) || !std::isfinite(request.quantity)) {
-        return refuse(RejectReason::InvalidQuantity, "quantity is not a positive finite number");
-    }
-    if (request.type == MS_ORD_LIMIT &&
-        (!(request.limit_price > 0.0) || !std::isfinite(request.limit_price))) {
-        return refuse(RejectReason::InvalidPrice, "limit price is not a positive finite number");
+    // The rails, checked before anything leaves this process. An order that
+    // breaks one never reaches the venue at all.
+    switch (check_rails(request)) {
+        case RejectReason::InvalidQuantity:
+            return refuse(RejectReason::InvalidQuantity,
+                          "order refused by this run's quantity rails: not a positive finite "
+                          "number, over the share cap, or over the notional cap. The share cap "
+                          "alone is not a safety limit when instruments differ fourfold in price");
+        case RejectReason::InvalidPrice:
+            return refuse(RejectReason::InvalidPrice,
+                          "limit price is not a positive finite number");
+        default:
+            break;
     }
 
-    // The rails. Checked before anything leaves this process, so an order that
-    // breaks one never reaches the venue at all.
-    if (request.quantity > config_.max_order_quantity) {
-        return refuse(RejectReason::InvalidQuantity,
-                      "order exceeds this run's size cap; nothing in this milestone has any "
-                      "reason to send size");
-    }
     bool budget_spent = false;
     if (config_.max_orders != 0) {
         const std::lock_guard<std::mutex> lock(stats_mutex_);

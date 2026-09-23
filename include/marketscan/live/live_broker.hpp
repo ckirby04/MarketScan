@@ -70,10 +70,33 @@ struct LiveBrokerConfig {
 
     /// Every order is capped at this many shares, whatever a strategy asks.
     ///
-    /// A safety rail, not a sizing rule. This milestone exists to exercise an
-    /// order lifecycle, and nothing in it has any reason to send size. An
-    /// order above the cap is rejected locally and never reaches the venue.
-    Quantity max_order_quantity = 10.0;
+    /// A safety rail, not a sizing rule. An order above the cap is rejected
+    /// locally and never reaches the venue.
+    ///
+    /// This was 10, on the stated grounds that "nothing in this milestone has
+    /// any reason to send size". That premise turned out to be false: one share
+    /// can never partially fill, so a ten-share cap made the partial-fill path
+    /// unreachable by construction, and a partial was the one order state the
+    /// live sessions never produced.
+    ///
+    /// Raised deliberately, and paired with `max_order_notional` below --
+    /// because a share cap alone is not a safety limit when the instruments
+    /// span a fourfold price range. 300 shares is $54k of a $180 stock and
+    /// $232k of an $800 one, and only one of those is a sane order on a $100k
+    /// account.
+    Quantity max_order_quantity = 300.0;
+
+    /// Every order is also capped at this many dollars, when a price is known.
+    ///
+    /// This is the rail that actually protects the account, and the share cap
+    /// is the one that protects against a fat finger in a cheap instrument.
+    /// Checked from the limit price, which is the only price this class has:
+    /// there is no MarketView here, and a market order therefore passes this
+    /// check on the share cap alone. The lifecycle exercise sends nothing but
+    /// limits, for that reason among others.
+    ///
+    /// Zero disables it.
+    Money max_order_notional = Money::from_dollars(60'000);
 
     /// Orders this run may send in total. Zero means no limit.
     ///
@@ -244,6 +267,15 @@ public:
     [[nodiscard]] LiveBrokerStats stats() const;
 
     [[nodiscard]] const OrderMap& order_map() const noexcept { return order_map_; }
+
+    /// Whether the local rails would refuse this order, and why.
+    ///
+    /// `RejectReason::None` means the rails allow it -- not that the venue
+    /// will. Split out from submit() so the rails can be asserted without
+    /// sending anything: a test that had to call submit() to find out would
+    /// have to reach the network for every case the rails *allow*, and "no test
+    /// touches the network" is a property this project keeps.
+    [[nodiscard]] RejectReason check_rails(const MS_OrderRequest& request) const noexcept;
 
     /// Applies one trade update as if it had arrived on the socket. The pump
     /// calls this; a test calls it to drive a lifecycle without a network.
