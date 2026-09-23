@@ -88,6 +88,20 @@ public:
                            Timestamp decision_ts,
                            OrderId base);
 
+    /// Records an order under an engine id chosen by the caller.
+    ///
+    /// For a replay, which must reuse the id the live run used: every client
+    /// order id in a recording is `ms-<run>-<engine id>`, so an id that differs
+    /// derives a different client id and routes none of the recorded responses.
+    /// Deriving the id from a base instead let live and replay disagree about
+    /// the base and silently misroute all 391 responses of one session -- the
+    /// decisions still matched, so the run reported EQUIVALENT while the
+    /// recorded fills reached nothing.
+    OrderId register_order_with_id(const MS_OrderRequest& request,
+                                   Timestamp now,
+                                   Timestamp decision_ts,
+                                   OrderId id);
+
     /// Records an order that was refused before it left this process, so it is
     /// visible in the log with its reason rather than simply absent.
     OrderId register_refusal(const MS_OrderRequest& request,
@@ -104,6 +118,16 @@ public:
     void note_lost_cancel_race();
 
     void note_rail_refusal();
+
+    /// Notes that the venue refused an order the submit call had already
+    /// registered as working.
+    ///
+    /// Its own entry point because the rewire that extracted this class dropped
+    /// the counter on that path: a run reported "128 submitted, 124 accepted, 0
+    /// rejected" while four orders had plainly been refused and logged. Nothing
+    /// was lost -- the orders were Rejected in the log with their reasons -- but
+    /// the summary said something untrue, which is its own kind of bug.
+    void note_venue_refusal();
 
     [[nodiscard]] const Order* find_order(OrderId id) const noexcept;
     [[nodiscard]] Order* mutable_order(OrderId id) noexcept;

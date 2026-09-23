@@ -194,10 +194,17 @@ public:
             } else if (second_ == 0 && quote.symbol != followed_) {
                 second_ = quote.symbol;
                 log_info("resting leg: a second instrument, so the two legs cannot cross");
+            } else if (third_ == 0 && quote.symbol != followed_ && quote.symbol != second_) {
+                third_ = quote.symbol;
+                log_info("rejection bait: a third instrument, so it cannot cross either leg");
             }
         }
 
         // The resting leg's own touch, kept apart from the marketable leg's.
+        if (quote.symbol == third_ && quote.ask_px > 0.0) {
+            bait_ask_ = quote.ask_px;
+        }
+
         if (quote.symbol == resting_target()) {
             if (quote.bid_px > 0.0) {
                 rest_bid_ = quote.bid_px;
@@ -493,24 +500,37 @@ private:
         if (provoke_rejection_ < 0.5 || rejection_provoked_) {
             return;
         }
+
+        // A sub-penny limit price on a third instrument.
+        //
+        // CONFIRMED, NOT ASSUMED
+        //
+        // Two mechanisms were used before this and neither was ever checked. A
+        // short-sell IOC was refused only *outside* market hours, and with
+        // shorting enabled it would quietly have opened a short instead. The
+        // sub-penny price that replaced it produced no identifiable refusal in
+        // the first regular-session run.
+        //
+        // `ms_live bait` now sends each candidate to the venue on its own. The
+        // sub-penny price is refused, in a regular session, with
+        //
+        //     422: invalid limit_price 100.001234.
+        //          sub-penny increment does not fulfill minimum pricing criteria
+        //
+        // and the reason it failed to fire before was not the price at all: the
+        // bait shared an instrument with the other legs, so the venue refused it
+        // as a potential wash trade before ever validating the increment. Hence
+        // the third instrument.
+        if (third_ == 0 || !(bait_ask_ > 0.0)) {
+            return;  // No third instrument has quoted; try again next rotation.
+        }
         rejection_provoked_ = true;
 
-        // A sub-penny limit price, which the venue refuses for any stock priced
-        // above a dollar. No order is created and nothing is risked.
-        //
-        // WHY NOT THE PREVIOUS MECHANISM
-        //
-        // It used to sell short with an IOC, and the refusal it produced said
-        // "ioc orders are only accepted during market hours" -- which means it
-        // worked only *outside* market hours. In a regular session an IOC is
-        // accepted, and this account has shorting enabled, so that order would
-        // simply have opened a short position and the rejection path would have
-        // gone unexercised in the one run that was meant to exercise it.
-        //
-        // A tick-size violation is refused in every session, on every account,
-        // for a reason that has nothing to do with the clock.
-        const double price = ask_ * 0.5 + 0.001234;
-        (void)submit_limit(target(), MS_SIDE_BUY, shares(), price, MS_TIF_DAY, 3);
+        // Half the market and deliberately not rounded: sub-penny is the
+        // mechanism, and far below the touch means it could not fill even if
+        // the venue accepted it.
+        const double price = bait_ask_ * 0.5 + 0.001234;
+        (void)submit_limit(third_, MS_SIDE_BUY, 1.0, price, MS_TIF_DAY, 3);
         ++submits_;
         publish();
     }
@@ -545,6 +565,13 @@ private:
     MS_SymbolId second_ = 0;
     double rest_bid_ = 0.0;
     double rest_ask_ = 0.0;
+
+    /// The rejection bait's instrument. A third one, so the bait cannot collide
+    /// with either leg -- in the first regular-session run the bait shared a
+    /// symbol with them and was refused as a wash trade before its price was
+    /// ever looked at, which is why the intended mechanism went unexercised.
+    MS_SymbolId third_ = 0;
+    double bait_ask_ = 0.0;
     double period_ = 200.0;
     double notional_ = 15'000.0;
     double max_shares_ = 300.0;

@@ -304,6 +304,7 @@ OrderId LiveBroker::submit(const MS_OrderRequest& request, Timestamp now, Timest
         stored->status = OrderStatus::Rejected;
         stored->reject_reason = RejectReason::NotMarketable;
         stored->last_update_ts = now;
+        tracker_.note_venue_refusal();
         const std::string detail =
             response.error.empty()
                 ? "status " + std::to_string(response.status) + ": " + response.body

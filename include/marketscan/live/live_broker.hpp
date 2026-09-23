@@ -299,6 +299,10 @@ public:
     /// calls this; a test calls it to drive a lifecycle without a network.
     void apply_update(const TradeUpdate& update, Timestamp now);
 
+    /// Counts a venue refusal, as submit() does when the POST comes back 4xx.
+    /// Exposed so the counter can be asserted without reaching the network.
+    void note_venue_refusal_for_test() { tracker_.note_venue_refusal(); }
+
     /// Registers an order without sending it, so a test can drive the update
     /// path against a known order. Returns the engine id.
     OrderId register_local_order_for_test(const MS_OrderRequest& request, Timestamp now);

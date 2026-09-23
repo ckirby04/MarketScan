@@ -12,6 +12,7 @@
 add_executable(ms_live
     ms_live.cpp
     equivalence.cpp
+    bait_cmd.cpp
     dryrun_cmd.cpp
     equivalence_cmd.cpp
     orders_cmd.cpp

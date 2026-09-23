@@ -897,3 +897,22 @@ TEST_CASE("a zero exposure cap disables the check", "[live][broker][rails]") {
     request.limit_price = 9'000.0;
     REQUIRE(h.broker->check_rails(request) == RejectReason::None);
 }
+
+TEST_CASE("a venue refusal is counted, not only logged", "[live][broker][rails]") {
+    // The rewire that extracted OrderTracker dropped this counter, and a real
+    // run reported "128 submitted, 124 accepted, 0 rejected" while four orders
+    // had plainly been refused. The orders were all there with their reasons --
+    // nothing was lost -- but a summary that says something untrue is its own
+    // kind of bug, and the only reason it was caught is that the arithmetic did
+    // not add up when read by a person.
+    Harness h;
+    const OrderId id = h.place(1.0);
+    REQUIRE(h.broker->stats().rejected == 0);
+
+    // What submit() does on a venue refusal, without a network: mark the order
+    // and count it.
+    h.broker->note_venue_refusal_for_test();
+    REQUIRE(h.broker->stats().rejected == 1);
+    REQUIRE(h.broker->rejected_count() == 1);
+    (void)id;
+}

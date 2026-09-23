@@ -209,6 +209,9 @@ int run_equivalence(int argc, char** argv) {
         broker_config.allow_extended_hours = extended;
         broker_config.run_token = run_token;
         broker_config.recorder = recorder;
+        // The same base the replay half uses, so the two agree about order ids
+        // and a reader comparing the two logs sees the same numbers.
+        broker_config.order_id_base = 1'000'000;
         LiveBroker broker(broker_config, credentials, &symbols);
 
         // The strategy needs a fill model and a market view because the
@@ -386,6 +389,7 @@ int run_equivalence(int argc, char** argv) {
     std::vector<Decision> replay_decisions;
     std::uint64_t replay_events = 0;
     bool replayed_venue = false;
+    std::uint64_t misrouted = 0;
     CorrespondenceFailure correspondence;
     std::size_t submissions_matched = 0;
     std::size_t submissions_recorded = 0;
@@ -468,6 +472,7 @@ int run_equivalence(int argc, char** argv) {
         replay_decisions = decisions_of(strategy.broker(), symbols);
         if (venue) {
             replayed_venue = true;
+            misrouted = venue->stats().foreign_updates;
             correspondence = venue->failure();
             submissions_matched = venue->submissions_matched();
             submissions_recorded = venue->submissions_recorded();
@@ -547,11 +552,12 @@ int run_equivalence(int argc, char** argv) {
                 static_cast<double>(recording_bytes) / (1024.0 * 1024.0));
     if (replayed_venue) {
         std::printf("venue side      replayed from the recording: %zu of %zu submissions "
-                    "matched, %zu of %zu responses delivered\n",
+                    "matched, %zu of %zu responses delivered, %llu misrouted\n",
                     submissions_matched,
                     submissions_recorded,
                     responses_delivered,
-                    responses_recorded);
+                    responses_recorded,
+                    static_cast<unsigned long long>(misrouted));
     } else {
         std::printf("venue side      NOT in the recording -- replay used the fill simulator, so "
                     "refusals and partials did not reproduce\n");
@@ -594,6 +600,19 @@ int run_equivalence(int argc, char** argv) {
     // The correspondence assertion fires before the decision comparison does,
     // because it knows *which* order first disagreed and the comparison only
     // knows that two lists differ.
+    // A recording contains only this run's orders, so a response that matched
+    // no order is a misroute -- and it is fatal, because the replay's ledger
+    // then saw none of the venue's fills while the decisions still agreed. That
+    // combination reported EQUIVALENT once already and meant less than it said.
+    if (replayed_venue && misrouted > 0) {
+        cleanup();
+        std::printf("\nMISROUTED: %llu recorded responses matched no order in the replay.\n",
+                    static_cast<unsigned long long>(misrouted));
+        std::printf("The decisions may still agree, and that is exactly the danger: the replay's\n"
+                    "ledger never saw the venue's fills. Not reported as equivalence.\n");
+        return 1;
+    }
+
     if (correspondence.happened) {
         cleanup();
         std::printf("\nDIVERGED: replay stopped corresponding to the recording.\n\n%s\n",

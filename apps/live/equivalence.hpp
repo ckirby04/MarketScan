@@ -116,6 +116,11 @@ struct DecisionDiff {
 /// discovering that a parameter was wrong. Not the equivalence test.
 [[nodiscard]] int run_dryrun(int argc, char** argv);
 
+/// The `ms_live bait` subcommand: which order does this venue actually refuse?
+/// Sends each candidate alone and cancels any that is accepted. See
+/// bait_cmd.cpp for why guessing at this twice was not good enough.
+[[nodiscard]] int run_bait(int argc, char** argv);
+
 }  // namespace marketscan::live
 
 #endif  // MARKETSCAN_APPS_LIVE_EQUIVALENCE_HPP

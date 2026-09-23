@@ -58,6 +58,7 @@ void usage() {
         "  ms_live dryrun --plugin DLL --recording FILE [--set name=value]\n"
         "  ms_live orders [--limit N] [--run TOKEN]\n"
         "  ms_live positions [--flatten --yes] [--limit]\n"
+        "  ms_live bait [--symbol AAPL]\n"
         "  ms_live probe\n"
         "  ms_live guard\n"
         "\n"
@@ -514,6 +515,9 @@ int main(int argc, char** argv) {
         }
         if (command == "equivalence") {
             return run_equivalence(argc, argv);
+        }
+        if (command == "bait") {
+            return run_bait(argc, argv);
         }
         if (command == "dryrun") {
             return run_dryrun(argc, argv);

@@ -704,3 +704,238 @@ returned nine sessions, correctly skipping the weekend, each 13:30 to 20:00 UTC.
 `MarketCalendar` keeps "the market is closed" distinct from "this calendar
 cannot say", because a runner that treated an unfetched December as a holiday
 would be wrong in a way nothing would notice.
+
+---
+
+# Session F2: the recording learned to carry both directions
+
+The first regular-session equivalence run diverged, and the transport was not at
+fault: 102,550 events round-tripped exactly. What follows corrects the
+conclusion drawn from that, because the conclusion was wrong in a way worth
+recording.
+
+## The wrong lesson, and the right one
+
+The run report concluded that the theory must be a pure function of the event
+stream, because it had branched on whether the broker accepted an order.
+
+**That prescription would have outlawed every realistic strategy this platform
+exists to run.** Reacting to a rejection, a partial fill or a lost cancel race is
+what a live strategy is *for*. It is why M1b built the order lifecycle and why
+ABI v2 added `on_order_status`. A theory forbidden from observing its own order
+state is a theory that cannot trade.
+
+The real gap was in the recording. It held 102,550 market data events and **no
+venue responses**, so replay fed the strategy simulated acceptances where live
+had twenty-seven refusals. The strategy behaved correctly in both runs. It was
+given different information.
+
+So the fix went into the recorder, not the theory.
+
+## A recording is now both directions
+
+One file, one arrival order, three kinds of line:
+
+```
+{"seq":0,"recv":...,"raw":"[{\"T\":\"q\",...}]"}   market data, verbatim
+{"seq":1,"recv":...,"submit":{...}}                an order this process sent
+{"seq":2,"recv":...,"response":"{...}"}            what the venue said, verbatim
+```
+
+Responses are stored raw for the same reason market data is: replay re-parses
+with the same function rather than a second one that might disagree. One
+`StreamRecorder` is shared by the market data feed, the trade-updates socket and
+the engine thread, under one lock -- which is also what makes the sequence number
+a true arrival order across all three rather than three interleaved counters.
+
+`submit.accepted` records **what `submit()` returned**, not whether the venue was
+pleased. A rate-limited order is left working and reported as valid, because that
+is the answer the strategy got and replay has to give the same one.
+
+**Version 2.** Version 1 files still read, and come back with no submissions and
+no responses -- which is exactly the signal a replay uses to fall back to the
+fill simulator. A synthetic panel replays through `Broker` as it always did, and
+the golden values are unchanged. No flag decides this: `RecordingContents::
+has_venue_side()` does, and nothing in the engine or in a strategy can tell which
+broker it got.
+
+## The correspondence rule
+
+The Nth order a strategy submits during replay is matched against the Nth
+recorded submission and checked on symbol, side, quantity, type, time in force
+and price -- exactly, including the prices, for the same reason the decision
+comparison is exact.
+
+A mismatch fails **there**, with a diff naming the field:
+
+```
+submission 11 does not match the recording (quantity)
+  recorded buy AAPL 10.0000 limit tif=day limit=100.0000
+  replayed buy AAPL 45.0000 limit tif=day limit=100.0000
+```
+
+That makes the test self-checking. As long as the decisions agree the responses
+correspond by construction; the moment they do not, the failure names the order
+rather than feeding the wrong answer forward and surfacing somewhere unrelated.
+A strategy that asks for *more* orders than the live run did is the same failure
+and is reported the same way, because inventing an answer would be worse.
+
+## One state machine, not two
+
+`OrderTracker` owns the orders, the ledger, and what a `TradeUpdate` means. Both
+`LiveBroker` and `RecordedBroker` hold one.
+
+This is the same argument that put the market data parser in its own file, and it
+was learned the same way. If each broker applied updates itself, a replay would
+be comparing two implementations of the state machine rather than comparing live
+against replay -- and a difference in how a partial is booked would surface as a
+strategy disagreement and be debugged in the wrong place.
+
+## The result
+
+2026-09-23, paper account, regular session, SPY/QQQ/AAPL/MSFT/NVDA, 300 seconds,
+with the trade-updates connection dropped at 60 seconds on purpose:
+
+```
+live events      70,883        replay events    70,883
+live decisions   128           replay decisions 128
+venue side       128 of 128 submissions matched
+                 434 of 434 responses delivered, 0 misrouted
+
+EQUIVALENT: 128 decisions identical across live and replay.
+```
+
+| | |
+|---|---|
+| submitted to the venue | 128 |
+| accepted | 124 |
+| filled | 41 |
+| **partially filled** | **66** |
+| cancelled | 82 |
+| refused by the venue | 4 |
+| cancels that lost their race | 40 |
+| trade-stream reconnects | 1 |
+| orders reclaimed by client order id | 25 |
+| stale updates dropped | 23 |
+| reconciliation | positions agree with the venue |
+| recording | 23,298 lines, **13,818,175 bytes (13.18 MB)**, measured before deletion |
+
+**This is a materially stronger claim than the Session F result.** That one held
+for a strategy written not to look at its own orders. This one holds for a
+strategy that reacts to refusals, partials and cancels -- 128 decisions, 66 of
+them following partial fills, identical across live and replay.
+
+### A pass that meant less than it said
+
+The first attempt at this run also printed `EQUIVALENT`, on 111 decisions with
+111 of 111 submissions matched. It was wrong, and the only reason it was caught
+is a warning written while building the thing.
+
+The live broker's `order_id_base` was never set by the driver, so live numbered
+its orders from 0 and replay from 1,000,000. Every client order id is
+`ms-<run>-<engine id>`, so the ids differed, and all **391 recorded responses
+were dequeued and matched nothing**. The decisions still agreed -- because the
+decisions depend on what `submit()` returned, which was replayed correctly -- so
+the run reported equivalence while the replay's ledger had seen none of the
+venue's fills.
+
+Two changes, because one of them would have been a check where the other is a
+guarantee:
+
+- `RecordedBroker` now registers each order under **the recording's own engine
+  id**, so the client ids match by construction and there is no base to disagree
+  about.
+- Any response that matches no order is a **misroute and is fatal**. A recording
+  contains only this run's orders, so there is no innocent reading of one. The
+  report prints the count and refuses to call the run equivalent.
+
+That combination -- decisions agreeing while the mechanism under test was inert
+-- is the vacuous-pass family again, in the one place this session was built to
+strengthen.
+
+## The corrected event-rate model
+
+The old model was 2.4x low. Its base rates came from 14:56-15:53 ET and were
+treated as "midday", and the two symbols it had to guess turned out to be the
+two busiest. Replaced with measurements from three 300-second regular-session
+runs on 2026-09-23:
+
+| symbol | 11:28 ET | 14:04 ET | 14:11 ET |
+|---|---|---|---|
+| SPY | 77.1 /s | 47.0 /s | 43.2 /s |
+| QQQ | 91.1 /s | 65.4 /s | 76.1 /s |
+| AAPL | 46.0 /s | 27.2 /s | 21.3 /s |
+| MSFT | 11.9 /s | 14.8 /s | 18.4 /s |
+| NVDA | 115.8 /s | 65.7 /s | 77.3 /s |
+| **total** | **341.8 /s** | **220.0 /s** | **236.3 /s** |
+
+**Bytes per line is 195** with the venue side included, against 186 for market
+data alone -- submissions and responses are a small fraction of the volume.
+
+| when | five symbols | per minute | 300 s |
+|---|---|---|---|
+| mid-afternoon (14:00-14:15 ET) | 220-236 /s | 2.6-2.8 MB | **12.8-13.8 MB, measured** |
+| late morning (11:30 ET) | 342 /s | 4.0 MB | ~20 MB |
+| the open (09:30-10:00 ET) | not measured | -- | -- |
+
+The open is still unmeasured and is still expected to run hotter than any row
+above. Nothing here should be read as a figure for it.
+
+## Safety rails, as of this session
+
+| rail | value | what it bounds |
+|---|---|---|
+| share cap | 300 shares | a fat finger in a cheap instrument |
+| notional cap | $60,000 | one order against the account |
+| **gross exposure cap** | **$150,000** | what the orders add up to |
+| order budget | 200 orders | traffic at a venue that did not ask for it |
+
+All of them **refuse and none of them clamp**. A cap that quietly resized an
+order to fit would stop being able to report a sizing bug and would absorb one
+instead. The exposure cap always allows an order that *reduces* exposure,
+because refusing to close a position is how a rail becomes the thing it was
+guarding against.
+
+The exposure cap exists because the per-order caps could not see what the orders
+added up to: a run whose every order was about $15,000 finished holding 599
+shares of one name worth $201,317 against $99,897 of equity -- 2.0x levered with
+buying power at zero -- because fifty *partial* fills accumulated on a leg that
+only ever bought.
+
+## The rejection bait: confirmed in isolation, unconfirmed in the run
+
+Two mechanisms had been used and neither was ever checked. `ms_live bait` now
+sends each candidate to the venue on its own and prints what came back. On
+2026-09-23, in a regular session, all five were refused:
+
+| candidate | venue's answer |
+|---|---|
+| sub-penny limit price | `422 invalid limit_price 100.001234. sub-penny increment does not fulfill minimum pricing criteria` |
+| unknown symbol | `422 asset "ZZZZQQ" not found` |
+| zero quantity | `422 qty must be > 0` |
+| fractional quantity on a limit | `403 cost basis must be >= minimal amount of order 1` |
+| notional beyond buying power | `403 insufficient buying power` |
+
+So the sub-penny mechanism **does** fire, and the reason it produced no refusal
+in the first regular-session run was not the price: the bait shared an instrument
+with the other legs and was refused as a potential wash trade before the
+increment was ever validated. It now works a third instrument.
+
+**And it still did not fire in the integrated run.** The four refusals that did
+occur were `insufficient qty available for order`, from the resting leg trying to
+sell more than it held. Whether the bait was sent and accepted, or skipped
+because no third instrument had quoted, is not determinable from the run's
+output. Confirmed in isolation is not confirmed in place, and the item stays
+open. See [`STATUS.md`](STATUS.md).
+
+## Two things that remain true and uncomfortable
+
+**The legs still drift.** Both legs alternate sides now, and the run still
+finished 81 shares of QQQ short -- $60,030, inside the exposure cap but not
+flat. Alternating bounds the drift; it does not remove it, because partial fills
+do not offset in pairs.
+
+**Nothing here is a statement about execution quality.** Paper fills are the
+venue's simulation, IEX is roughly two per cent of consolidated volume, and
+[`DATA_POLICY.md`](DATA_POLICY.md) Â§7 says both on its face. The exercise lost
+$98.51 of paper money across every session, which is what it is for.

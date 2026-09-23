@@ -188,20 +188,16 @@ RecordedBroker::submit(const MS_OrderRequest& request, Timestamp now, Timestamp 
         return kInvalidOrderId;
     }
 
-    // Registered under the same engine id the live run used, so the client order
-    // id derived from it matches the one the recorded responses name. That is
-    // what lets the shared OrderTracker route a recorded fill to the right
-    // order without any special case.
-    const OrderId id = tracker_.register_order(request, now, decision_ts, order_id_base_);
-    if (id != expected.engine_id) {
-        log::write(MS_LOG_WARN,
-                   "replay",
-                   "replay assigned engine id " + std::to_string(id) + " where the recording has " +
-                       std::to_string(expected.engine_id) +
-                       "; responses are matched by client order id, which is derived from the id, "
-                       "so this would misroute them");
-    }
-    return id;
+    // Registered under *the recording's own* engine id, not one derived from a
+    // base. Every client order id in the recording is `ms-<run>-<engine id>`, so
+    // an id that differs derives a different client id and routes none of the
+    // recorded responses.
+    //
+    // This was a base before, and the live run's base and the replay's differed:
+    // all 391 responses of one session were dequeued and matched nothing, while
+    // the decisions still agreed and the run reported EQUIVALENT. Taking the id
+    // from the recording removes the opportunity rather than checking for it.
+    return tracker_.register_order_with_id(request, now, decision_ts, expected.engine_id);
 }
 
 bool RecordedBroker::cancel(OrderId id, Timestamp now) {

@@ -57,6 +57,11 @@ void OrderTracker::note_rail_refusal() {
     ++stats_.refused_by_rail;
 }
 
+void OrderTracker::note_venue_refusal() {
+    const std::lock_guard<std::mutex> lock(stats_mutex_);
+    ++stats_.rejected;
+}
+
 OrderId OrderTracker::register_order(const MS_OrderRequest& request,
                                      Timestamp now,
                                      Timestamp decision_ts,
@@ -73,6 +78,36 @@ OrderId OrderTracker::register_order(const MS_OrderRequest& request,
     index_[order.id] = orders_.size();
     orders_.push_back(order);
     order_map_.record_submitted(order.id);
+
+    {
+        const std::lock_guard<std::mutex> lock(stats_mutex_);
+        ++stats_.submitted;
+    }
+    return order.id;
+}
+
+OrderId OrderTracker::register_order_with_id(const MS_OrderRequest& request,
+                                             Timestamp now,
+                                             Timestamp decision_ts,
+                                             OrderId id) {
+    Order order;
+    order.id = id;
+    order.request = request;
+    order.submitted_ts = now;
+    order.last_update_ts = now;
+    order.eligible_ts = now;
+    order.decision_ts = decision_ts;
+    order.status = OrderStatus::Working;
+
+    index_[order.id] = orders_.size();
+    orders_.push_back(order);
+    order_map_.record_submitted(order.id);
+
+    // Keep the running sequence ahead of any id handed in, so a later
+    // register_order cannot collide with one of these.
+    if (id >= next_sequence_) {
+        next_sequence_ = id + 1;
+    }
 
     {
         const std::lock_guard<std::mutex> lock(stats_mutex_);
