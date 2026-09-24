@@ -11,6 +11,10 @@ The second idea is the `theories/` folder as a **USB port**: a compiled strategy
 into it is discovered at runtime, loaded, given its own virtual account, and shown in the GUI —
 with no recompile of the host and no changes to host code.
 
+> **New here?** [**`docs/WRITEUP.md`**](docs/WRITEUP.md) is the short account of what
+> this produced and why the interesting part is that the headline result was
+> retracted. Everything below is the reference material behind it.
+
 ---
 
 ## What this project actually produced

@@ -128,6 +128,31 @@ An unrecorded *new* test also fails. That is deliberate: it costs one `--write` 
 commit that adds a test, and it buys the property that a guard written today is
 protected tomorrow by default.
 
+#### The dial, named in advance
+
+That cost is real and it is paid on every future session. So the escape valve is
+written down here rather than left to be discovered by whoever it first annoys:
+
+> **If the strict setting becomes the thing you complain about, relax it to
+> removals-only** — accept an unrecorded new test, keep failing on a vanished one —
+> **and accept in exchange that a guard written after that day is not protected
+> until somebody remembers to protect it.**
+
+That is a real loss and a defensible trade. Make it deliberately.
+
+The reason for naming it here is not tidiness. A guard that nags gets **deleted**,
+not tuned, because deleting it is one line and tuning it requires understanding what
+it was for. Every mechanism in this repository has the same exposure — it is the
+same failure as a guard that cries wolf getting switched off, which is why the
+network scan keys on type rather than on variable names. Naming the dial means the
+next irritated person reaches for it instead of for `rm`.
+
+The same applies to `scripts/check_doc_claims.py`, whose failures will look like
+false alarms when a sentence is reworded. Its failure message says *"re-anchor it
+rather than leaving it silent"* for exactly this reason: the instruction has to
+travel with the annoyance, because the person hitting it is the person least
+inclined to go looking for the rationale.
+
 ### 4.3 The documented claims, checked against reality
 
 `scripts/check_doc_claims.py` validates the load-bearing factual assertions in the
