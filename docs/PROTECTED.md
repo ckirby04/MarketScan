@@ -77,7 +77,74 @@ layers, not a licence for repetition on either side of it.
 | `SummaryAudit::ok()` returning **false when nothing was checked** | An audit with no identities in it prints what an audit of everything prints. Making zero checks a pass would reintroduce the exact shape the class exists to close. |
 | `REQUIRE(parsed.events.size() == 3)` in `tests/test_stream_parser.cpp`, and the companion case "an unused gate reports the same zeros as a gate that found nothing wrong" | The assertion looks redundant. The companion case exists to prove it is not: an unhandled message kind yields zero events, and against that input all four gate counters read exactly what they read after three well-ordered events. Remove either and the case can pass having measured nothing. |
 | `ms_live equivalence`'s `VACUOUS` exit 3 | Zero decisions compared is not a pass. Three runs reported success on empty comparisons before this existed. |
-| The `--min-tests` floor in `scripts/check_skips.py` | It is not tracking the test count and should not be "corrected" to match it. It exists to catch a run that tested almost nothing. |
+| The `--min-tests` floor in `scripts/check_skips.py` | **A catastrophic-failure guard, not a drift detector.** See §4.1 — the distinction is the whole reason the number looks wrong and is not. |
+
+### 4.1 The `--min-tests` floor is 400 against a suite of 483, and that is correct
+
+It looks stale. It is not, and the itch to "fix" it comes from reading it as the
+wrong kind of mechanism.
+
+**What it is:** a catastrophic-failure guard. It answers *did the suite run at
+all* — the wrong `--test-dir`, a preset whose test set collapsed, a `-R` filter
+matching a handful. It does that job identically at 483 tests or at 600, because
+every one of those failures lands far below 400.
+
+**What it is not:** a drift detector. It cannot tell you that eighty tests
+silently disappeared, and tracking the count would make it worse rather than
+better — a number anyone bumps on every addition is a number nobody reads, and a
+guard nobody reads is a guard that gets bumped past a real regression without
+anyone pausing.
+
+**If drift detection is wanted**, it is a different mechanism with a different
+shape: a ratchet against a recorded count, where any decrease is an explicit
+reviewed act. That is worth deciding deliberately rather than arriving at by
+gradually tightening a floor into a role it was never built for. Note that the
+test manifests in §4.2 already cover most of what a ratchet would: a disappeared
+test fails by name, which is strictly more informative than a count going down.
+
+**So: do not raise it to track the suite, and do not lower it to zero.** If you
+want the other mechanism, build the other mechanism.
+
+### 4.2 The test manifests, and what they now protect mechanically
+
+`tests/test_manifest.txt` and `research/tests/test_manifest.txt` record every
+registered test by name, checked by `scripts/check_test_manifest.py` in CI.
+
+**This is what turned most of §1 and §4 from guarded-by-reading into guarded.**
+Deleting any named test now fails until the name is removed from the manifest in
+the same commit — a diff a reviewer sees. It protects every guard that exists and
+every guard added later, without anyone remembering to write bespoke protection for
+each one.
+
+Two manifests rather than one, because the suites are listed by different tools and
+no CI job has both a build tree and pytest's dependencies. That split matters more
+than it sounds: the guard standing between this project's central architectural
+claim and its becoming tautological is `test_no_guarded_module_imports_dynamically`,
+and it is a **pytest** test. A manifest covering only C++ would have protected
+everything except the thing most worth protecting — which is what the first draft
+did, and what its own test caught.
+
+An unrecorded *new* test also fails. That is deliberate: it costs one `--write` per
+commit that adds a test, and it buys the property that a guard written today is
+protected tomorrow by default.
+
+### 4.3 The documented claims, checked against reality
+
+`scripts/check_doc_claims.py` validates the load-bearing factual assertions in the
+docs: the test counts, the ABI version, that the guards `README.md` names still
+exist and are still wired into CI, and that no test reaches the network.
+
+It exists because `README.md` said **"no network code, no API clients, no
+credentials"** until Session F made it false, and nobody noticed for three
+sessions. The stale test counts in `STATUS.md` are the same failure in a cheaper
+costume, and one step covers the class. On its first real run it caught a count
+that was thirteen low.
+
+Each claim is **anchored to its sentence rather than grepped**, because
+[`FREEZE_CONTRACT.md`](FREEZE_CONTRACT.md) forbids correcting historical
+statements and four documents correctly say the ABI is "frozen at v1". A checker
+that flagged those would deserve to be switched off. A pattern that stops matching
+is a failure, not a skip.
 
 ## 5. Tools kept for what they report, not what they do
 
@@ -87,7 +154,7 @@ layers, not a licence for repetition on either side of it.
 | `ms_live dryrun` | Runs a plugin against a recording with no network. A live session needs an open market, uses the account's one stream connection, sends real orders and cannot be repeated. This is what stops one being spent discovering a parameter was wrong — which it has already done, catching a configuration demanding $471k against $400k of buying power. |
 | `ms_live bait` | Sends each rejection candidate to the venue alone and reports what came back. Two rejection mechanisms had been relied on without ever being seen to refuse anything; this is what ended that. Its value is the measurement, not the code. |
 | `theories/lifecycle_exercise/` | Loses money by design and says so in its header. It exists to drive orders through every state a venue can put them in. Judging it as a strategy is a category error. |
-| `theories/_template/` | The starting point a plugin author copies. Nothing in the tree references it, by design. |
+| `theories/_template/` | The starting point a plugin author copies. Nothing in the tree *references* it, by design — but it is **not** unguarded: `theories/CMakeLists.txt` builds it, so an ABI change that broke the copy-to-start skeleton fails the build, and `tests/test_session.cpp` loads the resulting DLL to prove the drop-in-a-folder claim, `SKIP`ping if it is absent — which fails the unallowlisted-skip gate. Deleting it therefore breaks two things loudly. |
 
 ## 6. Data and decisions that cannot be regenerated
 
@@ -100,6 +167,28 @@ layers, not a licence for repetition on either side of it.
 | `docs/figures/`, `docs/screenshots/` | Outputs of runs that were measured once. They are evidence, not decoration. |
 
 ---
+
+---
+
+## What is guarded by what
+
+Stated plainly, because a protected list that does not say which of its rows a
+machine enforces is a list whose reader cannot tell reading from checking.
+
+| | |
+|---|---|
+| every named test in §1, §4 | the manifests — deleting one fails CI by name |
+| `theories/_template/` | built in CI; a test loads the DLL and skips if it is gone |
+| the ABI version, the test counts, the guards `README.md` names, no-test-network | `check_doc_claims.py` |
+| the live-money hostname, tracked credentials | `check_no_live_endpoints.py`, `check_no_secrets.py` |
+| the cross-layer duplication, mechanically | `test_layer_independence.py` — direct, transitive, deletion, dynamic-import evasion |
+| the cross-layer duplication, against transliteration | **nothing.** A review question: was this derived from `SIZING.md`, or from the other implementation? |
+| `scripts/fetch_stooq.py`, `ms_live bait`, `ms_live dryrun` | **reading this file.** Low stakes: each is recoverable from git history, none is load-bearing for a measured result, and an honest "guarded by reading" is an adequate answer for them. |
+| `data/security_overrides.csv`, `docs/IDENTITY_DECISIONS.md`, `data/samples/` | reading this file, plus the tests that assert golden values against the fixtures |
+
+The rows in the last two groups are the honest remainder. They are named here
+rather than left implicit, so that "this list is partly mechanical" is a fact a
+reader has rather than a discovery they make.
 
 ## How to add to this list
 

@@ -4,7 +4,7 @@ A handoff, not a changelog. What is proven and by which measurement, what is
 approximated and where, what is unresolved, and what the next phase needs.
 
 **Last updated:** 2026-09-23, end of Session H. CI green. 483 C++ tests (one
-skipped, allowlisted), 234 Python.
+skipped, allowlisted), 253 Python.
 
 The counts and version identifiers in this document are descriptive facts about
 the tree and are corrected whenever they are found wrong. Measured results are
@@ -132,7 +132,7 @@ Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
 **483 C++ tests** on `ci` and `ci-debug`, measured; **484** on `full`, for the
-reason in [`AUDIT.md`](AUDIT.md) check 9. **234 Python tests** in
+reason in [`AUDIT.md`](AUDIT.md) check 9. **253 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import
 that changes that turns the job red.
@@ -1267,3 +1267,27 @@ What remains open is in **What is unresolved** above and is mostly not
 engineering: the rejection bait confirmed in isolation and not in place, the
 position drift that alternating bounds but does not remove, the event-rate model
 with no figure for the open, and M3b, which is CRSP-dependent.
+
+### Follow-up: three mechanisms, each replacing someone noticing
+
+Added after Session H closed, all three of the same species — a thing that
+depended on attention now depends on CI.
+
+| | |
+|---|---|
+| **Test manifests** | `tests/test_manifest.txt` and `research/tests/test_manifest.txt` record every registered test by name; `scripts/check_test_manifest.py` checks both in CI. Deleting a test now fails until its name is removed in the same commit. This is what turned most of [`PROTECTED.md`](PROTECTED.md) from guarded-by-reading into guarded — including the `importlib` ban, which is a pytest test and which a C++-only manifest would have missed. |
+| **Doc-claims checker** | `scripts/check_doc_claims.py` validates the load-bearing factual assertions in the docs against the repository: test counts, ABI version, that the guards `README.md` names still exist and are wired into CI, and that no test reaches the network. It exists because `README.md` claimed "no network code, no API clients, no credentials" for three sessions after Session F made it false. |
+| **`PROTECTED.md` §4.1** | The `--min-tests` floor is a catastrophic-failure guard, not a drift detector, and is documented as such so the next reader does not "fix" 400-against-483 into a number nobody reads. |
+
+Each claim is anchored to its sentence rather than grepped, because
+[`FREEZE_CONTRACT.md`](FREEZE_CONTRACT.md) forbids correcting historical
+statements and four documents correctly say the ABI is "frozen at v1". A pattern
+that stops matching is a failure rather than a skip, and a test in
+`research/tests/test_check_doc_claims.py` reads the workflow to assert no claim is
+checked by neither job — the hole a two-job split creates and neither job can see.
+
+**What is still guarded only by reading** is listed in `PROTECTED.md` under "What
+is guarded by what": `fetch_stooq.py`, `ms_live bait`, `ms_live dryrun`, the
+hand-written identity overrides, and — the one that matters — a line-by-line
+transliteration of either half of a cross-layer pair into the other. Nothing in CI
+will ever catch that one. The review question is in [`SIZING.md`](SIZING.md).

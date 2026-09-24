@@ -116,6 +116,26 @@ jobs:
         shell: pwsh
         run: python scripts/check_no_live_endpoints.py --binaries out/build/${{ matrix.preset }}/bin
 
+      # Every registered test, by name, against a committed manifest. Deleting a
+      # test is then a visible act rather than a silent one -- several of them are
+      # load-bearing in a way their names do not advertise; see docs/PROTECTED.md.
+      - name: The test suite is still made of the same tests
+        shell: pwsh
+        run: >
+          ./scripts/dev-env.ps1 python scripts/check_test_manifest.py
+          --source ctest --test-dir out/build/${{ matrix.preset }}
+
+      # The documented claims that need a build tree to verify. The Python-count
+      # claim is checked by the research job, which is the only one with pytest's
+      # dependencies installed; a test asserts between them that no claim is
+      # checked by nobody.
+      - name: The docs still describe this repository
+        shell: pwsh
+        run: >
+          ./scripts/dev-env.ps1 python scripts/check_doc_claims.py
+          --claims "cpp_tests,cpp_tests_full,abi_version,guards_wired,tests_offline"
+          --test-dir out/build/${{ matrix.preset }}
+
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -184,6 +204,17 @@ jobs:
         # never a flake. -p no:randomly in case anybody adds an ordering plugin:
         # several tests share module-scoped fixtures that take a minute to build.
         run: pytest -q -p no:randomly
+
+      # The Python half of both mechanisms. This job is the only one with pytest's
+      # dependencies installed, so it owns the claims and the manifest that need
+      # them -- including the manifest entry for the importlib ban, which is the
+      # guard between this project's central architectural claim and its becoming
+      # tautological.
+      - name: The Python suite is still made of the same tests
+        run: python scripts/check_test_manifest.py --source pytest
+
+      - name: The docs still describe this repository
+        run: python scripts/check_doc_claims.py --claims python_tests
 
       - name: The committed measurements still reproduce
         # Not the full sweep -- that is an hour. The quick paths exercise every
