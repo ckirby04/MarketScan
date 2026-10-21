@@ -26,6 +26,8 @@ Sortino exceeds Sharpe when losses are smaller than gains
 Sortino ratio against a worked example
 Sortino with no downside is undefined
 US Eastern is five hours behind in winter and four in summer
+a $ref cycle that consumes no input fails rather than recursing forever
+a $ref must be local and must resolve to a schema
 a DAY order expires when the date changes
 a DLL that is not a theory is refused
 a GTC order outlives the session
@@ -42,6 +44,7 @@ a client id is the same string before and after a restart
 a client order id round trips to its engine order id
 a close-only file is a valid price series
 a closed market and an uncovered date are different answers
+a compiled schema survives being copied and the original going away
 a constructor that refuses is reported, not fatal
 a corrupt file in the cache fails the run
 a corrupt file is refused, and says why
@@ -58,6 +61,7 @@ a different seed produces different prices
 a drawdown that never recovers is reported as such
 a duplicate registration is refused
 a failing summary audit names every identity and both sides
+a false schema accepts nothing and a true schema everything
 a feed can be reset and replayed
 a file that is not a DLL at all is refused
 a file that is not a recording is refused
@@ -67,6 +71,7 @@ a fill message parses into a fill
 a fill message that books nothing is counted but adds no blotter row
 a flat position leaves no rounding crumb behind
 a flat series has an undefined diagonal
+a format the validator does not assert is refused
 a fresh tracker reconciles, and says how many identities it checked
 a gap with no flank window does not fail the flank test
 a genuinely small volatility still has a Sharpe ratio
@@ -99,6 +104,8 @@ a monotonic rise has no drawdown
 a multi-year cache across hundreds of names replays
 a new theory dropped into the folder appears on rescan
 a null field in a venue response does not throw
+a oneOf matching more than one branch fails
+a oneOf with no match reports the closest branch's reasons
 a parameter can be changed while the session is live
 a partial close books only the part that closed
 a partial that then expires books one fill and one terminal status
@@ -136,6 +143,7 @@ a reused ticker is two securities
 a risk-free rate lowers the Sharpe ratio
 a rolling window reports nothing until it is full
 a run token that cannot be read back is refused
+a schema keyword outside the subset is refused, not ignored
 a second terminal update for one order is dropped
 a second venue refusal for one order is not counted twice
 a security the table says nothing about is not a delisting return of zero
@@ -209,6 +217,7 @@ an evening bar does not open a new session
 an expired order reconciles
 an impossible bar is refused at load
 an instance can be created and its parameters read back
+an invalid pattern is refused at compile time
 an offset timestamp is read as the same instant
 an order before any market data is refused
 an order cancelled by the venue reconciles
@@ -232,7 +241,9 @@ an unknown update leaves the order working
 an unreadable response is not agreement
 an unused gate reports the same zeros as a gate that found nothing wrong
 an update for another run's order is counted and ignored
+annotations and x- keys are accepted and change nothing
 another run's client id is not adopted
+anyOf, allOf and if/then/else
 arithmetic
 both appearances define eight distinct categorical slots
 both implementations of the sizing rule produce identical shares
@@ -256,6 +267,8 @@ creating from an unknown or unloaded plugin yields nothing
 credentials come from the environment and nowhere else
 crosses the plugin boundary unchanged
 crossing costs what the fill model says it costs
+date format: real calendar dates only
+date-time format: RFC 3339, upper-case T and Z, no leap second
 density changes presentation and nothing else
 derived seeds are independent per name
 different seeds give different numbers
@@ -267,7 +280,9 @@ eastern offset follows the post-2007 daylight rule
 eastern offset refuses a date it cannot read
 eight theories get eight distinct colours, and the ninth folds
 emphasis is a chart feature, not a mode feature
+enum and const compare numbers by value and never equate a boolean with 1
 epoch formats and parses
+errors name the document path that failed
 even the optimistic model honours a limit price
 event count is stable across runs
 events from one source arrive in order
@@ -277,6 +292,7 @@ every booked fill is a blotter row
 every day of a decade is between 23 and 25 hours
 every figure the views surface is read from the snapshot
 every fill is stamped with the triple
+every research contract schema compiles inside the supported subset
 every theory's ledger balances after a full replay
 exactly one of filled or cancelled happens, whenever the cancel lands
 exposure accumulates across fills
@@ -284,15 +300,18 @@ extra slippage widens the fill further
 fills are booked from the venue's cumulative figure
 fills are reported to the listener with the client id
 find agrees with iteration
+format is an assertion here, not an annotation
 fractional seconds scale to nanoseconds
 indices wrap without losing anything
 information ratio against a worked example
 information ratio against an identical series is undefined
+integer means a whole number however it is written, and never a boolean
 items come out in the order they went in
 jitter stays inside its bound
 latency and partial fills replay exactly
 latency is deterministic, jitter included
 leap days are handled
+loading a missing or malformed schema file is a compile error
 log returns compound to the total
 malformed input is refused, not skipped
 malformed timestamps are refused rather than guessed at
@@ -394,6 +413,7 @@ the ABI is at version 2 and the vtable has ten slots
 the allocation counter sees an allocation
 the allocation counter sees nothing when nothing allocates
 the assignment depends on the set of theories, not on their order
+the assistant's tool schemas compile inside the supported subset
 the assumed exit is worth what the difference between the models says
 the benchmark is drawn in both modes and never greyed
 the benchmark never wears a categorical hue
@@ -419,6 +439,7 @@ the digest notices a one-bit price change
 the digest separates values a memcmp would confuse
 the engine and the research pipeline agree, exactly
 the engine's dispatch path allocates nothing per event
+the engine's validator reproduces every verdict in the schema corpus
 the epoch is day zero
 the equity curve samples on an interval
 the equity invariant holds after every operation

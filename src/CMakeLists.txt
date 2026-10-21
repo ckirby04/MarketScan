@@ -54,6 +54,7 @@ add_library(marketscan_core STATIC
     marketscan/metrics/correlation.cpp
     marketscan/metrics/performance.cpp
     marketscan/metrics/rolling.cpp
+    marketscan/research/json_schema.cpp
     marketscan/run/backtest.cpp
     marketscan/strategy/host_context.cpp
     marketscan/strategy/plugin_loader.cpp

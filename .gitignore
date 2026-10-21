@@ -53,6 +53,8 @@ data/*
 data/samples/*
 !data/samples/*.csv
 !data/samples/README.md
+# Hand-written JSON fixtures for the research contracts. No prices in them.
+!data/samples/research/
 
 # --- Python ---
 __pycache__/

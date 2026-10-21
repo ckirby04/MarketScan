@@ -11,7 +11,7 @@
 #
 # Versions this was developed and measured against, for the record:
 #   numpy 2.3.4  pandas 2.3.3  scipy 1.16.3  scikit-learn 1.8.0
-#   matplotlib 3.10.8  pytest 9.0.2
+#   matplotlib 3.10.8  pytest 9.0.2  jsonschema 4.25.1
 
 numpy>=1.26
 pandas>=2.1
@@ -19,3 +19,6 @@ scipy>=1.11
 scikit-learn>=1.4
 matplotlib>=3.8
 pytest>=7.4
+# The research contracts' validator, research/contracts.py. 4.18 is the first
+# with the `referencing` resolver its Draft202012Validator relies on.
+jsonschema>=4.18
