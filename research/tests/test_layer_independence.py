@@ -79,6 +79,10 @@ GUARDED = {
         "the drawdown_entry rule, cross-tested fill for fill against "
         "src/marketscan/research/drawdown_entry.cpp"
     ),
+    "research.grading": (
+        "the research job's grading, which must reproduce the Results of "
+        "src/marketscan/research/job.cpp from its trace"
+    ),
     "research.contracts": (
         "the second schema validator, which must agree with "
         "include/marketscan/research/json_schema.hpp on every corpus case"

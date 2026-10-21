@@ -178,6 +178,12 @@ marketscan_add_test(test_research_rule test_research_rule.cpp)
 target_compile_definitions(test_research_rule PRIVATE
     MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 
+# The research job, held to its committed Results and trace, which
+# research/tests/test_grading.py regrades independently.
+marketscan_add_test(test_research_job test_research_job.cpp)
+target_compile_definitions(test_research_job PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
 marketscan_add_test(test_parity      test_parity.cpp)
 if(TARGET decile_parity)
     add_dependencies(test_parity decile_parity)

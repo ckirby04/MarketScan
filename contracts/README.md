@@ -25,3 +25,32 @@ only while they are independent.
 The engine's validator implements a **subset** of JSON Schema 2020-12 and refuses to compile a
 schema that uses any keyword outside it. A keyword that was silently ignored would let every
 document pass that rule, and nothing downstream could tell.
+
+## Running a form
+
+```powershell
+ms_research --form form.json --daily data/cache/stooq --out runs/my-question
+ms_research --form form.json --csv FIXTURE=prices.csv --out runs/fixture --trace
+```
+
+It validates the form against `strategy_form.schema.json`, runs the job
+([`research/JOB.md`](research/JOB.md)), validates the Results against `results.schema.json` -- a
+Results document that fails its own schema is reported as an engine bug, not written -- and writes
+`form.json`, `results.json` and `equity.csv`. A form the job cannot honour is refused with every
+reason, each naming the form path it is about.
+
+`ms_research` is its own executable rather than `marketscan --headless --research`, as
+[`SPEC_RESEARCH_VIEW.md`](../docs/specs/SPEC_RESEARCH_VIEW.md) part R3 had it, for the reason
+`ms_live` is: what a binary can do should have a one-line answer.
+
+The job's cross-test fixture, `data/samples/research/job_results.json` and `job_trace.json`, is
+written by:
+
+```powershell
+ms_research --form data/samples/research/job_form.json `
+    --csv FIXTURE=data/samples/research/drawdown_prices.csv --out <dir> `
+    --trace --null-draws 1000 --paths 50 --fixed-time --data-snapshot fixture
+```
+
+and copied in. Regenerate it only on purpose: `tests/test_research_job.cpp` fails until the engine
+reproduces it, and `research/tests/test_grading.py` then says whether the research layer agrees.

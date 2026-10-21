@@ -19,12 +19,14 @@ CAGR against an exact case
 CAGR of a degenerate span is undefined
 Calmar ratio
 INT64_MIN formats without overflowing on negation
+SHA-256 against the FIPS 180 example vectors
 Sharpe of a riskless series is undefined, not infinite
 Sharpe of a zero-mean series is zero, which is a real answer
 Sharpe ratio against a worked example
 Sortino exceeds Sharpe when losses are smaller than gains
 Sortino ratio against a worked example
 Sortino with no downside is undefined
+SplitMix64 against its reference outputs
 US Eastern is five hours behind in winter and four in summer
 a $ref cycle that consumes no input fails rather than recursing forever
 a $ref must be local and must resolve to a schema
@@ -95,6 +97,7 @@ a long gap splits and a short one does not
 a long halt inside an otherwise covered gap is unresolved
 a long round trip books the right P&L
 a malformed calendar is an error, not an empty schedule
+a malformed close CSV is refused with its file and line
 a market order never fills better than the touch
 a market order passes the notional rail on the share cap alone
 a market-data-only recording has no venue side
@@ -174,6 +177,7 @@ a summary infers the sampling rate from the curve
 a summary of a known curve
 a summary of too few points claims nothing
 a summary reads the ends without reading the middle
+a sweep over five hundred points is refused
 a symbol nobody subscribed to is counted, not interned
 a target waits for a price and is abandoned if none comes
 a theory can be unloaded and loaded again
@@ -347,6 +351,7 @@ notional turns a price and a quantity into exact cash
 nth and last weekday land on the right dates
 null sources and sinks are rejected
 numeric UTC offsets are refused
+on a flat price every random-timing alternative ties with the rule
 one message keeps the order of the events inside it
 open and closed are answered from the fetched sessions
 optimistic fills flatter every theory, most where it trades most
@@ -357,6 +362,7 @@ parameter metadata crosses the boundary intact
 partials reconcile to one fill at the weighted average
 pausing stops the replay where it is
 per_unit refuses to produce a NaN
+percentile interpolates and drops nulls
 periods per year respect the session length
 playing runs the replay to the end
 positions are reported in ascending symbol order
@@ -406,6 +412,7 @@ survives a real producer and consumer
 switching view mode does not restart, pause or perturb the run
 symbol name pointers survive later interning
 symbols get dense ids in first-seen order
+symmetric eigenvalues of small known matrices
 synthesized quotes straddle the close and precede the bar
 synthetic bars are internally consistent
 synthetic events are in non-decreasing timestamp order
@@ -422,8 +429,11 @@ the assistant's tool schemas compile inside the supported subset
 the assumed exit is worth what the difference between the models says
 the benchmark is drawn in both modes and never greyed
 the benchmark never wears a categorical hue
+the binder refuses missing data and a duplicated exit by path
+the binder refuses what it cannot honour, every reason at once, by path
 the blotter reconstructs cash exactly
 the boundary belongs to the session it opens
+the canonical form drops prompt and provenance and sorts keys
 the churn fixture is a fixture with churn in it
 the classifier agrees with the cases we are sure of
 the clock reads the current event's timestamp during dispatch
@@ -473,14 +483,18 @@ the optimistic fill model can be swapped in at runtime
 the optimistic model declares itself unrealistic
 the optimistic model fills everything at the last print
 the original file stays writable while the plugin is loaded
+the prompt and provenance do not change the job
 the rails refuse a price or quantity that is not a number
 the reference theories return exactly what they did at Spec 1
 the reference theory is discovered and loaded
 the registry keeps a stable order
+the research job reproduces its committed Results and trace exactly
+the research job's Results satisfy results.schema.json
 the result still converts to a bare id
 the risk-free rate is split geometrically
 the same drawdown_entry run twice gives the same fills and the same curve
 the same engine runs on a wall clock
+the same form over the same bars gives byte-identical Results
 the same replay produces the same order log twice
 the same replay run twice produces the same stream
 the same seed gives the same numbers
