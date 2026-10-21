@@ -75,6 +75,14 @@ GUARDED = {
         "the decile strategy reference implementation, cross-tested to the "
         "micro-dollar against theories/decile_parity"
     ),
+    "research.drawdown_entry": (
+        "the drawdown_entry rule, cross-tested fill for fill against "
+        "src/marketscan/research/drawdown_entry.cpp"
+    ),
+    "research.contracts": (
+        "the second schema validator, which must agree with "
+        "include/marketscan/research/json_schema.hpp on every corpus case"
+    ),
 }
 
 

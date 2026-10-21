@@ -351,6 +351,19 @@ void Broker::on_market_event(SymbolId symbol, Timestamp now) {
             continue;  // still crossing the wire
         }
         const RejectReason outcome = try_fill(order, now);
+        if (order.status == OrderStatus::Rejected) {
+            // Refused on arrival -- by the cash check, typically, after the
+            // price moved while the order was in flight. Reported the way a
+            // refusal at submission is: counted, and told to the strategy.
+            // finalise_immediate returns early on a status try_fill already
+            // set, and before this an order refused here simply vanished: the
+            // strategy was never told, kept waiting for a fill, and the count
+            // said nothing had been refused.
+            ++rejected_count_;
+            notify_status(
+                listener_, order, now, MS_ORDER_REJECTED, to_string(order.reject_reason).data());
+            continue;
+        }
         if (resolves_on_arrival(order)) {
             // An order with one chance takes it on the event it arrives, and
             // that event is this one. Reaching here at all means it was in

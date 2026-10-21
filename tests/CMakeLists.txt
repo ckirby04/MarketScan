@@ -172,6 +172,12 @@ marketscan_add_test(test_research_contracts test_research_contracts.cpp)
 target_compile_definitions(test_research_contracts PRIVATE
     MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 
+# The drawdown_entry rule, cross-tested against research/drawdown_entry.py
+# through data/samples/research/drawdown_expected.json.
+marketscan_add_test(test_research_rule test_research_rule.cpp)
+target_compile_definitions(test_research_rule PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
 marketscan_add_test(test_parity      test_parity.cpp)
 if(TARGET decile_parity)
     add_dependencies(test_parity decile_parity)

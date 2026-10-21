@@ -59,6 +59,7 @@ a different run seed gives a different stream
 a different seed produces a different stream
 a different seed produces different prices
 a drawdown that never recovers is reported as such
+a drawdown_entry run has one equity point per bar, at that bar's close
 a duplicate registration is refused
 a failing summary audit names every identity and both sides
 a false schema accepts nothing and a true schema everything
@@ -142,6 +143,7 @@ a return from zero equity is undefined, not infinite
 a reused ticker is two securities
 a risk-free rate lowers the Sharpe ratio
 a rolling window reports nothing until it is full
+a rule run refuses what it cannot run, by name
 a run token that cannot be read back is refused
 a schema keyword outside the subset is refused, not ignored
 a second terminal update for one order is dropped
@@ -224,6 +226,7 @@ an order cancelled by the venue reconciles
 an order in flight is exposed to the market
 an order nobody could send is not an order that was refused
 an order over the size cap never reaches the venue
+an order refused on arrival is reported and counted
 an order that reduces exposure is always allowed
 an order that would overdraw is refused whole
 an order walks real depth level by level
@@ -247,6 +250,7 @@ anyOf, allOf and if/then/else
 arithmetic
 both appearances define eight distinct categorical slots
 both implementations of the sizing rule produce identical shares
+buy_and_hold is the rule with one tranche at zero and no exits
 buy_and_hold loads from disk and trades
 cancelling a part-filled order keeps the fills
 capacity is rounded up to a power of two
@@ -290,6 +294,7 @@ every allowed broker host is a paper or data host
 every booked delisting return matches the reference row for row
 every booked fill is a blotter row
 every day of a decade is between 23 and 25 hours
+every drawdown_entry fill is later than everything its decision could see
 every figure the views surface is read from the snapshot
 every fill is stamped with the triple
 every research contract schema compiles inside the supported subset
@@ -437,8 +442,10 @@ the decision report records every call
 the delisting model refuses a name it does not recognise
 the digest notices a one-bit price change
 the digest separates values a memcmp would confuse
+the drawdown_entry strategy is registered once the runner is linked
 the engine and the research pipeline agree, exactly
 the engine's dispatch path allocates nothing per event
+the engine's drawdown_entry reproduces the research layer's fills exactly
 the engine's validator reproduces every verdict in the schema corpus
 the epoch is day zero
 the equity curve samples on an interval
@@ -472,6 +479,7 @@ the reference theory is discovered and loaded
 the registry keeps a stable order
 the result still converts to a bare id
 the risk-free rate is split geometrically
+the same drawdown_entry run twice gives the same fills and the same curve
 the same engine runs on a wall clock
 the same replay produces the same order log twice
 the same replay run twice produces the same stream

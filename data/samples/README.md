@@ -8,7 +8,11 @@ everything under `data/` except this directory is ignored.
 
 ## `research/`
 
-JSON fixtures for the Research view's contracts (`contracts/research/`), not price data:
-`schema_cases.json`, the labelled corpus both schema validators must agree with, and
-`results_fixture.json`, a structurally valid Results document whose numbers mean nothing. See
-`contracts/README.md`.
+Fixtures for the Research view (`contracts/research/`):
+
+- `schema_cases.json`, the labelled corpus both schema validators must agree with, and
+  `results_fixture.json`, a structurally valid Results document whose numbers mean nothing. See
+  `contracts/README.md`.
+- `drawdown_prices.csv`, a seeded synthetic close series built to reach every branch of the
+  `drawdown_entry` rule, with `drawdown_cases.json` and `drawdown_expected.json`, the fills both
+  implementations must reproduce. All three are written by `scripts/make_drawdown_fixture.py`.

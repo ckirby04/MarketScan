@@ -3,9 +3,10 @@
 A handoff, not a changelog. What is proven and by which measurement, what is
 approximated and where, what is unresolved, and what the next phase needs.
 
-**Last updated:** 2026-10-21, Research view part R0 (contracts and their two
-validators, [`SPEC_RESEARCH_VIEW.md`](specs/SPEC_RESEARCH_VIEW.md)). Green locally;
-not yet run in CI. 504 C++ tests (one skipped, allowlisted), 380 Python.
+**Last updated:** 2026-10-21, Research view parts R0 and R3a (contracts, their
+two validators, and the `drawdown_entry` rule cross-tested fill for fill;
+[`SPEC_RESEARCH_VIEW.md`](specs/SPEC_RESEARCH_VIEW.md)). Green locally; not yet run
+in CI. 512 C++ tests (one skipped, allowlisted), 395 Python.
 
 The counts and version identifiers in this document are descriptive facts about
 the tree and are corrected whenever they are found wrong. Measured results are
@@ -132,8 +133,8 @@ linked and launched at once will stall regardless.
 Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
-**504 C++ tests** on `ci` and `ci-debug`, measured; **505** on `full`, for the
-reason in [`AUDIT.md`](AUDIT.md) check 9. **380 Python tests** in
+**512 C++ tests** on `ci` and `ci-debug`, measured; **513** on `full`, for the
+reason in [`AUDIT.md`](AUDIT.md) check 9. **395 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import
 that changes that turns the job red.
