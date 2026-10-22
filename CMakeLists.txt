@@ -135,6 +135,7 @@ include(MarketScanTheory)
 add_subdirectory(src)
 add_subdirectory(apps/marketscan)
 add_subdirectory(apps/live)
+add_subdirectory(apps/research)
 
 if(MARKETSCAN_BUILD_THEORIES)
     add_subdirectory(theories)

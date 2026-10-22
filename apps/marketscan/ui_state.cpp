@@ -9,7 +9,15 @@
 namespace marketscan::app {
 
 const char* to_string(ViewMode mode) noexcept {
-    return mode == ViewMode::Overview ? "overview" : "operator";
+    switch (mode) {
+        case ViewMode::Overview:
+            return "overview";
+        case ViewMode::Operator:
+            return "operator";
+        case ViewMode::Research:
+            return "research";
+    }
+    return "overview";
 }
 
 void UiState::load(const std::filesystem::path& path) {
@@ -26,7 +34,9 @@ void UiState::load(const std::filesystem::path& path) {
         const std::string key = line.substr(0, equals);
         const std::string value = line.substr(equals + 1);
         if (key == "view_mode") {
-            view_mode = value == "operator" ? ViewMode::Operator : ViewMode::Overview;
+            view_mode = value == "operator"   ? ViewMode::Operator
+                        : value == "research" ? ViewMode::Research
+                                              : ViewMode::Overview;
         }
     }
 }

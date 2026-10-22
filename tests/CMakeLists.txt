@@ -165,6 +165,31 @@ endif()
 # M9. Replays the committed fixture through the engine and compares the equity
 # curve to the one research/parity.py produced from the same file, so it needs
 # the decile_parity theory to exist in the scanned directory.
+# The research contracts. Reads contracts/ and data/samples/research/ from the
+# source tree, which is the only reason it needs the root rather than the
+# samples directory every other test is given.
+marketscan_add_test(test_research_contracts test_research_contracts.cpp)
+target_compile_definitions(test_research_contracts PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
+# The drawdown_entry rule, cross-tested against research/drawdown_entry.py
+# through data/samples/research/drawdown_expected.json.
+marketscan_add_test(test_research_rule test_research_rule.cpp)
+target_compile_definitions(test_research_rule PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
+# The research job, held to its committed Results and trace, which
+# research/tests/test_grading.py regrades independently.
+marketscan_add_test(test_research_job test_research_job.cpp)
+target_compile_definitions(test_research_job PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
+# The Research view's testable half: the view model, the one chart, the form
+# editor's schema decisions, and the session that runs jobs off the GUI thread.
+marketscan_add_test(test_research_view test_research_view.cpp)
+target_compile_definitions(test_research_view PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
 marketscan_add_test(test_parity      test_parity.cpp)
 if(TARGET decile_parity)
     add_dependencies(test_parity decile_parity)

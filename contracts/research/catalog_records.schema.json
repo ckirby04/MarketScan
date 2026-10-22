@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quant.local/backtest-app/catalog_records.schema.json",
+  "title": "Data catalog records",
+  "description": "Record shapes for the data catalog. See CATALOG_SPEC.md for meaning and rules.",
+  "oneOf": [
+    { "$ref": "#/$defs/security" },
+    { "$ref": "#/$defs/series" },
+    { "$ref": "#/$defs/synthetic_recipe" },
+    { "$ref": "#/$defs/regime" }
+  ],
+
+  "$defs": {
+    "date": { "type": "string", "format": "date" },
+    "id": { "type": "string", "pattern": "^[a-z0-9_:\\-]+$" },
+
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record", "security_id", "name", "asset_class", "ticker_history", "status"],
+      "properties": {
+        "record": { "const": "security" },
+        "security_id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "asset_class": { "enum": ["equity", "etf", "index", "rate"] },
+        "ticker_history": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ticker", "from", "to"],
+            "properties": {
+              "ticker": { "type": "string" },
+              "from": { "$ref": "#/$defs/date" },
+              "to": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/date" } ] }
+            }
+          }
+        },
+        "status": { "enum": ["active", "delisted"] },
+        "delisting": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["date", "reason", "return_known"],
+          "properties": {
+            "date": { "$ref": "#/$defs/date" },
+            "reason": { "enum": ["merger", "bankruptcy", "voluntary", "other"] },
+            "return_known": { "type": "boolean" }
+          }
+        },
+        "fund": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["leverage", "underlying_security_id", "expense_ratio_pct", "expense_ratio_as_of", "rebalance"],
+          "properties": {
+            "leverage": { "type": "number" },
+            "underlying_security_id": { "$ref": "#/$defs/id" },
+            "expense_ratio_pct": { "type": "number", "minimum": 0 },
+            "expense_ratio_as_of": { "$ref": "#/$defs/date" },
+            "rebalance": { "enum": ["daily", "none"] }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "delisted" } } },
+          "then": { "required": ["delisting"] }
+        }
+      ]
+    },
+
+    "series": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record", "series_id", "security_id", "source", "interval", "first_bar", "last_bar", "bar_count", "gaps", "adjustment", "quality_tier", "license", "primary"],
+      "properties": {
+        "record": { "const": "series" },
+        "series_id": { "$ref": "#/$defs/id" },
+        "security_id": { "$ref": "#/$defs/id" },
+        "source": { "type": "string" },
+        "interval": { "const": "1d" },
+        "first_bar": { "$ref": "#/$defs/date" },
+        "last_bar": { "$ref": "#/$defs/date" },
+        "bar_count": { "type": "integer", "minimum": 0 },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["from", "to"],
+            "properties": { "from": { "$ref": "#/$defs/date" }, "to": { "$ref": "#/$defs/date" } }
+          }
+        },
+        "adjustment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["splits", "dividends", "total_return_available"],
+          "properties": {
+            "splits": { "enum": ["vendor", "computed", "none"] },
+            "dividends": { "enum": ["vendor", "computed", "none"] },
+            "total_return_available": { "type": "boolean" }
+          }
+        },
+        "quality_tier": { "enum": ["research", "exercise_only"] },
+        "license": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["redistributable", "terms_url"],
+          "properties": {
+            "redistributable": { "type": "boolean" },
+            "terms_url": { "oneOf": [ { "type": "null" }, { "type": "string" } ] },
+            "notes": { "type": "string" }
+          }
+        },
+        "primary": { "type": "boolean" }
+      }
+    },
+
+    "synthetic_recipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record", "recipe_id", "target_security_id", "underlying_security_id", "method", "params", "available_from", "validation"],
+      "properties": {
+        "record": { "const": "synthetic_recipe" },
+        "recipe_id": { "$ref": "#/$defs/id" },
+        "target_security_id": { "$ref": "#/$defs/id" },
+        "underlying_security_id": { "$ref": "#/$defs/id" },
+        "method": { "const": "daily_leverage" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["leverage", "annual_fee_pct", "borrow_spread_pct", "cash_rate_series_id"],
+          "properties": {
+            "leverage": { "type": "number" },
+            "annual_fee_pct": { "type": "number", "minimum": 0 },
+            "borrow_spread_pct": { "type": "number", "minimum": 0 },
+            "cash_rate_series_id": { "$ref": "#/$defs/id" }
+          }
+        },
+        "available_from": { "$ref": "#/$defs/date" },
+        "validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["overlap_from", "overlap_to", "daily_return_correlation", "annualized_tracking_difference_pct", "max_cumulative_gap_pct", "computed_by"],
+          "properties": {
+            "overlap_from": { "$ref": "#/$defs/date" },
+            "overlap_to": { "$ref": "#/$defs/date" },
+            "daily_return_correlation": { "type": "number", "minimum": -1, "maximum": 1 },
+            "annualized_tracking_difference_pct": { "type": "number", "description": "Synthetic minus real." },
+            "max_cumulative_gap_pct": { "type": "number", "minimum": 0 },
+            "computed_by": { "type": "string", "description": "Script and version that produced these numbers. Validation is never typed in by hand." }
+          }
+        }
+      }
+    },
+
+    "regime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["record", "regime_id", "name", "from", "to", "reference"],
+      "properties": {
+        "record": { "const": "regime" },
+        "regime_id": { "$ref": "#/$defs/id" },
+        "name": { "type": "string" },
+        "from": { "$ref": "#/$defs/date" },
+        "to": { "$ref": "#/$defs/date" },
+        "reference": { "type": "string", "description": "Security and rule the dates come from, e.g. 'QQQ close, peak to trough'." }
+      }
+    }
+  }
+}

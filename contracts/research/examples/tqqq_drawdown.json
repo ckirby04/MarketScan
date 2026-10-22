@@ -1,0 +1,61 @@
+{
+  "schema_version": "0.1",
+  "prompt": "i wonder what the optimal drawdown is to buy into TQQQ over the past 20 years",
+  "template": "drawdown_entry",
+  "universe": {
+    "assets": [
+      {
+        "symbol": "TQQQ",
+        "security_id": "etf_tqqq",
+        "synthetic_extension": {
+          "recipe_id": "tqqq_from_qqq_3x",
+          "underlying": "QQQ",
+          "leverage": 3,
+          "annual_fee_pct": 0.84,
+          "borrow_spread_pct": 0.5
+        }
+      }
+    ],
+    "price_adjustment": "total_return"
+  },
+  "date_range": {
+    "start": "2006-10-20",
+    "end": "2026-10-20",
+    "warmup_days": 0
+  },
+  "capital": { "initial": 10000, "currency": "USD" },
+  "costs": { "commission_per_trade": 0, "slippage_bps": 5 },
+  "cash": { "yield": "tbill_3m" },
+  "execution": { "fill": "next_open" },
+  "strategy": {
+    "template": "drawdown_entry",
+    "reference": { "type": "all_time_high" },
+    "entry": {
+      "style": "single",
+      "threshold_pct": { "sweep": { "min": 10, "max": 80, "step": 5 } },
+      "position_pct": 100
+    },
+    "exit": { "rules": [ { "type": "recover_to_high" } ] },
+    "reentry": true
+  },
+  "objective": { "metric": "cagr", "min_trades": 3 },
+  "benchmarks": ["TQQQ", "QQQ", "SPY"],
+  "robustness": {
+    "oos_split": "2018-10-20",
+    "regime_breakdown": true,
+    "parameter_surface": true
+  },
+  "provenance": {
+    "/template": { "source": "inferred", "quote": "optimal drawdown to buy into", "note": "Entry triggered by a drawdown level." },
+    "/universe/assets/0/symbol": { "source": "stated", "quote": "TQQQ" },
+    "/universe/assets/0/synthetic_extension": { "source": "default", "note": "TQQQ began trading 2010-02-09; 2006-10 to 2010-02 is simulated 3x QQQ. Fee is TQQQ's expense ratio, verify before relying on it." },
+    "/date_range/start": { "source": "stated", "quote": "past 20 years" },
+    "/date_range/warmup_days": { "source": "default", "note": "With no warmup the all-time high is measured from 2006, not from the 2000 dot-com peak. Loading 1999+ history would leave synthetic TQQQ >90% below its high for most of the range and change every result. Worth surfacing to the user." },
+    "/strategy/reference": { "source": "stated", "note": "Answered in follow-up.", "options": ["all_time_high", "rolling_high (52-week)", "since_last_exit"] },
+    "/strategy/entry/threshold_pct": { "source": "inferred", "quote": "optimal drawdown", "note": "'Optimal' read as: sweep the threshold." },
+    "/strategy/exit/rules": { "source": "stated", "note": "Answered in follow-up.", "options": ["hold forever", "sell when it regains the old high", "trailing stop", "take profit"] },
+    "/objective/metric": { "source": "stated", "note": "Answered in follow-up.", "options": ["cagr", "sharpe", "calmar", "max_drawdown"] },
+    "/benchmarks": { "source": "default" },
+    "/robustness/oos_split": { "source": "default", "note": "60% of the range." }
+  }
+}

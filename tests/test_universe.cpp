@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "temp_paths.hpp"
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -52,11 +53,7 @@ namespace {
 class ScratchDir {
 public:
     ScratchDir() {
-        static int counter = 0;
-        path_ = std::filesystem::temp_directory_path() /
-                ("marketscan_universe_" + std::to_string(++counter) + "_" +
-                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count() &
-                                0xFFFFFF));
+        path_ = test::unique_temp_path("marketscan_universe_");
         std::filesystem::create_directories(path_);
     }
 

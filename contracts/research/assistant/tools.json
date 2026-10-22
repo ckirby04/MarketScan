@@ -1,0 +1,107 @@
+[
+  {
+    "name": "search_securities",
+    "description": "Find securities by ticker or name. Returns every match across time, including delisted and renamed securities, each with security_id, name, asset_class, status and full ticker_history. Use this when a name is given instead of a ticker, or when resolve returns nothing.",
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "description": "A ticker or part of a name." },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 25, "default": 10 }
+      }
+    }
+  },
+  {
+    "name": "resolve",
+    "description": "Which security a ticker referred to on a given date. Returns one security record, or null if the ticker meant nothing on that date. Call it for every symbol in the form, once with the form's start date and once with its end date. If the two answers differ, the ticker was renamed or reused inside the range: tell the user and do not pick one silently.",
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticker", "as_of"],
+      "properties": {
+        "ticker": { "type": "string" },
+        "as_of": { "type": "string", "format": "date" }
+      }
+    }
+  },
+  {
+    "name": "get_coverage",
+    "description": "The data held for a security: the primary series' first_bar, last_bar, gaps, adjustments, quality_tier and license, plus every synthetic recipe targeting it with its validation numbers. This is the only source for inception dates, coverage, expense ratios and leverage factors.",
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["security_id"],
+      "properties": {
+        "security_id": { "type": "string" }
+      }
+    }
+  },
+  {
+    "name": "list_regimes",
+    "description": "Named stress periods (dot-com bust, 2008 financial crisis, ...) that overlap a date range, with their exact dates.",
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "type": "string", "format": "date" },
+        "to": { "type": "string", "format": "date" }
+      }
+    }
+  },
+  {
+    "name": "save_form",
+    "description": "Write the current Strategy Form to the user's screen. Call it as soon as you have a draft and again after every change, so the form on screen always matches the conversation. With ready=false the form may contain nulls for fields whose provenance source is 'missing'. With ready=true it is validated strictly against the schema: on success the user sees a Run button, on failure you get the validation errors back and must fix them before saying anything to the user.",
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["form", "ready"],
+      "properties": {
+        "form": { "type": "object", "description": "A Strategy Form, as defined by strategy_form.schema.json." },
+        "ready": { "type": "boolean" }
+      }
+    }
+  },
+  {
+    "name": "ask_user",
+    "description": "Ask the user to choose values for form fields. Shown as buttons next to the form. Ask at most three questions per call. Each question is tied to the field it fills.",
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "question", "options"],
+            "properties": {
+              "path": { "type": "string", "description": "JSON Pointer of the form field this answers, e.g. /strategy/exit/rules." },
+              "question": { "type": "string", "description": "One short question in plain English." },
+              "options": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 5,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["label", "value"],
+                  "properties": {
+                    "label": { "type": "string", "description": "Plain English, e.g. 'Sell when it gets back to the old high'." },
+                    "value": { "description": "The exact value written into the form at path if chosen." },
+                    "hint": { "type": "string", "description": "Optional one-line consequence, e.g. 'Fewer trades, longer time in cash'." }
+                  }
+                }
+              },
+              "allow_free_text": { "type": "boolean", "default": true }
+            }
+          }
+        }
+      }
+    }
+  }
+]

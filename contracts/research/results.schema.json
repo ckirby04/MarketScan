@@ -1,0 +1,356 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quant.local/backtest-app/results.schema.json",
+  "title": "Backtest Results",
+  "description": "What the engine returns for one run of a Strategy Form. See RESULTS_SPEC.md. Percent values are in percent; drawdowns are negative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["results_version", "run", "verdict", "stats", "warnings"],
+  "properties": {
+    "results_version": { "const": "0.1" },
+
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run_id", "form_sha256", "engine_version", "criteria_version", "data_snapshot", "started_at", "duration_ms"],
+      "properties": {
+        "run_id": { "type": "string" },
+        "form_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Hash of the form as run, excluding provenance and prompt." },
+        "engine_version": { "type": "string" },
+        "criteria_version": { "type": "string", "description": "Version of the gate thresholds the verdict was graded under." },
+        "data_snapshot": { "type": "string", "description": "Identifies the exact catalog and bar data used, so a run can be reproduced." },
+        "started_at": { "type": "string", "format": "date-time" },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grade", "data_grade", "deciding_gate", "headline", "gates"],
+      "properties": {
+        "grade": { "enum": ["supported", "fragile", "not_supported", "insufficient_evidence"] },
+        "data_grade": { "enum": ["research", "exercise_only"] },
+        "deciding_gate": {
+          "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/gate_id" } ],
+          "description": "The first failing gate, which set the grade. Null when the grade is supported."
+        },
+        "headline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["strategy_oos_cagr_pct", "benchmark_oos_cagr_pct", "strategy_oos_max_drawdown_pct", "benchmark_oos_max_drawdown_pct", "outcome_range"],
+          "properties": {
+            "strategy_oos_cagr_pct": { "$ref": "#/$defs/num" },
+            "benchmark_oos_cagr_pct": { "$ref": "#/$defs/num" },
+            "strategy_oos_max_drawdown_pct": { "$ref": "#/$defs/num" },
+            "benchmark_oos_max_drawdown_pct": { "$ref": "#/$defs/num" },
+            "outcome_range": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cagr_p5_pct", "cagr_p50_pct", "cagr_p95_pct"],
+              "description": "Bootstrap CAGR percentiles for the selected rule. Copied from stats.bootstrap.",
+              "properties": {
+                "cagr_p5_pct": { "type": "number" },
+                "cagr_p50_pct": { "type": "number" },
+                "cagr_p95_pct": { "type": "number" }
+              }
+            }
+          }
+        },
+        "gates": {
+          "type": "array",
+          "description": "Every gate, in grading order.",
+          "items": { "$ref": "#/$defs/gate" }
+        }
+      }
+    },
+
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selected", "benchmarks", "trades", "parameter_surface", "regimes", "random_timing", "bootstrap", "data", "equity_curves"],
+      "properties": {
+        "selected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["params", "windows"],
+          "properties": {
+            "params": { "$ref": "#/$defs/param_values" },
+            "windows": { "$ref": "#/$defs/windows" }
+          }
+        },
+
+        "benchmarks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["symbol", "security_id", "windows"],
+            "properties": {
+              "symbol": { "type": "string" },
+              "security_id": { "type": "string" },
+              "windows": { "$ref": "#/$defs/windows" }
+            }
+          }
+        },
+
+        "trades": {
+          "type": "array",
+          "description": "Every trade of the selected rule, in order.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["entry_date", "entry_price", "exit_date", "exit_price", "return_pct", "holding_days", "max_adverse_pct", "exit_reason", "window", "synthetic"],
+            "properties": {
+              "entry_date": { "type": "string", "format": "date" },
+              "entry_price": { "type": "number" },
+              "exit_date": { "oneOf": [ { "type": "null" }, { "type": "string", "format": "date" } ], "description": "Null when still open at the end." },
+              "exit_price": { "type": "number", "description": "Last close when still open." },
+              "return_pct": { "type": "number" },
+              "holding_days": { "type": "integer", "minimum": 0 },
+              "max_adverse_pct": { "type": "number", "description": "Worst unrealized loss during the trade." },
+              "exit_reason": { "enum": ["recover_to_high", "trailing_stop", "stop_loss", "take_profit", "time_stop", "open"] },
+              "window": { "enum": ["in_sample", "out_of_sample"] },
+              "synthetic": { "type": "boolean", "description": "Any part of the trade used synthetic history." }
+            }
+          }
+        },
+
+        "parameter_surface": {
+          "description": "Null when nothing was swept.",
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["swept", "metric", "points", "selected_index", "plateau_ratio", "effective_n"],
+              "properties": {
+                "swept": { "type": "array", "items": { "type": "string" }, "description": "JSON Pointers of the swept form fields." },
+                "metric": { "type": "string", "description": "objective.metric, evaluated in sample." },
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["params", "in_sample_metric", "n_entries", "excluded"],
+                    "properties": {
+                      "params": { "$ref": "#/$defs/param_values" },
+                      "in_sample_metric": { "$ref": "#/$defs/num" },
+                      "out_of_sample_metric": { "$ref": "#/$defs/num" },
+                      "n_entries": { "type": "integer", "minimum": 0 },
+                      "excluded": { "type": "boolean", "description": "Below objective.min_trades: shown, not ranked." }
+                    }
+                  }
+                },
+                "selected_index": { "type": "integer", "minimum": 0 },
+                "plateau_ratio": { "$ref": "#/$defs/num" },
+                "effective_n": { "type": "number", "minimum": 1 }
+              }
+            }
+          ]
+        },
+
+        "regimes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["regime_id", "name", "from", "to", "strategy_return_pct", "benchmark_return_pct", "strategy_max_drawdown_pct", "time_in_market_pct"],
+            "properties": {
+              "regime_id": { "type": "string" },
+              "name": { "type": "string" },
+              "from": { "type": "string", "format": "date" },
+              "to": { "type": "string", "format": "date" },
+              "strategy_return_pct": { "type": "number" },
+              "benchmark_return_pct": { "type": "number" },
+              "strategy_max_drawdown_pct": { "type": "number" },
+              "time_in_market_pct": { "type": "number" }
+            }
+          }
+        },
+
+        "random_timing": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["n_simulations", "metric", "null_p5", "null_p50", "null_p95", "strategy_percentile", "p_value", "p_value_corrected"],
+          "properties": {
+            "n_simulations": { "type": "integer", "minimum": 1 },
+            "metric": { "type": "string" },
+            "null_p5": { "type": "number" },
+            "null_p50": { "type": "number" },
+            "null_p95": { "type": "number" },
+            "strategy_percentile": { "type": "number", "minimum": 0, "maximum": 100 },
+            "p_value": { "type": "number", "minimum": 0, "maximum": 1 },
+            "p_value_corrected": { "$ref": "#/$defs/num", "description": "Corrected for effective_n. Null when nothing was swept." }
+          }
+        },
+
+        "bootstrap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["method", "mean_block_days", "n_paths", "strategy", "benchmark", "prob_beats_benchmark", "share_paths_below_minus_90_pct"],
+          "properties": {
+            "method": { "const": "stationary_block" },
+            "mean_block_days": { "type": "integer", "minimum": 1 },
+            "n_paths": { "type": "integer", "minimum": 1 },
+            "strategy": { "$ref": "#/$defs/cagr_percentiles" },
+            "benchmark": { "$ref": "#/$defs/cagr_percentiles" },
+            "prob_beats_benchmark": { "type": "number", "minimum": 0, "maximum": 1 },
+            "share_paths_below_minus_90_pct": { "type": "number", "minimum": 0, "maximum": 1, "description": "Share of paths where the rule's drawdown was worse than -90% at any point." }
+          }
+        },
+
+        "data": {
+          "type": "array",
+          "description": "Every series the run loaded.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["security_id", "series_id", "quality_tier", "used_from", "used_to", "synthetic"],
+            "properties": {
+              "security_id": { "type": "string" },
+              "series_id": { "type": "string" },
+              "quality_tier": { "enum": ["research", "exercise_only"] },
+              "used_from": { "type": "string", "format": "date" },
+              "used_to": { "type": "string", "format": "date" },
+              "synthetic": {
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["recipe_id", "from", "to", "daily_return_correlation", "annualized_tracking_difference_pct"],
+                    "description": "Copied from the recipe's catalog validation.",
+                    "properties": {
+                      "recipe_id": { "type": "string" },
+                      "from": { "type": "string", "format": "date" },
+                      "to": { "type": "string", "format": "date" },
+                      "daily_return_correlation": { "type": "number" },
+                      "annualized_tracking_difference_pct": { "type": "number" }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+
+        "equity_curves": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uri"],
+          "description": "Daily equity for the rule and each benchmark, stored beside the results rather than inline. Columns: date, strategy, then one per benchmark symbol, then drawdown columns.",
+          "properties": {
+            "uri": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "enum": ["MOSTLY_SYNTHETIC", "EXERCISE_ONLY_DATA", "NO_OUT_OF_SAMPLE", "NO_SEARCH_CORRECTION", "UNCALIBRATED_CORRECTION", "FEW_TRADES_IN_SWEEP", "OPEN_POSITION_AT_END", "SWEEP_EDGE"] },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "num": { "oneOf": [ { "type": "number" }, { "type": "null" } ] },
+
+    "gate_id": { "enum": ["evidence", "oos_benchmark", "random_timing", "multiple_testing", "plateau", "survival"] },
+
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "measured", "threshold", "comparison", "summary"],
+      "properties": {
+        "id": { "$ref": "#/$defs/gate_id" },
+        "status": { "enum": ["pass", "fail", "not_applicable"] },
+        "measured": {
+          "type": "object",
+          "description": "The quantities the gate compared, by name, e.g. {\"n_entries\": 12, \"n_entries_oos\": 3}.",
+          "additionalProperties": { "$ref": "#/$defs/num" }
+        },
+        "threshold": {
+          "type": "object",
+          "description": "The bar for each measured quantity, same keys.",
+          "additionalProperties": { "$ref": "#/$defs/num" }
+        },
+        "comparison": {
+          "type": "object",
+          "description": "Direction for each key: the measured value must be this relative to the threshold.",
+          "additionalProperties": { "enum": [">=", ">", "<=", "<"] }
+        },
+        "summary": { "type": "string", "description": "One sentence, generated by the engine from a template, e.g. '12 entries (needs at least 5), 3 out of sample (needs at least 2).'" }
+      }
+    },
+
+    "param_values": {
+      "type": "object",
+      "description": "Concrete values for each swept parameter, keyed by JSON Pointer into the form.",
+      "additionalProperties": { "type": "number" }
+    },
+
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total_return_pct", "cagr_pct", "volatility_pct", "sharpe", "sortino", "max_drawdown_pct", "max_drawdown_days", "calmar", "ulcer_index", "time_in_market_pct", "n_entries", "win_rate_pct", "avg_trade_return_pct", "worst_trade_pct"],
+      "properties": {
+        "total_return_pct": { "$ref": "#/$defs/num" },
+        "cagr_pct": { "$ref": "#/$defs/num" },
+        "volatility_pct": { "$ref": "#/$defs/num" },
+        "sharpe": { "$ref": "#/$defs/num" },
+        "sortino": { "$ref": "#/$defs/num" },
+        "max_drawdown_pct": { "$ref": "#/$defs/num" },
+        "max_drawdown_days": { "$ref": "#/$defs/num" },
+        "calmar": { "$ref": "#/$defs/num" },
+        "ulcer_index": { "$ref": "#/$defs/num" },
+        "time_in_market_pct": { "$ref": "#/$defs/num" },
+        "n_entries": { "type": "integer", "minimum": 0 },
+        "win_rate_pct": { "$ref": "#/$defs/num" },
+        "avg_trade_return_pct": { "$ref": "#/$defs/num" },
+        "worst_trade_pct": { "$ref": "#/$defs/num" }
+      }
+    },
+
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "metrics"],
+      "properties": {
+        "from": { "type": "string", "format": "date" },
+        "to": { "type": "string", "format": "date" },
+        "metrics": { "$ref": "#/$defs/metrics" }
+      }
+    },
+
+    "windows": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["full"],
+      "properties": {
+        "in_sample": { "$ref": "#/$defs/window" },
+        "out_of_sample": { "$ref": "#/$defs/window" },
+        "full": { "$ref": "#/$defs/window" }
+      }
+    },
+
+    "cagr_percentiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cagr_p5_pct", "cagr_p50_pct", "cagr_p95_pct"],
+      "properties": {
+        "cagr_p5_pct": { "type": "number" },
+        "cagr_p50_pct": { "type": "number" },
+        "cagr_p95_pct": { "type": "number" }
+      }
+    }
+  }
+}

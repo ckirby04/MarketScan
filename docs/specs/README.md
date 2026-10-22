@@ -17,6 +17,7 @@ repository was an open finding from the M0 audit for three milestones.
 | [`BUILD_SPEC_2.md`](BUILD_SPEC_2.md) | Data layer, universe, and the research harness. **Section 6 is superseded** — see below. |
 | [`SPEC_2_M1B.md`](SPEC_2_M1B.md) | Order lifecycle and the backtest/live seam. Resolves audit escalation 2. |
 | [`SPEC_VIEW_MODES.md`](SPEC_VIEW_MODES.md) | Dual GUI presentation modes. Scheduled as M9b; not started. |
+| [`SPEC_RESEARCH_VIEW.md`](SPEC_RESEARCH_VIEW.md) | A third view mode: plain-English questions to graded backtests. Not started. |
 
 **Where they disagree.** `BUILD_SPEC_2.md` §6 treats a ticker as a security's identity. The
 Session A close-out replaced that model: a ticker is an attribute a security holds over a date

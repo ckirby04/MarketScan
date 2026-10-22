@@ -16,11 +16,8 @@ namespace {
     return ImGui::ColorConvertU32ToFloat4(color);
 }
 
-/// Pins the plot's own surface and chrome to the token table.
-///
-/// ImPlot's default style paints its own background, and contrast and
-/// colour-vision results are only meaningful against the surface actually
-/// rendered on -- so the surface is set rather than inherited.
+}  // namespace
+
 void push_chart_style(ChartDensity density) {
     const Palette& palette = theme::colors();
     ImPlot::PushStyleColor(ImPlotCol_PlotBg, to_vec(palette.chart_surface));
@@ -43,8 +40,6 @@ void pop_chart_style() {
     ImPlot::PopStyleVar(4);
     ImPlot::PopStyleColor(5);
 }
-
-}  // namespace
 
 std::string draw_equity_chart(const ChartModel& model, const char* plot_id, ImVec2 size) {
     std::string clicked;
@@ -148,28 +143,10 @@ std::string draw_equity_chart(const ChartModel& model, const char* plot_id, ImVe
     return clicked;
 }
 
-void draw_drawdown_strip(const ChartModel& model,
-                         const SessionSnapshot& snapshot,
-                         const char* plot_id,
-                         ImVec2 size) {
+void draw_drawdown_strip(const ChartModel& model, const char* plot_id, ImVec2 size) {
     const ChartSeries* subject = model.emphasis();
-    if (subject == nullptr) {
-        return;
-    }
-
-    // The series to draw, found by id in the snapshot. Read, never derived: the
-    // underwater curve is already computed once, in the session.
-    const auto find = [&snapshot](const std::string& id) -> const StrategySnapshot* {
-        for (const StrategySnapshot& row : snapshot.strategies) {
-            if (row.id == id) {
-                return &row;
-            }
-        }
-        return nullptr;
-    };
-
-    const StrategySnapshot* row = find(subject->id);
-    if (row == nullptr || row->drawdown.size() < 2) {
+    if (subject == nullptr || subject->drawdown == nullptr || subject->times == nullptr ||
+        subject->drawdown->size() < 2) {
         return;
     }
 
@@ -182,8 +159,11 @@ void draw_drawdown_strip(const ChartModel& model,
     ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
     ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
 
-    const auto plot = [](const StrategySnapshot& source, unsigned int color, float weight) {
-        const std::size_t points = std::min(source.times.size(), source.drawdown.size());
+    const auto plot = [](const ChartSeries& source, unsigned int color, float weight) {
+        if (source.times == nullptr || source.drawdown == nullptr) {
+            return;
+        }
+        const std::size_t points = std::min(source.times->size(), source.drawdown->size());
         if (points < 2) {
             return;
         }
@@ -192,25 +172,23 @@ void draw_drawdown_strip(const ChartModel& model,
         spec.LineWeight = weight;
         spec.FillAlpha = 0.20F;
         ImPlot::PlotShaded("##dd",
-                           source.times.data(),
-                           source.drawdown.data(),
+                           source.times->data(),
+                           source.drawdown->data(),
                            static_cast<int>(points),
                            0.0,
                            spec);
         ImPlot::PlotLine("##ddline",
-                         source.times.data(),
-                         source.drawdown.data(),
+                         source.times->data(),
+                         source.drawdown->data(),
                          static_cast<int>(points),
                          spec);
     };
 
     // The benchmark first, so the subject draws over it.
     if (const ChartSeries* benchmark = model.benchmark(); benchmark != nullptr) {
-        if (const StrategySnapshot* bench = find(benchmark->id); bench != nullptr) {
-            plot(*bench, benchmark->drawn_color, 1.2F);
-        }
+        plot(*benchmark, benchmark->drawn_color, 1.2F);
     }
-    plot(*row, subject->identity_color, 2.0F);
+    plot(*subject, subject->identity_color, 2.0F);
 
     ImPlot::EndPlot();
     pop_chart_style();

@@ -1,0 +1,1877 @@
+{
+ "all-time high, one tranche, sell on recovery": {
+  "rejected": 0,
+  "fills": [
+   {
+    "bar": 265,
+    "side": "buy",
+    "quantity": 69.0,
+    "price": 141.79707829,
+    "tag": 257
+   },
+   {
+    "bar": 547,
+    "side": "sell",
+    "quantity": 69.0,
+    "price": 182.31066711,
+    "tag": 513
+   },
+   {
+    "bar": 719,
+    "side": "buy",
+    "quantity": 39.0,
+    "price": 316.89578641,
+    "tag": 257
+   },
+   {
+    "bar": 915,
+    "side": "sell",
+    "quantity": 39.0,
+    "price": 407.79581634,
+    "tag": 513
+   }
+  ]
+ },
+ "all-time high, hold forever": {
+  "rejected": 0,
+  "fills": [
+   {
+    "bar": 294,
+    "side": "buy",
+    "quantity": 79.0,
+    "price": 118.42334115,
+    "tag": 257
+   }
+  ]
+ },
+ "rolling high with a trailing stop": {
+  "rejected": 1,
+  "fills": [
+   {
+    "bar": 263,
+    "side": "buy",
+    "quantity": 64.0,
+    "price": 147.3308235,
+    "tag": 257
+   },
+   {
+    "bar": 291,
+    "side": "sell",
+    "quantity": 64.0,
+    "price": 130.114963125,
+    "tag": 516
+   },
+   {
+    "bar": 292,
+    "side": "buy",
+    "quantity": 67.0,
+    "price": 128.243352825,
+    "tag": 257
+   },
+   {
+    "bar": 312,
+    "side": "sell",
+    "quantity": 67.0,
+    "price": 120.47247435,
+    "tag": 516
+   },
+   {
+    "bar": 313,
+    "side": "buy",
+    "quantity": 68.0,
+    "price": 114.77728714999999,
+    "tag": 257
+   },
+   {
+    "bar": 352,
+    "side": "sell",
+    "quantity": 68.0,
+    "price": 105.3580539,
+    "tag": 516
+   },
+   {
+    "bar": 353,
+    "side": "buy",
+    "quantity": 71.0,
+    "price": 107.37303655,
+    "tag": 257
+   },
+   {
+    "bar": 396,
+    "side": "sell",
+    "quantity": 71.0,
+    "price": 95.94930667499999,
+    "tag": 516
+   },
+   {
+    "bar": 397,
+    "side": "buy",
+    "quantity": 70.0,
+    "price": 95.5246752,
+    "tag": 257
+   },
+   {
+    "bar": 681,
+    "side": "sell",
+    "quantity": 70.0,
+    "price": 339.526797075,
+    "tag": 516
+   },
+   {
+    "bar": 684,
+    "side": "buy",
+    "quantity": 72.0,
+    "price": 321.7316128,
+    "tag": 257
+   },
+   {
+    "bar": 717,
+    "side": "sell",
+    "quantity": 72.0,
+    "price": 325.45701540000005,
+    "tag": 516
+   },
+   {
+    "bar": 718,
+    "side": "buy",
+    "quantity": 73.0,
+    "price": 315.52756217499996,
+    "tag": 257
+   },
+   {
+    "bar": 727,
+    "side": "sell",
+    "quantity": 73.0,
+    "price": 289.21107915,
+    "tag": 516
+   },
+   {
+    "bar": 728,
+    "side": "buy",
+    "quantity": 75.0,
+    "price": 286.31176005000003,
+    "tag": 257
+   },
+   {
+    "bar": 774,
+    "side": "sell",
+    "quantity": 75.0,
+    "price": 326.26021455,
+    "tag": 516
+   },
+   {
+    "bar": 812,
+    "side": "buy",
+    "quantity": 82.0,
+    "price": 295.6358905,
+    "tag": 257
+   },
+   {
+    "bar": 823,
+    "side": "sell",
+    "quantity": 82.0,
+    "price": 262.281713175,
+    "tag": 516
+   },
+   {
+    "bar": 824,
+    "side": "buy",
+    "quantity": 84.0,
+    "price": 260.008885975,
+    "tag": 257
+   },
+   {
+    "bar": 869,
+    "side": "sell",
+    "quantity": 84.0,
+    "price": 275.664766575,
+    "tag": 516
+   }
+  ]
+ },
+ "since last exit, take profit and stop loss": {
+  "rejected": 1,
+  "fills": [
+   {
+    "bar": 257,
+    "side": "buy",
+    "quantity": 152.0,
+    "price": 160.56685508,
+    "tag": 257
+   },
+   {
+    "bar": 265,
+    "side": "sell",
+    "quantity": 152.0,
+    "price": 141.76872171000002,
+    "tag": 515
+   },
+   {
+    "bar": 291,
+    "side": "buy",
+    "quantity": 163.0,
+    "price": 130.16051475,
+    "tag": 257
+   },
+   {
+    "bar": 312,
+    "side": "sell",
+    "quantity": 163.0,
+    "price": 120.49054973999999,
+    "tag": 515
+   },
+   {
+    "bar": 317,
+    "side": "buy",
+    "quantity": 187.0,
+    "price": 108.12171109,
+    "tag": 257
+   },
+   {
+    "bar": 362,
+    "side": "sell",
+    "quantity": 187.0,
+    "price": 99.63763524,
+    "tag": 515
+   },
+   {
+    "bar": 396,
+    "side": "buy",
+    "quantity": 194.0,
+    "price": 95.98289733,
+    "tag": 257
+   },
+   {
+    "bar": 436,
+    "side": "sell",
+    "quantity": 194.0,
+    "price": 110.09808909,
+    "tag": 514
+   },
+   {
+    "bar": 681,
+    "side": "buy",
+    "quantity": 60.0,
+    "price": 339.64566117,
+    "tag": 257
+   },
+   {
+    "bar": 726,
+    "side": "sell",
+    "quantity": 60.0,
+    "price": 297.75632139,
+    "tag": 515
+   },
+   {
+    "bar": 774,
+    "side": "buy",
+    "quantity": 58.0,
+    "price": 326.37443418,
+    "tag": 257
+   },
+   {
+    "bar": 814,
+    "side": "sell",
+    "quantity": 58.0,
+    "price": 294.79291776,
+    "tag": 515
+   },
+   {
+    "bar": 823,
+    "side": "buy",
+    "quantity": 65.0,
+    "price": 262.37353473,
+    "tag": 257
+   },
+   {
+    "bar": 852,
+    "side": "sell",
+    "quantity": 65.0,
+    "price": 299.50084692,
+    "tag": 514
+   }
+  ]
+ },
+ "three tranches and a time stop": {
+  "rejected": 1,
+  "fills": [
+   {
+    "bar": 82,
+    "side": "buy",
+    "quantity": 176.0,
+    "price": 113.39213808,
+    "tag": 257
+   },
+   {
+    "bar": 93,
+    "side": "sell",
+    "quantity": 176.0,
+    "price": 123.37616114999997,
+    "tag": 513
+   },
+   {
+    "bar": 257,
+    "side": "buy",
+    "quantity": 126.0,
+    "price": 160.56685508,
+    "tag": 257
+   },
+   {
+    "bar": 288,
+    "side": "buy",
+    "quantity": 112.0,
+    "price": 135.41343999,
+    "tag": 258
+   },
+   {
+    "bar": 317,
+    "side": "buy",
+    "quantity": 141.0,
+    "price": 108.12171109,
+    "tag": 260
+   },
+   {
+    "bar": 318,
+    "side": "sell",
+    "quantity": 379.0,
+    "price": 108.16998192,
+    "tag": 517
+   },
+   {
+    "bar": 320,
+    "side": "buy",
+    "quantity": 256.0,
+    "price": 108.53465238,
+    "tag": 259
+   },
+   {
+    "bar": 321,
+    "side": "buy",
+    "quantity": 114.0,
+    "price": 108.35673459,
+    "tag": 260
+   },
+   {
+    "bar": 381,
+    "side": "sell",
+    "quantity": 370.0,
+    "price": 99.87961104,
+    "tag": 517
+   },
+   {
+    "bar": 382,
+    "side": "buy",
+    "quantity": 381.0,
+    "price": 99.89428843,
+    "tag": 263
+   },
+   {
+    "bar": 443,
+    "side": "sell",
+    "quantity": 381.0,
+    "price": 114.58094076,
+    "tag": 517
+   },
+   {
+    "bar": 444,
+    "side": "buy",
+    "quantity": 266.0,
+    "price": 115.76167501,
+    "tag": 259
+   },
+   {
+    "bar": 505,
+    "side": "sell",
+    "quantity": 266.0,
+    "price": 166.94400393,
+    "tag": 517
+   },
+   {
+    "bar": 681,
+    "side": "buy",
+    "quantity": 64.0,
+    "price": 339.64566117,
+    "tag": 257
+   },
+   {
+    "bar": 728,
+    "side": "buy",
+    "quantity": 59.0,
+    "price": 286.26882402,
+    "tag": 258
+   },
+   {
+    "bar": 742,
+    "side": "sell",
+    "quantity": 123.0,
+    "price": 309.25167174,
+    "tag": 517
+   },
+   {
+    "bar": 743,
+    "side": "buy",
+    "quantity": 72.0,
+    "price": 315.32642949,
+    "tag": 257
+   },
+   {
+    "bar": 804,
+    "side": "sell",
+    "quantity": 72.0,
+    "price": 322.19307747,
+    "tag": 517
+   },
+   {
+    "bar": 805,
+    "side": "buy",
+    "quantity": 70.0,
+    "price": 317.78097491999995,
+    "tag": 257
+   },
+   {
+    "bar": 813,
+    "side": "buy",
+    "quantity": 57.0,
+    "price": 292.15231231,
+    "tag": 258
+   },
+   {
+    "bar": 866,
+    "side": "sell",
+    "quantity": 127.0,
+    "price": 284.50514663999996,
+    "tag": 517
+   },
+   {
+    "bar": 867,
+    "side": "buy",
+    "quantity": 133.0,
+    "price": 278.74347156,
+    "tag": 259
+   },
+   {
+    "bar": 915,
+    "side": "sell",
+    "quantity": 133.0,
+    "price": 407.79581634,
+    "tag": 513
+   }
+  ]
+ },
+ "no re-entry after the first exit": {
+  "rejected": 0,
+  "fills": [
+   {
+    "bar": 263,
+    "side": "buy",
+    "quantity": 64.0,
+    "price": 147.3087294,
+    "tag": 257
+   },
+   {
+    "bar": 547,
+    "side": "sell",
+    "quantity": 64.0,
+    "price": 182.31066711,
+    "tag": 513
+   }
+  ]
+ },
+ "warmup bars set the high but never trade": {
+  "rejected": 0,
+  "fills": [
+   {
+    "bar": 304,
+    "side": "buy",
+    "quantity": 79.0,
+    "price": 125.61596033999999,
+    "tag": 257
+   },
+   {
+    "bar": 547,
+    "side": "sell",
+    "quantity": 79.0,
+    "price": 182.31066711,
+    "tag": 513
+   },
+   {
+    "bar": 719,
+    "side": "buy",
+    "quantity": 44.0,
+    "price": 316.89578641,
+    "tag": 257
+   },
+   {
+    "bar": 915,
+    "side": "sell",
+    "quantity": 44.0,
+    "price": 407.79581633999993,
+    "tag": 513
+   }
+  ]
+ },
+ "no reserve, so gap-ups are refused": {
+  "rejected": 37,
+  "fills": [
+   {
+    "bar": 49,
+    "side": "buy",
+    "quantity": 88.0,
+    "price": 111.80987987000002,
+    "tag": 257
+   },
+   {
+    "bar": 72,
+    "side": "sell",
+    "quantity": 88.0,
+    "price": 117.03479534999998,
+    "tag": 516
+   },
+   {
+    "bar": 76,
+    "side": "buy",
+    "quantity": 89.0,
+    "price": 117.16101493000001,
+    "tag": 257
+   },
+   {
+    "bar": 79,
+    "side": "sell",
+    "quantity": 89.0,
+    "price": 113.93010585,
+    "tag": 516
+   },
+   {
+    "bar": 80,
+    "side": "buy",
+    "quantity": 89.0,
+    "price": 112.32183106,
+    "tag": 257
+   },
+   {
+    "bar": 119,
+    "side": "sell",
+    "quantity": 89.0,
+    "price": 145.89960858,
+    "tag": 516
+   },
+   {
+    "bar": 121,
+    "side": "buy",
+    "quantity": 91.0,
+    "price": 143.55545411,
+    "tag": 257
+   },
+   {
+    "bar": 125,
+    "side": "sell",
+    "quantity": 91.0,
+    "price": 137.87261136,
+    "tag": 516
+   },
+   {
+    "bar": 126,
+    "side": "buy",
+    "quantity": 91.0,
+    "price": 138.20521914,
+    "tag": 257
+   },
+   {
+    "bar": 137,
+    "side": "sell",
+    "quantity": 91.0,
+    "price": 143.53084547999998,
+    "tag": 516
+   },
+   {
+    "bar": 138,
+    "side": "buy",
+    "quantity": 91.0,
+    "price": 140.07980658,
+    "tag": 257
+   },
+   {
+    "bar": 149,
+    "side": "sell",
+    "quantity": 91.0,
+    "price": 144.73362519,
+    "tag": 516
+   },
+   {
+    "bar": 150,
+    "side": "buy",
+    "quantity": 93.0,
+    "price": 143.49074764000002,
+    "tag": 257
+   },
+   {
+    "bar": 197,
+    "side": "sell",
+    "quantity": 93.0,
+    "price": 174.8145168,
+    "tag": 516
+   },
+   {
+    "bar": 225,
+    "side": "buy",
+    "quantity": 96.0,
+    "price": 168.69396771,
+    "tag": 257
+   },
+   {
+    "bar": 230,
+    "side": "sell",
+    "quantity": 96.0,
+    "price": 165.71962638,
+    "tag": 516
+   },
+   {
+    "bar": 231,
+    "side": "buy",
+    "quantity": 97.0,
+    "price": 165.02320067,
+    "tag": 257
+   },
+   {
+    "bar": 252,
+    "side": "sell",
+    "quantity": 97.0,
+    "price": 163.61003735999998,
+    "tag": 516
+   },
+   {
+    "bar": 254,
+    "side": "buy",
+    "quantity": 95.0,
+    "price": 164.79977833,
+    "tag": 257
+   },
+   {
+    "bar": 261,
+    "side": "sell",
+    "quantity": 95.0,
+    "price": 157.97690073,
+    "tag": 516
+   },
+   {
+    "bar": 262,
+    "side": "buy",
+    "quantity": 96.0,
+    "price": 152.37063554,
+    "tag": 257
+   },
+   {
+    "bar": 264,
+    "side": "sell",
+    "quantity": 96.0,
+    "price": 141.51854673,
+    "tag": 516
+   },
+   {
+    "bar": 265,
+    "side": "buy",
+    "quantity": 100.0,
+    "price": 141.79707829,
+    "tag": 257
+   },
+   {
+    "bar": 271,
+    "side": "sell",
+    "quantity": 100.0,
+    "price": 140.36026257,
+    "tag": 516
+   },
+   {
+    "bar": 273,
+    "side": "buy",
+    "quantity": 99.0,
+    "price": 142.1402126,
+    "tag": 257
+   },
+   {
+    "bar": 277,
+    "side": "sell",
+    "quantity": 99.0,
+    "price": 136.64943369,
+    "tag": 516
+   },
+   {
+    "bar": 280,
+    "side": "buy",
+    "quantity": 93.0,
+    "price": 137.70306893,
+    "tag": 257
+   },
+   {
+    "bar": 288,
+    "side": "sell",
+    "quantity": 93.0,
+    "price": 135.38636001,
+    "tag": 516
+   },
+   {
+    "bar": 289,
+    "side": "buy",
+    "quantity": 98.0,
+    "price": 133.79367803000002,
+    "tag": 257
+   },
+   {
+    "bar": 293,
+    "side": "sell",
+    "quantity": 98.0,
+    "price": 124.00929783,
+    "tag": 516
+   },
+   {
+    "bar": 294,
+    "side": "buy",
+    "quantity": 99.0,
+    "price": 118.42334115000001,
+    "tag": 257
+   },
+   {
+    "bar": 300,
+    "side": "sell",
+    "quantity": 99.0,
+    "price": 121.93260552,
+    "tag": 516
+   },
+   {
+    "bar": 301,
+    "side": "buy",
+    "quantity": 103.0,
+    "price": 122.42494127,
+    "tag": 257
+   },
+   {
+    "bar": 310,
+    "side": "sell",
+    "quantity": 103.0,
+    "price": 120.17978082,
+    "tag": 516
+   },
+   {
+    "bar": 311,
+    "side": "buy",
+    "quantity": 103.0,
+    "price": 115.08390724000002,
+    "tag": 257
+   },
+   {
+    "bar": 314,
+    "side": "sell",
+    "quantity": 103.0,
+    "price": 109.49484941999998,
+    "tag": 516
+   },
+   {
+    "bar": 316,
+    "side": "buy",
+    "quantity": 105.0,
+    "price": 107.80437936,
+    "tag": 257
+   },
+   {
+    "bar": 321,
+    "side": "sell",
+    "quantity": 105.0,
+    "price": 108.33506541,
+    "tag": 516
+   },
+   {
+    "bar": 324,
+    "side": "buy",
+    "quantity": 100.0,
+    "price": 115.99839868000001,
+    "tag": 257
+   },
+   {
+    "bar": 329,
+    "side": "sell",
+    "quantity": 100.0,
+    "price": 111.3638625,
+    "tag": 516
+   },
+   {
+    "bar": 331,
+    "side": "buy",
+    "quantity": 98.0,
+    "price": 110.62316120999999,
+    "tag": 257
+   },
+   {
+    "bar": 338,
+    "side": "sell",
+    "quantity": 98.0,
+    "price": 106.41085785,
+    "tag": 516
+   },
+   {
+    "bar": 341,
+    "side": "buy",
+    "quantity": 92.0,
+    "price": 117.15121395,
+    "tag": 257
+   },
+   {
+    "bar": 343,
+    "side": "sell",
+    "quantity": 92.0,
+    "price": 107.90170875,
+    "tag": 516
+   },
+   {
+    "bar": 345,
+    "side": "buy",
+    "quantity": 92.0,
+    "price": 109.69956886,
+    "tag": 257
+   },
+   {
+    "bar": 351,
+    "side": "sell",
+    "quantity": 92.0,
+    "price": 105.14498445000001,
+    "tag": 516
+   },
+   {
+    "bar": 352,
+    "side": "buy",
+    "quantity": 92.0,
+    "price": 105.39493844,
+    "tag": 257
+   },
+   {
+    "bar": 359,
+    "side": "sell",
+    "quantity": 92.0,
+    "price": 102.43795518,
+    "tag": 516
+   },
+   {
+    "bar": 360,
+    "side": "buy",
+    "quantity": 91.0,
+    "price": 101.7331723,
+    "tag": 257
+   },
+   {
+    "bar": 362,
+    "side": "sell",
+    "quantity": 91.0,
+    "price": 99.63763524,
+    "tag": 516
+   },
+   {
+    "bar": 364,
+    "side": "buy",
+    "quantity": 91.0,
+    "price": 100.61126012000001,
+    "tag": 257
+   },
+   {
+    "bar": 372,
+    "side": "sell",
+    "quantity": 91.0,
+    "price": 101.70472850999998,
+    "tag": 516
+   },
+   {
+    "bar": 374,
+    "side": "buy",
+    "quantity": 90.0,
+    "price": 100.79107810000001,
+    "tag": 257
+   },
+   {
+    "bar": 382,
+    "side": "sell",
+    "quantity": 90.0,
+    "price": 99.87431156999999,
+    "tag": 516
+   },
+   {
+    "bar": 384,
+    "side": "buy",
+    "quantity": 91.0,
+    "price": 99.60715972,
+    "tag": 257
+   },
+   {
+    "bar": 392,
+    "side": "sell",
+    "quantity": 91.0,
+    "price": 99.31436756999999,
+    "tag": 516
+   },
+   {
+    "bar": 393,
+    "side": "buy",
+    "quantity": 92.0,
+    "price": 97.51385040999999,
+    "tag": 257
+   },
+   {
+    "bar": 399,
+    "side": "sell",
+    "quantity": 92.0,
+    "price": 94.40325873,
+    "tag": 516
+   },
+   {
+    "bar": 400,
+    "side": "buy",
+    "quantity": 94.0,
+    "price": 93.24492356,
+    "tag": 257
+   },
+   {
+    "bar": 407,
+    "side": "sell",
+    "quantity": 94.0,
+    "price": 97.95650337000001,
+    "tag": 516
+   },
+   {
+    "bar": 408,
+    "side": "buy",
+    "quantity": 95.0,
+    "price": 95.69646868999999,
+    "tag": 257
+   },
+   {
+    "bar": 427,
+    "side": "sell",
+    "quantity": 95.0,
+    "price": 103.74122484,
+    "tag": 516
+   },
+   {
+    "bar": 429,
+    "side": "buy",
+    "quantity": 93.0,
+    "price": 108.24922384,
+    "tag": 257
+   },
+   {
+    "bar": 439,
+    "side": "sell",
+    "quantity": 93.0,
+    "price": 105.57804113999998,
+    "tag": 516
+   },
+   {
+    "bar": 447,
+    "side": "buy",
+    "quantity": 81.0,
+    "price": 120.98089688,
+    "tag": 257
+   },
+   {
+    "bar": 474,
+    "side": "sell",
+    "quantity": 81.0,
+    "price": 143.81831673,
+    "tag": 516
+   },
+   {
+    "bar": 475,
+    "side": "buy",
+    "quantity": 81.0,
+    "price": 142.59965853999998,
+    "tag": 257
+   },
+   {
+    "bar": 484,
+    "side": "sell",
+    "quantity": 81.0,
+    "price": 155.55974247,
+    "tag": 516
+   },
+   {
+    "bar": 486,
+    "side": "buy",
+    "quantity": 80.0,
+    "price": 157.2627247,
+    "tag": 257
+   },
+   {
+    "bar": 493,
+    "side": "sell",
+    "quantity": 80.0,
+    "price": 160.3249659,
+    "tag": 516
+   },
+   {
+    "bar": 494,
+    "side": "buy",
+    "quantity": 80.0,
+    "price": 159.1349119,
+    "tag": 257
+   },
+   {
+    "bar": 502,
+    "side": "sell",
+    "quantity": 80.0,
+    "price": 156.90980745,
+    "tag": 516
+   },
+   {
+    "bar": 504,
+    "side": "buy",
+    "quantity": 79.0,
+    "price": 161.19341773,
+    "tag": 257
+   },
+   {
+    "bar": 511,
+    "side": "sell",
+    "quantity": 79.0,
+    "price": 173.86541172,
+    "tag": 516
+   },
+   {
+    "bar": 520,
+    "side": "buy",
+    "quantity": 81.0,
+    "price": 165.88998734,
+    "tag": 257
+   },
+   {
+    "bar": 526,
+    "side": "sell",
+    "quantity": 81.0,
+    "price": 164.50084827,
+    "tag": 516
+   },
+   {
+    "bar": 527,
+    "side": "buy",
+    "quantity": 82.0,
+    "price": 164.91268961999998,
+    "tag": 257
+   },
+   {
+    "bar": 546,
+    "side": "sell",
+    "quantity": 82.0,
+    "price": 181.72252593000002,
+    "tag": 516
+   },
+   {
+    "bar": 593,
+    "side": "buy",
+    "quantity": 59.0,
+    "price": 250.6680643,
+    "tag": 257
+   },
+   {
+    "bar": 603,
+    "side": "sell",
+    "quantity": 59.0,
+    "price": 251.8868088,
+    "tag": 516
+   },
+   {
+    "bar": 604,
+    "side": "buy",
+    "quantity": 59.0,
+    "price": 252.20801827999998,
+    "tag": 257
+   },
+   {
+    "bar": 614,
+    "side": "sell",
+    "quantity": 59.0,
+    "price": 275.48964828,
+    "tag": 516
+   },
+   {
+    "bar": 615,
+    "side": "buy",
+    "quantity": 59.0,
+    "price": 271.58675596,
+    "tag": 257
+   },
+   {
+    "bar": 648,
+    "side": "sell",
+    "quantity": 59.0,
+    "price": 380.32936326,
+    "tag": 516
+   },
+   {
+    "bar": 656,
+    "side": "buy",
+    "quantity": 61.0,
+    "price": 371.06930322,
+    "tag": 257
+   },
+   {
+    "bar": 669,
+    "side": "sell",
+    "quantity": 61.0,
+    "price": 371.95610066999996,
+    "tag": 516
+   },
+   {
+    "bar": 672,
+    "side": "buy",
+    "quantity": 60.0,
+    "price": 370.41113741,
+    "tag": 257
+   },
+   {
+    "bar": 677,
+    "side": "sell",
+    "quantity": 60.0,
+    "price": 363.02329404,
+    "tag": 516
+   },
+   {
+    "bar": 678,
+    "side": "buy",
+    "quantity": 61.0,
+    "price": 362.37333371,
+    "tag": 257
+   },
+   {
+    "bar": 681,
+    "side": "sell",
+    "quantity": 61.0,
+    "price": 339.57773883,
+    "tag": 516
+   },
+   {
+    "bar": 682,
+    "side": "buy",
+    "quantity": 61.0,
+    "price": 338.16321294,
+    "tag": 257
+   },
+   {
+    "bar": 684,
+    "side": "sell",
+    "quantity": 61.0,
+    "price": 321.61903488,
+    "tag": 516
+   },
+   {
+    "bar": 685,
+    "side": "buy",
+    "quantity": 62.0,
+    "price": 320.04420122,
+    "tag": 257
+   },
+   {
+    "bar": 694,
+    "side": "sell",
+    "quantity": 62.0,
+    "price": 335.43165347999997,
+    "tag": 516
+   },
+   {
+    "bar": 695,
+    "side": "buy",
+    "quantity": 62.0,
+    "price": 330.53525022,
+    "tag": 257
+   },
+   {
+    "bar": 699,
+    "side": "sell",
+    "quantity": 62.0,
+    "price": 331.32016467,
+    "tag": 516
+   },
+   {
+    "bar": 702,
+    "side": "buy",
+    "quantity": 60.0,
+    "price": 345.84468101,
+    "tag": 257
+   },
+   {
+    "bar": 709,
+    "side": "sell",
+    "quantity": 60.0,
+    "price": 348.8931072,
+    "tag": 516
+   },
+   {
+    "bar": 711,
+    "side": "buy",
+    "quantity": 59.0,
+    "price": 343.81557812,
+    "tag": 257
+   },
+   {
+    "bar": 716,
+    "side": "sell",
+    "quantity": 59.0,
+    "price": 321.56254053,
+    "tag": 516
+   },
+   {
+    "bar": 718,
+    "side": "buy",
+    "quantity": 60.0,
+    "price": 315.48024487,
+    "tag": 257
+   },
+   {
+    "bar": 724,
+    "side": "sell",
+    "quantity": 60.0,
+    "price": 311.05429146,
+    "tag": 516
+   },
+   {
+    "bar": 725,
+    "side": "buy",
+    "quantity": 62.0,
+    "price": 301.28362535,
+    "tag": 257
+   },
+   {
+    "bar": 728,
+    "side": "sell",
+    "quantity": 62.0,
+    "price": 286.21157598,
+    "tag": 516
+   },
+   {
+    "bar": 729,
+    "side": "buy",
+    "quantity": 64.0,
+    "price": 284.29472663,
+    "tag": 257
+   },
+   {
+    "bar": 754,
+    "side": "sell",
+    "quantity": 64.0,
+    "price": 360.39055734,
+    "tag": 516
+   },
+   {
+    "bar": 755,
+    "side": "buy",
+    "quantity": 65.0,
+    "price": 355.72746918999997,
+    "tag": 257
+   },
+   {
+    "bar": 761,
+    "side": "sell",
+    "quantity": 65.0,
+    "price": 355.61103534,
+    "tag": 516
+   },
+   {
+    "bar": 762,
+    "side": "buy",
+    "quantity": 65.0,
+    "price": 358.51034745,
+    "tag": 257
+   },
+   {
+    "bar": 765,
+    "side": "sell",
+    "quantity": 65.0,
+    "price": 331.94230245,
+    "tag": 516
+   },
+   {
+    "bar": 766,
+    "side": "buy",
+    "quantity": 65.0,
+    "price": 330.89018571,
+    "tag": 257
+   },
+   {
+    "bar": 770,
+    "side": "sell",
+    "quantity": 65.0,
+    "price": 327.9492018,
+    "tag": 516
+   },
+   {
+    "bar": 772,
+    "side": "buy",
+    "quantity": 64.0,
+    "price": 329.23171988,
+    "tag": 257
+   },
+   {
+    "bar": 778,
+    "side": "sell",
+    "quantity": 64.0,
+    "price": 330.89120757,
+    "tag": 516
+   },
+   {
+    "bar": 780,
+    "side": "buy",
+    "quantity": 64.0,
+    "price": 326.15231197,
+    "tag": 257
+   },
+   {
+    "bar": 794,
+    "side": "sell",
+    "quantity": 64.0,
+    "price": 325.83291345,
+    "tag": 516
+   },
+   {
+    "bar": 795,
+    "side": "buy",
+    "quantity": 66.0,
+    "price": 313.41853872,
+    "tag": 257
+   },
+   {
+    "bar": 801,
+    "side": "sell",
+    "quantity": 66.0,
+    "price": 308.5001469,
+    "tag": 516
+   },
+   {
+    "bar": 802,
+    "side": "buy",
+    "quantity": 68.0,
+    "price": 296.88298533,
+    "tag": 257
+   },
+   {
+    "bar": 810,
+    "side": "sell",
+    "quantity": 68.0,
+    "price": 307.07108982,
+    "tag": 516
+   },
+   {
+    "bar": 811,
+    "side": "buy",
+    "quantity": 71.0,
+    "price": 302.17351433,
+    "tag": 257
+   },
+   {
+    "bar": 814,
+    "side": "sell",
+    "quantity": 71.0,
+    "price": 294.79291776,
+    "tag": 516
+   },
+   {
+    "bar": 815,
+    "side": "buy",
+    "quantity": 72.0,
+    "price": 291.90298738,
+    "tag": 257
+   },
+   {
+    "bar": 819,
+    "side": "sell",
+    "quantity": 72.0,
+    "price": 270.12288501,
+    "tag": 516
+   },
+   {
+    "bar": 820,
+    "side": "buy",
+    "quantity": 73.0,
+    "price": 269.62135944,
+    "tag": 257
+   },
+   {
+    "bar": 823,
+    "side": "sell",
+    "quantity": 73.0,
+    "price": 262.32106527,
+    "tag": 516
+   },
+   {
+    "bar": 824,
+    "side": "buy",
+    "quantity": 73.0,
+    "price": 259.96989439,
+    "tag": 257
+   },
+   {
+    "bar": 830,
+    "side": "sell",
+    "quantity": 73.0,
+    "price": 259.45175223,
+    "tag": 516
+   },
+   {
+    "bar": 833,
+    "side": "buy",
+    "quantity": 70.0,
+    "price": 272.14541182,
+    "tag": 257
+   },
+   {
+    "bar": 854,
+    "side": "sell",
+    "quantity": 70.0,
+    "price": 295.09858719,
+    "tag": 516
+   },
+   {
+    "bar": 855,
+    "side": "buy",
+    "quantity": 70.0,
+    "price": 294.84088113999996,
+    "tag": 257
+   },
+   {
+    "bar": 865,
+    "side": "sell",
+    "quantity": 70.0,
+    "price": 287.54314281,
+    "tag": 516
+   },
+   {
+    "bar": 866,
+    "side": "buy",
+    "quantity": 70.0,
+    "price": 284.56205336,
+    "tag": 257
+   },
+   {
+    "bar": 869,
+    "side": "sell",
+    "quantity": 70.0,
+    "price": 275.70612662999997,
+    "tag": 516
+   },
+   {
+    "bar": 870,
+    "side": "buy",
+    "quantity": 71.0,
+    "price": 275.82077932,
+    "tag": 257
+   },
+   {
+    "bar": 891,
+    "side": "sell",
+    "quantity": 71.0,
+    "price": 308.57733918,
+    "tag": 516
+   },
+   {
+    "bar": 894,
+    "side": "buy",
+    "quantity": 68.0,
+    "price": 313.1783147,
+    "tag": 257
+   },
+   {
+    "bar": 911,
+    "side": "sell",
+    "quantity": 68.0,
+    "price": 367.42035429000003,
+    "tag": 516
+   },
+   {
+    "bar": 912,
+    "side": "buy",
+    "quantity": 69.0,
+    "price": 366.12090843,
+    "tag": 257
+   },
+   {
+    "bar": 920,
+    "side": "sell",
+    "quantity": 69.0,
+    "price": 412.34416146,
+    "tag": 516
+   },
+   {
+    "bar": 931,
+    "side": "buy",
+    "quantity": 74.0,
+    "price": 383.43693986,
+    "tag": 257
+   },
+   {
+    "bar": 949,
+    "side": "sell",
+    "quantity": 74.0,
+    "price": 469.16917838999996,
+    "tag": 516
+   }
+  ]
+ },
+ "buy and hold, the benchmark": {
+  "rejected": 0,
+  "fills": [
+   {
+    "bar": 1,
+    "side": "buy",
+    "quantity": 99.0,
+    "price": 97.81798082,
+    "tag": 257
+   }
+  ]
+ },
+ "a long rolling window and a stop loss": {
+  "rejected": 0,
+  "fills": [
+   {
+    "bar": 288,
+    "side": "buy",
+    "quantity": 72.0,
+    "price": 135.41343999,
+    "tag": 257
+   },
+   {
+    "bar": 317,
+    "side": "sell",
+    "quantity": 72.0,
+    "price": 108.10008891,
+    "tag": 515
+   },
+   {
+    "bar": 318,
+    "side": "buy",
+    "quantity": 72.0,
+    "price": 108.19161808000001,
+    "tag": 257
+   },
+   {
+    "bar": 547,
+    "side": "sell",
+    "quantity": 72.0,
+    "price": 182.31066711,
+    "tag": 513
+   },
+   {
+    "bar": 728,
+    "side": "buy",
+    "quantity": 45.0,
+    "price": 286.26882402,
+    "tag": 257
+   },
+   {
+    "bar": 915,
+    "side": "sell",
+    "quantity": 45.0,
+    "price": 407.79581633999993,
+    "tag": 513
+   }
+  ]
+ },
+ "two tranches on one bar become one order": {
+  "rejected": 2,
+  "fills": [
+   {
+    "bar": 3,
+    "side": "buy",
+    "quantity": 50.0,
+    "price": 97.09630866000002,
+    "tag": 257
+   },
+   {
+    "bar": 7,
+    "side": "buy",
+    "quantity": 51.0,
+    "price": 95.62276132000001,
+    "tag": 258
+   },
+   {
+    "bar": 17,
+    "side": "sell",
+    "quantity": 101.0,
+    "price": 102.30886808999999,
+    "tag": 514
+   },
+   {
+    "bar": 24,
+    "side": "buy",
+    "quantity": 50.0,
+    "price": 103.01430040000001,
+    "tag": 257
+   },
+   {
+    "bar": 27,
+    "side": "buy",
+    "quantity": 52.0,
+    "price": 99.73887289000001,
+    "tag": 258
+   },
+   {
+    "bar": 35,
+    "side": "sell",
+    "quantity": 102.0,
+    "price": 107.26097283,
+    "tag": 514
+   },
+   {
+    "bar": 43,
+    "side": "buy",
+    "quantity": 95.0,
+    "price": 115.80487933,
+    "tag": 259
+   },
+   {
+    "bar": 63,
+    "side": "sell",
+    "quantity": 95.0,
+    "price": 121.54324446000001,
+    "tag": 514
+   },
+   {
+    "bar": 65,
+    "side": "buy",
+    "quantity": 47.0,
+    "price": 122.52315109000001,
+    "tag": 257
+   },
+   {
+    "bar": 70,
+    "side": "buy",
+    "quantity": 47.0,
+    "price": 122.82688146,
+    "tag": 258
+   },
+   {
+    "bar": 97,
+    "side": "sell",
+    "quantity": 94.0,
+    "price": 133.54794386999998,
+    "tag": 514
+   },
+   {
+    "bar": 101,
+    "side": "buy",
+    "quantity": 46.0,
+    "price": 135.36073471999998,
+    "tag": 257
+   },
+   {
+    "bar": 106,
+    "side": "sell",
+    "quantity": 46.0,
+    "price": 142.25887269,
+    "tag": 514
+   },
+   {
+    "bar": 115,
+    "side": "buy",
+    "quantity": 43.0,
+    "price": 148.11250977,
+    "tag": 257
+   },
+   {
+    "bar": 118,
+    "side": "buy",
+    "quantity": 42.0,
+    "price": 147.23042157,
+    "tag": 258
+   },
+   {
+    "bar": 168,
+    "side": "sell",
+    "quantity": 85.0,
+    "price": 156.02499594000003,
+    "tag": 514
+   },
+   {
+    "bar": 180,
+    "side": "buy",
+    "quantity": 40.0,
+    "price": 167.00299863,
+    "tag": 257
+   },
+   {
+    "bar": 183,
+    "side": "buy",
+    "quantity": 41.0,
+    "price": 168.99909822,
+    "tag": 258
+   },
+   {
+    "bar": 193,
+    "side": "sell",
+    "quantity": 81.0,
+    "price": 176.0983884,
+    "tag": 514
+   },
+   {
+    "bar": 194,
+    "side": "buy",
+    "quantity": 40.0,
+    "price": 174.42934119,
+    "tag": 257
+   },
+   {
+    "bar": 197,
+    "side": "buy",
+    "quantity": 41.0,
+    "price": 174.84948319999998,
+    "tag": 258
+   },
+   {
+    "bar": 553,
+    "side": "sell",
+    "quantity": 81.0,
+    "price": 190.57194090000002,
+    "tag": 514
+   },
+   {
+    "bar": 566,
+    "side": "buy",
+    "quantity": 67.0,
+    "price": 227.25532325999998,
+    "tag": 259
+   },
+   {
+    "bar": 570,
+    "side": "sell",
+    "quantity": 67.0,
+    "price": 243.3496626,
+    "tag": 514
+   },
+   {
+    "bar": 577,
+    "side": "buy",
+    "quantity": 32.0,
+    "price": 254.40523797999998,
+    "tag": 257
+   },
+   {
+    "bar": 579,
+    "side": "buy",
+    "quantity": 33.0,
+    "price": 250.91648914,
+    "tag": 258
+   },
+   {
+    "bar": 587,
+    "side": "sell",
+    "quantity": 65.0,
+    "price": 267.02339499,
+    "tag": 514
+   },
+   {
+    "bar": 588,
+    "side": "buy",
+    "quantity": 32.0,
+    "price": 268.47274459,
+    "tag": 257
+   },
+   {
+    "bar": 592,
+    "side": "buy",
+    "quantity": 33.0,
+    "price": 251.31092858,
+    "tag": 258
+   },
+   {
+    "bar": 611,
+    "side": "sell",
+    "quantity": 65.0,
+    "price": 286.16948019,
+    "tag": 514
+   },
+   {
+    "bar": 614,
+    "side": "buy",
+    "quantity": 68.0,
+    "price": 275.54475172,
+    "tag": 259
+   },
+   {
+    "bar": 618,
+    "side": "sell",
+    "quantity": 68.0,
+    "price": 297.78911811,
+    "tag": 514
+   },
+   {
+    "bar": 621,
+    "side": "buy",
+    "quantity": 34.0,
+    "price": 304.80817777,
+    "tag": 257
+   },
+   {
+    "bar": 626,
+    "side": "sell",
+    "quantity": 34.0,
+    "price": 322.66643013,
+    "tag": 514
+   },
+   {
+    "bar": 636,
+    "side": "buy",
+    "quantity": 29.0,
+    "price": 347.80727724999997,
+    "tag": 257
+   },
+   {
+    "bar": 637,
+    "side": "buy",
+    "quantity": 30.0,
+    "price": 365.63976032,
+    "tag": 258
+   },
+   {
+    "bar": 641,
+    "side": "sell",
+    "quantity": 59.0,
+    "price": 379.50944526,
+    "tag": 514
+   },
+   {
+    "bar": 648,
+    "side": "buy",
+    "quantity": 60.0,
+    "price": 380.40543673999997,
+    "tag": 259
+   },
+   {
+    "bar": 915,
+    "side": "sell",
+    "quantity": 60.0,
+    "price": 407.79581634,
+    "tag": 514
+   },
+   {
+    "bar": 917,
+    "side": "buy",
+    "quantity": 30.0,
+    "price": 398.63455947,
+    "tag": 257
+   },
+   {
+    "bar": 918,
+    "side": "buy",
+    "quantity": 30.0,
+    "price": 401.31062705000005,
+    "tag": 258
+   },
+   {
+    "bar": 937,
+    "side": "sell",
+    "quantity": 60.0,
+    "price": 431.07398829,
+    "tag": 514
+   },
+   {
+    "bar": 943,
+    "side": "buy",
+    "quantity": 56.0,
+    "price": 460.58895428999995,
+    "tag": 259
+   }
+  ]
+ }
+}

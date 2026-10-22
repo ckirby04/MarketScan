@@ -35,12 +35,20 @@ std::string draw_equity_chart(const ChartModel& model, const char* plot_id, ImVe
 /// the chart's x-axis.
 ///
 /// Its own function rather than a density of the chart, because it plots a
-/// different quantity. It reads `StrategySnapshot::drawdown` -- it does not
-/// derive one.
-void draw_drawdown_strip(const ChartModel& model,
-                         const SessionSnapshot& snapshot,
-                         const char* plot_id,
-                         ImVec2 size);
+/// different quantity. It reads each series' `drawdown` from the model -- it
+/// does not derive one, and it does not care whether a session or a research
+/// job supplied it.
+void draw_drawdown_strip(const ChartModel& model, const char* plot_id, ImVec2 size);
+
+/// Pins a plot's own surface and chrome to the token table. Every plot in the
+/// application wears it, so the Research view's sweep and range plots sit on the
+/// same surface as the equity chart.
+///
+/// ImPlot's default style paints its own background, and contrast and
+/// colour-vision results are only meaningful against the surface actually
+/// rendered on -- so the surface is set rather than inherited.
+void push_chart_style(ChartDensity density);
+void pop_chart_style();
 
 }  // namespace marketscan::app::panels
 

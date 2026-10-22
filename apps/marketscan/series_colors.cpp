@@ -4,18 +4,28 @@
 
 namespace marketscan::app {
 
-SeriesColors::SeriesColors(const SessionSnapshot& snapshot) {
+SeriesColors::SeriesColors(const SessionSnapshot& snapshot)
+    : SeriesColors([&snapshot] {
+          std::vector<std::pair<std::string, bool>> entities;
+          entities.reserve(snapshot.strategies.size());
+          for (const StrategySnapshot& row : snapshot.strategies) {
+              entities.emplace_back(row.id, row.is_benchmark);
+          }
+          return entities;
+      }()) {}
+
+SeriesColors::SeriesColors(const std::vector<std::pair<std::string, bool>>& entities) {
     std::vector<std::string> ids;
-    ids.reserve(snapshot.strategies.size());
-    for (const StrategySnapshot& row : snapshot.strategies) {
-        if (row.is_benchmark) {
+    ids.reserve(entities.size());
+    for (const auto& [id, is_benchmark] : entities) {
+        if (is_benchmark) {
             // Held aside, not given a slot. Drawing the benchmark in a
             // categorical hue would put it in the same visual class as the
             // theories being compared against it.
-            benchmark_id_ = row.id;
+            benchmark_id_ = id;
             continue;
         }
-        ids.push_back(row.id);
+        ids.push_back(id);
     }
 
     // Sorted, so the assignment depends on the *set* of loaded theories and

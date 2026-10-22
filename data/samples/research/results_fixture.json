@@ -1,0 +1,144 @@
+{
+  "results_version": "0.1",
+  "run": {
+    "run_id": "fixture-0001",
+    "form_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "engine_version": "fixture",
+    "criteria_version": "0.1",
+    "data_snapshot": "fixture",
+    "started_at": "2026-10-21T00:00:00Z",
+    "duration_ms": 5
+  },
+  "verdict": {
+    "grade": "insufficient_evidence",
+    "data_grade": "exercise_only",
+    "deciding_gate": "evidence",
+    "headline": {
+      "strategy_oos_cagr_pct": 1.0,
+      "benchmark_oos_cagr_pct": null,
+      "strategy_oos_max_drawdown_pct": -5.0,
+      "benchmark_oos_max_drawdown_pct": -9.0,
+      "outcome_range": { "cagr_p5_pct": 1.0, "cagr_p50_pct": 2.0, "cagr_p95_pct": 3.0 }
+    },
+    "gates": [
+      {
+        "id": "evidence",
+        "status": "fail",
+        "measured": { "n_entries": 3, "n_entries_oos": 1 },
+        "threshold": { "n_entries": 5, "n_entries_oos": 2 },
+        "comparison": { "n_entries": ">=", "n_entries_oos": ">=" },
+        "summary": "3 entries (needs at least 5), 1 out of sample (needs at least 2)."
+      },
+      {
+        "id": "plateau",
+        "status": "not_applicable",
+        "measured": {},
+        "threshold": {},
+        "comparison": {},
+        "summary": "Nothing was swept."
+      }
+    ]
+  },
+  "stats": {
+    "selected": {
+      "params": { "/strategy/entry/threshold_pct": 40 },
+      "windows": {
+        "full": {
+          "from": "2006-10-20",
+          "to": "2026-10-20",
+          "metrics": {
+            "total_return_pct": 1.0,
+            "cagr_pct": 1.0,
+            "volatility_pct": 1.0,
+            "sharpe": 1.0,
+            "sortino": 1.0,
+            "max_drawdown_pct": -1.0,
+            "max_drawdown_days": 10,
+            "calmar": 1.0,
+            "ulcer_index": 1.0,
+            "time_in_market_pct": 1.0,
+            "n_entries": 3,
+            "win_rate_pct": null,
+            "avg_trade_return_pct": null,
+            "worst_trade_pct": null
+          }
+        }
+      }
+    },
+    "benchmarks": [
+      {
+        "symbol": "TQQQ",
+        "security_id": "etf_tqqq",
+        "windows": {
+          "full": {
+            "from": "2006-10-20",
+            "to": "2026-10-20",
+            "metrics": {
+              "total_return_pct": 1.0,
+              "cagr_pct": 1.0,
+              "volatility_pct": 1.0,
+              "sharpe": 1.0,
+              "sortino": 1.0,
+              "max_drawdown_pct": -1.0,
+              "max_drawdown_days": 10,
+              "calmar": 1.0,
+              "ulcer_index": 1.0,
+              "time_in_market_pct": 100.0,
+              "n_entries": 1,
+              "win_rate_pct": null,
+              "avg_trade_return_pct": null,
+              "worst_trade_pct": null
+            }
+          }
+        }
+      }
+    ],
+    "trades": [
+      {
+        "entry_date": "2008-01-02",
+        "entry_price": 1.0,
+        "exit_date": null,
+        "exit_price": 2.0,
+        "return_pct": 100.0,
+        "holding_days": 10,
+        "max_adverse_pct": -3.0,
+        "exit_reason": "open",
+        "window": "in_sample",
+        "synthetic": true
+      }
+    ],
+    "parameter_surface": null,
+    "regimes": [],
+    "random_timing": {
+      "n_simulations": 1000,
+      "metric": "cagr",
+      "null_p5": 0.0,
+      "null_p50": 1.0,
+      "null_p95": 2.0,
+      "strategy_percentile": 50.0,
+      "p_value": 0.5,
+      "p_value_corrected": null
+    },
+    "bootstrap": {
+      "method": "stationary_block",
+      "mean_block_days": 63,
+      "n_paths": 1000,
+      "strategy": { "cagr_p5_pct": 1.0, "cagr_p50_pct": 2.0, "cagr_p95_pct": 3.0 },
+      "benchmark": { "cagr_p5_pct": 1.0, "cagr_p50_pct": 2.0, "cagr_p95_pct": 3.0 },
+      "prob_beats_benchmark": 0.5,
+      "share_paths_below_minus_90_pct": 0.1
+    },
+    "data": [
+      {
+        "security_id": "etf_tqqq",
+        "series_id": "fixture",
+        "quality_tier": "exercise_only",
+        "used_from": "2006-10-20",
+        "used_to": "2026-10-20",
+        "synthetic": null
+      }
+    ],
+    "equity_curves": { "uri": "runs/fixture-0001/equity.csv" }
+  },
+  "warnings": [ { "code": "EXERCISE_ONLY_DATA", "message": "Every series is exercise_only." } ]
+}

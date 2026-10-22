@@ -1,0 +1,27 @@
+{
+  "description": "Cases for the drawdown_entry cross-test. Each runs over drawdown_prices.csv. Unlisted rule fields take research/drawdown_entry.py's Params defaults, except recover_to_high, which is off unless listed. start is the first decision date; earlier bars are warmup.",
+  "cases": [
+    { "name": "all-time high, one tranche, sell on recovery", "start": "2000-01-03", "starting_cash": 10000, "spread_bps": 2.0, "commission": 0.0, "reserve": 2.0,
+      "tranches": [[20, 100]], "recover_to_high": true },
+    { "name": "all-time high, hold forever", "start": "2000-01-03", "starting_cash": 10000, "spread_bps": 2.0, "commission": 0.0, "reserve": 2.0,
+      "tranches": [[30, 100]] },
+    { "name": "rolling high with a trailing stop", "start": "2000-01-03", "starting_cash": 10000, "spread_bps": 5.0, "commission": 1.0, "reserve": 2.0,
+      "reference": "rolling_high", "window": 63, "tranches": [[15, 100]], "trailing_stop": 10 },
+    { "name": "since last exit, take profit and stop loss", "start": "2000-01-03", "starting_cash": 25000, "spread_bps": 2.0, "commission": 0.0, "reserve": 2.0,
+      "reference": "since_last_exit", "tranches": [[10, 100]], "take_profit": 15, "stop_loss": 10 },
+    { "name": "three tranches and a time stop", "start": "2000-01-03", "starting_cash": 50000, "spread_bps": 2.0, "commission": 2.5, "reserve": 2.0,
+      "tranches": [[10, 40], [25, 30], [40, 30]], "time_stop": 60, "recover_to_high": true },
+    { "name": "no re-entry after the first exit", "start": "2000-01-03", "starting_cash": 10000, "spread_bps": 2.0, "commission": 0.0, "reserve": 2.0,
+      "tranches": [[15, 100]], "recover_to_high": true, "reentry": false },
+    { "name": "warmup bars set the high but never trade", "start": "2001-03-01", "starting_cash": 10000, "spread_bps": 2.0, "commission": 0.0, "reserve": 2.0,
+      "tranches": [[20, 100]], "recover_to_high": true },
+    { "name": "no reserve, so gap-ups are refused", "start": "2000-01-03", "starting_cash": 10000, "spread_bps": 2.0, "commission": 5.0, "reserve": 0.0,
+      "tranches": [[5, 100]], "trailing_stop": 3 },
+    { "name": "buy and hold, the benchmark", "start": "2000-01-03", "starting_cash": 10000, "spread_bps": 2.0, "commission": 0.0, "reserve": 2.0,
+      "tranches": [[0, 100]] },
+    { "name": "a long rolling window and a stop loss", "start": "2000-01-03", "starting_cash": 10000, "spread_bps": 2.0, "commission": 0.0, "reserve": 2.0,
+      "reference": "rolling_high", "window": 504, "tranches": [[25, 100]], "stop_loss": 20, "recover_to_high": true },
+    { "name": "two tranches on one bar become one order", "start": "2000-01-03", "starting_cash": 10000, "spread_bps": 2.0, "commission": 0.0, "reserve": 2.0,
+      "tranches": [[1, 50], [2, 50]], "take_profit": 5 }
+  ]
+}

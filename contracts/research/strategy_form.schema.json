@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quant.local/backtest-app/strategy_form.schema.json",
+  "title": "Strategy Form",
+  "description": "A runnable backtest request. The LLM fills this from a plain-English prompt; the engine only accepts forms that validate. Percent values are positive numbers in percent (40 = a 40% drawdown). Custom annotations: x-ask = when the LLM should ask the user (always | if_ambiguous | never); x-default = the literal value used when the user says nothing, always one the job can honour; x-default-note = a description of a default that depends on the rest of the form, for a reader rather than a program.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "prompt", "template", "universe", "date_range", "capital", "costs", "cash", "execution", "strategy", "objective", "benchmarks", "robustness", "provenance"],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+
+    "prompt": {
+      "type": "string",
+      "description": "The user's original request, verbatim. Kept so the insight step can answer the question that was actually asked."
+    },
+
+    "template": {
+      "enum": ["drawdown_entry"],
+      "description": "Which strategy template the strategy block follows. More templates (indicator_crossover, periodic_rebalance, dca) are added later as new enum values plus a matching oneOf branch in strategy.",
+      "x-ask": "if_ambiguous"
+    },
+
+    "universe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["assets", "price_adjustment"],
+      "properties": {
+        "assets": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/asset" }
+        },
+        "price_adjustment": {
+          "enum": ["total_return", "split_only"],
+          "description": "total_return reinvests dividends; split_only ignores them.",
+          "x-default": "split_only",
+          "x-ask": "never"
+        }
+      }
+    },
+
+    "date_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "end"],
+      "properties": {
+        "start": { "type": "string", "format": "date", "x-ask": "if_ambiguous" },
+        "end": { "type": "string", "format": "date", "x-default-note": "the latest available bar" },
+        "warmup_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "History loaded before start so lookback windows (e.g. a 252-day high) are populated on day one. Trades never occur during warmup.",
+          "x-default": 0
+        }
+      }
+    },
+
+    "capital": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initial", "currency"],
+      "properties": {
+        "initial": { "type": "number", "exclusiveMinimum": 0, "x-default": 10000, "x-ask": "never" },
+        "currency": { "const": "USD" }
+      }
+    },
+
+    "costs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commission_per_trade", "slippage_bps"],
+      "properties": {
+        "commission_per_trade": { "type": "number", "minimum": 0, "x-default": 0, "x-ask": "never" },
+        "slippage_bps": { "type": "number", "minimum": 0, "x-default": 5, "x-ask": "never" }
+      }
+    },
+
+    "cash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["yield"],
+      "description": "What uninvested cash earns while the strategy waits for a signal. Matters a lot for entry-timing strategies that sit in cash for years.",
+      "properties": {
+        "yield": { "enum": ["none", "tbill_3m", "fixed"], "x-default": "none", "x-ask": "never" },
+        "fixed_rate_pct": { "type": "number", "description": "Annual rate, required when yield = fixed." }
+      },
+      "if": { "properties": { "yield": { "const": "fixed" } } },
+      "then": { "required": ["fixed_rate_pct"] }
+    },
+
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fill"],
+      "properties": {
+        "fill": {
+          "enum": ["next_open", "next_close"],
+          "description": "Signals are computed on a bar's close; fills happen on a later bar. Same-bar fills are deliberately not offered because they are look-ahead.",
+          "x-default": "next_close",
+          "x-ask": "never"
+        }
+      }
+    },
+
+    "strategy": {
+      "oneOf": [
+        { "$ref": "#/$defs/drawdown_entry" }
+      ]
+    },
+
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric"],
+      "description": "What 'optimal' means. Only used to rank results when any strategy parameter is a sweep; every metric is still reported.",
+      "properties": {
+        "metric": {
+          "enum": ["cagr", "sharpe", "sortino", "calmar", "max_drawdown", "ulcer_index", "total_return"],
+          "description": "Higher is better, except ulcer_index, where lower is. max_drawdown is negative, so higher means shallower (JOB.md section 5).",
+          "x-ask": "always"
+        },
+        "min_trades": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Parameter sets with fewer completed entries than this are excluded from ranking (still shown, flagged).",
+          "x-default": 3
+        }
+      }
+    },
+
+    "benchmarks": {
+      "type": "array",
+      "description": "Symbols held buy-and-hold over the same range for comparison. Synthetic extensions in universe apply to benchmarks with the same symbol.",
+      "items": { "type": "string" },
+      "x-default-note": "each universe asset, then SPY"
+    },
+
+    "robustness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oos_split", "regime_breakdown", "parameter_surface"],
+      "properties": {
+        "oos_split": {
+          "description": "Optimize on [start, date), report the chosen parameters on [date, end]. null disables.",
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string", "format": "date" }
+          ],
+          "x-default-note": "the date 60% of the way through the range"
+        },
+        "walk_forward": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["train_years", "test_years"],
+          "properties": {
+            "train_years": { "type": "integer", "minimum": 1 },
+            "test_years": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "regime_breakdown": {
+          "type": "boolean",
+          "description": "Report performance inside each catalog regime (list_regimes) that overlaps the range.",
+          "x-default": true
+        },
+        "parameter_surface": {
+          "type": "boolean",
+          "description": "Return the objective for every swept parameter value so the insight step can tell a plateau from a spike.",
+          "x-default": true
+        }
+      }
+    },
+
+    "provenance": {
+      "type": "object",
+      "description": "Where each value came from, keyed by JSON Pointer into this form (e.g. \"/strategy/entry/threshold_pct\"). The engine ignores this; the UI uses it to flag values and the LLM uses it to decide what to ask. A path whose source is 'missing' must be resolved before the form is submitted.",
+      "additionalProperties": { "$ref": "#/$defs/provenance_entry" }
+    }
+  },
+
+  "$defs": {
+    "param": {
+      "description": "A numeric strategy parameter: a fixed value, an inclusive range sweep, or an explicit list. Any sweep makes the run an optimization ranked by objective.metric.",
+      "oneOf": [
+        { "type": "number" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sweep"],
+          "properties": {
+            "sweep": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["min", "max", "step"],
+              "properties": {
+                "min": { "type": "number" },
+                "max": { "type": "number" },
+                "step": { "type": "number", "exclusiveMinimum": 0 }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["values"],
+          "properties": {
+            "values": { "type": "array", "minItems": 1, "items": { "type": "number" } }
+          }
+        }
+      ]
+    },
+
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbol", "security_id"],
+      "properties": {
+        "symbol": { "type": "string", "pattern": "^[A-Z][A-Z0-9.\\-]{0,9}$", "description": "The ticker as the user knows it. Display only." },
+        "security_id": { "type": "string", "description": "From the catalog's resolve(symbol, date_range.start). What the engine actually loads." },
+        "synthetic_extension": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["recipe_id", "underlying", "leverage", "annual_fee_pct", "borrow_spread_pct"],
+          "description": "Extend history before the asset's inception by simulating it from an underlying: daily_return = leverage * underlying_return - (fee + (leverage - 1) * (cash_rate + borrow_spread)) / 252. Spliced at the first real bar. The insight step must say which part of the range is synthetic.",
+          "properties": {
+            "recipe_id": { "type": "string", "description": "The catalog recipe these parameters were copied from. The engine checks they still match it." },
+            "underlying": { "type": "string" },
+            "leverage": { "type": "number" },
+            "annual_fee_pct": { "type": "number", "minimum": 0 },
+            "borrow_spread_pct": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+
+    "drawdown_reference": {
+      "description": "The high that drawdown is measured from.",
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["type"],
+          "properties": { "type": { "const": "all_time_high", "description": "Highest close since the start of loaded data (including warmup and synthetic history)." } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["type", "window_days"],
+          "properties": {
+            "type": { "const": "rolling_high", "description": "Highest close over the trailing window, e.g. 252 for a 52-week high." },
+            "window_days": { "$ref": "#/$defs/param" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["type"],
+          "properties": { "type": { "const": "since_last_exit", "description": "Highest close since the strategy last sold; falls back to all_time_high before the first trade." } }
+        }
+      ],
+      "x-ask": "always"
+    },
+
+    "exit_rule": {
+      "description": "One exit condition. A position is sold when any of its rules fires.",
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["type"],
+          "properties": { "type": { "const": "recover_to_high", "description": "Sell when price regains the reference high that was in force at entry." } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["type", "pct"],
+          "properties": { "type": { "const": "trailing_stop" }, "pct": { "$ref": "#/$defs/param" } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["type", "pct"],
+          "properties": { "type": { "const": "stop_loss", "description": "Measured from average entry price." }, "pct": { "$ref": "#/$defs/param" } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["type", "pct"],
+          "properties": { "type": { "const": "take_profit", "description": "Measured from average entry price." }, "pct": { "$ref": "#/$defs/param" } }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["type", "days"],
+          "properties": { "type": { "const": "time_stop" }, "days": { "$ref": "#/$defs/param" } }
+        }
+      ]
+    },
+
+    "drawdown_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["template", "reference", "entry", "exit", "reentry"],
+      "description": "Sit in cash; buy when the asset falls a given percent below a reference high; sell per the exit rules.",
+      "properties": {
+        "template": { "const": "drawdown_entry" },
+        "reference": { "$ref": "#/$defs/drawdown_reference" },
+        "entry": {
+          "oneOf": [
+            {
+              "type": "object", "additionalProperties": false, "required": ["style", "threshold_pct"],
+              "properties": {
+                "style": { "const": "single", "description": "Invest position_pct of equity once the drawdown reaches threshold_pct." },
+                "threshold_pct": { "$ref": "#/$defs/param" },
+                "position_pct": { "type": "number", "exclusiveMinimum": 0, "maximum": 100, "x-default": 100 }
+              }
+            },
+            {
+              "type": "object", "additionalProperties": false, "required": ["style", "tranches"],
+              "properties": {
+                "style": { "const": "tranches", "description": "Scale in: each tranche buys its fraction of starting equity when its drawdown level is first reached. Fractions must sum to at most 100." },
+                "tranches": {
+                  "type": "array", "minItems": 2,
+                  "items": {
+                    "type": "object", "additionalProperties": false, "required": ["drawdown_pct", "fraction_pct"],
+                    "properties": {
+                      "drawdown_pct": { "$ref": "#/$defs/param" },
+                      "fraction_pct": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 }
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "x-ask": "if_ambiguous"
+        },
+        "exit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rules"],
+          "properties": {
+            "rules": {
+              "type": "array",
+              "description": "Empty means buy and hold forever after entry.",
+              "items": { "$ref": "#/$defs/exit_rule" }
+            }
+          },
+          "x-ask": "always"
+        },
+        "reentry": {
+          "type": "boolean",
+          "description": "After an exit, may the strategy buy again on the next qualifying drawdown? Irrelevant when exit.rules is empty.",
+          "x-default": true,
+          "x-ask": "if_ambiguous"
+        }
+      }
+    },
+
+    "provenance_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "enum": ["stated", "inferred", "default", "missing"],
+          "description": "stated: the user said it. inferred: the LLM read it from context. default: the system assumption. missing: required and unknown."
+        },
+        "quote": { "type": "string", "description": "The prompt text a stated or inferred value came from." },
+        "note": { "type": "string", "description": "Why a value was inferred, or a warning to surface (e.g. inception date shorter than the requested range)." },
+        "options": {
+          "type": "array",
+          "description": "For missing fields: the choices to offer the user as buttons.",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

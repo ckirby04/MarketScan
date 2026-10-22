@@ -264,7 +264,7 @@ void overview(Context& context) {
     ImGui::PushStyleColor(ImGuiCol_Text, palette.text_faint);
     ImGui::TextUnformatted("drawdown");
     ImGui::PopStyleColor();
-    draw_drawdown_strip(model, snapshot, "##overview_drawdown", ImVec2(-1.0F, strip_height));
+    draw_drawdown_strip(model, "##overview_drawdown", ImVec2(-1.0F, strip_height));
 
     ImGui::Spacing();
     draw_kpis(subject);

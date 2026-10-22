@@ -44,8 +44,13 @@ replays market data through all of them at once, and prints what happened.
                         against cached daily bars, so identity is observed
                         rather than inferred from a threshold. Overrides are
                         then written from measurements only.
-  --view <mode>         GUI only: open in 'overview' or 'operator', overriding
-                        the remembered mode.
+  --view <mode>         GUI only: open in 'overview', 'operator' or
+                        'research', overriding the remembered mode.
+  --research-daily <d>  GUI only: the Research view's bars, a directory of
+                        SYMBOL.msb files.
+  --research-csv <s=f>  GUI only: a date,close CSV for symbol s. Repeatable.
+  --research-form <f>   GUI only: load this Strategy Form into the Research
+                        view and run it.
   --screenshot <file>   GUI only: write the window to a BMP and quit. See
                         scripts/capture_screenshot.ps1, which converts it.
   --screenshot-after <s> Seconds of replay before the capture. Default 8.
@@ -380,15 +385,31 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
             out.price_cache = value;
         } else if (argument == "--view") {
             if (i + 1 >= argc) {
-                std::cerr << "--view needs overview or operator" << "\n";
+                std::cerr << "--view needs overview, operator or research" << "\n";
                 exit_code = 2;
                 return false;
             }
             out.view_mode = argv[++i];
-            if (out.view_mode != "overview" && out.view_mode != "operator") {
-                std::cerr << "--view takes overview or operator" << "\n";
+            if (out.view_mode != "overview" && out.view_mode != "operator" &&
+                out.view_mode != "research") {
+                std::cerr << "--view takes overview, operator or research" << "\n";
                 exit_code = 2;
                 return false;
+            }
+        } else if (argument == "--research-daily" || argument == "--research-csv" ||
+                   argument == "--research-form") {
+            if (i + 1 >= argc) {
+                std::cerr << argument << " needs a value\n";
+                exit_code = 2;
+                return false;
+            }
+            const std::string value = argv[++i];
+            if (argument == "--research-daily") {
+                out.research_daily = value;
+            } else if (argument == "--research-csv") {
+                out.research_csv.push_back(value);
+            } else {
+                out.research_form = value;
             }
         } else if (argument == "--screenshot") {
             if (i + 1 >= argc) {

@@ -54,6 +54,10 @@ add_library(marketscan_core STATIC
     marketscan/metrics/correlation.cpp
     marketscan/metrics/performance.cpp
     marketscan/metrics/rolling.cpp
+    marketscan/research/drawdown_entry.cpp
+    marketscan/research/job.cpp
+    marketscan/research/json_schema.cpp
+    marketscan/research/rule_run.cpp
     marketscan/run/backtest.cpp
     marketscan/strategy/host_context.cpp
     marketscan/strategy/plugin_loader.cpp
@@ -62,6 +66,7 @@ add_library(marketscan_core STATIC
     marketscan/util/digest.cpp
     marketscan/util/latency_histogram.cpp
     marketscan/util/logging.cpp
+    marketscan/util/sha256.cpp
     marketscan/util/version.cpp)
 add_library(marketscan::core ALIAS marketscan_core)
 

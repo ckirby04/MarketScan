@@ -4,6 +4,7 @@
 #include <string>
 
 #include "../chart_model.hpp"
+#include "../research_session.hpp"
 #include "../series_colors.hpp"
 #include "../session.hpp"
 #include "../ui_state.hpp"
@@ -20,6 +21,10 @@ struct Context {
     Session& session;
     const SessionSnapshot& snapshot;
     UiState& ui;
+
+    /// The Research view's session. Null where there is none -- a test, or a
+    /// build that could not find the contracts.
+    ResearchSession* research = nullptr;
 };
 
 // Each of these draws one dockable window, including its own Begin/End, and
@@ -28,6 +33,9 @@ struct Context {
 /// Overview. Draws into the caller's window rather than owning one: it is a
 /// whole view, not a dockable panel, and nothing in it is dockable either.
 void overview(Context& context);
+
+/// Research. Like Overview, a whole view drawn into the caller's window.
+void research(Context& context);
 
 void leaderboard(Context& context);
 void equity_curves(Context& context);
@@ -54,6 +62,12 @@ void draw_all(Context& context);
 
 [[nodiscard]] std::string format_money(Money value, bool with_sign = false);
 [[nodiscard]] std::string format_percent(double fraction, int precision = 2);
+/// A value already in percent, as the research Results carry them: 12.5 is
+/// "+12.50%". Signed like format_percent, and the same dash for undefined.
+[[nodiscard]] std::string format_points(double percent, int precision = 2);
+/// A share, 0..1, as "37.5%". Unsigned: it is a proportion of something
+/// counted, not a P&L, and format_percent's sign would read as a gain.
+[[nodiscard]] std::string format_share(double share, int precision = 1);
 [[nodiscard]] std::string format_metric(double value, int precision = 2);
 [[nodiscard]] std::string format_quantity(double value);
 [[nodiscard]] std::string format_price(double value);

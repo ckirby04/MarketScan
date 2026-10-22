@@ -39,6 +39,7 @@
 #include <string>
 #include <vector>
 
+#include "marketscan/research/job.hpp"
 #include "series_colors.hpp"
 #include "session.hpp"
 
@@ -64,6 +65,11 @@ struct ChartSeries {
     /// outlive it. Seconds since the epoch, and the value series, in step.
     const std::vector<double>* times = nullptr;
     const std::vector<double>* values = nullptr;
+
+    /// The underwater curve for the drawdown strip, in step with `times`.
+    /// Borrowed like the others, and read rather than derived: whoever built
+    /// the source computed it once.
+    const std::vector<double>* drawdown = nullptr;
 
     /// The colour this entity owns. **Identical in both densities**: it is a
     /// property of the theory, not of how it is being drawn.
@@ -144,6 +150,20 @@ struct ChartRequest {
 [[nodiscard]] ChartModel build_chart_model(const SessionSnapshot& snapshot,
                                            const SeriesColors& colors,
                                            const ChartRequest& request);
+
+/// The same model from the research job's curves, for the Research view.
+///
+/// A second way in, not a second chart: the presentation -- colours, weights,
+/// labels, what density may change -- is decided by the one function both
+/// builders share, and the view-mode tests assert that the two produce the same
+/// model for the same curves. Only the first benchmark curve is drawn as the
+/// benchmark; any others are ordinary series.
+[[nodiscard]] ChartModel build_chart_model(const std::vector<research::JobCurve>& curves,
+                                           const SeriesColors& colors,
+                                           const ChartRequest& request);
+
+/// The colour assignment for a set of research curves.
+[[nodiscard]] SeriesColors colors_for(const std::vector<research::JobCurve>& curves);
 
 }  // namespace marketscan::app
 

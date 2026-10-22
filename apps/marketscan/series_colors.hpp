@@ -34,6 +34,7 @@
 
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "session.hpp"
@@ -55,6 +56,11 @@ public:
     /// An assignment built from the visible subset would change the moment
     /// somebody clicked a legend entry.
     explicit SeriesColors(const SessionSnapshot& snapshot);
+
+    /// The same assignment from a plain list of (id, is_benchmark), for a view
+    /// whose curves do not come from a session -- the Research view's. One rule,
+    /// two ways in: the snapshot constructor delegates here.
+    explicit SeriesColors(const std::vector<std::pair<std::string, bool>>& entities);
 
     /// Slot for `id`, or `kFolded` past the eighth. Unknown ids fold too.
     [[nodiscard]] std::size_t slot(const std::string& id) const noexcept;

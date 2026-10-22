@@ -207,6 +207,77 @@ TEST_CASE("an order in flight is exposed to the market", "[exec][latency]") {
     REQUIRE(log.fills.front().price > ask_when_sent);
 }
 
+// Regression: before this, an in-flight order the cash check refused on arrival
+// was marked Rejected and nothing else -- no status event and no count -- so a
+// strategy waiting on it waited forever. Found by the research job's
+// drawdown_entry cross-test (tests/test_research_rule.cpp), whose strategy
+// stopped trading after the first gap-up.
+TEST_CASE("an order refused on arrival is reported and counted", "[exec][latency][reject]") {
+    Market market;
+    market.quote(99.95, 500, 100.05, 500);
+
+    FillModelConfig config = bare();
+    config.submit_latency = 50 * kMillis;
+    const SpreadCrossingFillModel model(config);
+
+    // Enough for 100 shares at the ask when sent, not after the gap.
+    Broker broker(Money::from_dollars(10'100), &model, &market.view());
+
+    class StatusLog final : public IFillListener {
+    public:
+        void on_fill(const MS_Fill&) override { ++fills; }
+
+        void on_order_status(const MS_OrderStatus& status) override { statuses.push_back(status); }
+
+        int fills = 0;
+        std::vector<MS_OrderStatus> statuses;
+    } log;
+
+    broker.set_fill_listener(&log);
+
+    const OrderId id = broker.submit(market_order(market.symbol(), MS_SIDE_BUY, 100), market.now());
+    REQUIRE(id != kInvalidOrderId);
+    REQUIRE(broker.rejected_count() == 0);
+
+    market.advance(60 * kMillis);
+    market.quote(102.95, 500, 103.05, 500);
+    broker.on_market_event(market.symbol(), market.now());
+
+    CHECK(log.fills == 0);
+    CHECK(broker.find_order(id)->status == OrderStatus::Rejected);
+    CHECK(broker.rejected_count() == 1);
+    CHECK(broker.in_flight_count(market.now()) == 0);
+    REQUIRE(log.statuses.size() == 1);
+    CHECK(log.statuses[0].order_id == id);
+    CHECK(log.statuses[0].state == MS_ORDER_REJECTED);
+    CHECK(log.statuses[0].terminal != 0);
+    CHECK(log.statuses[0].filled_quantity == 0.0);
+}
+
+// The other way an order can be refused on arrival: nothing on its side of the
+// book to cross. It was always reported; it was not always counted.
+TEST_CASE("an order with nothing to fill against on arrival is counted as refused",
+          "[exec][latency][reject]") {
+    Market market;
+    market.quote(99.95, 500, 100.05, 500);
+
+    FillModelConfig config = bare();
+    config.submit_latency = 50 * kMillis;
+    const SpreadCrossingFillModel model(config);
+    Broker broker(Money::from_dollars(1'000'000), &model, &market.view());
+
+    const OrderId id = broker.submit(market_order(market.symbol(), MS_SIDE_BUY, 100), market.now());
+    REQUIRE(id != kInvalidOrderId);
+
+    // The offer is gone by the time the order arrives.
+    market.advance(60 * kMillis);
+    market.quote(99.95, 500, 0.0, 0.0);
+    broker.on_market_event(market.symbol(), market.now());
+
+    CHECK(broker.find_order(id)->status == OrderStatus::Rejected);
+    CHECK(broker.rejected_count() == 1);
+}
+
 TEST_CASE("latency is deterministic, jitter included", "[exec][latency][determinism]") {
     const auto run = [](std::uint64_t seed) {
         Market market;

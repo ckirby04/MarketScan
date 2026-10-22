@@ -1,0 +1,524 @@
+{
+  "results_version": "0.1",
+  "run": {
+    "criteria_version": "0.1",
+    "data_snapshot": "fixture",
+    "duration_ms": 0,
+    "engine_version": "0.1.0",
+    "form_sha256": "3494dbe870b3a2ab7a16ef846c657ac4ece7051aa91942ca4b6af73cc6261c1a",
+    "run_id": "3494dbe870b3a2ab",
+    "started_at": "1970-01-01T00:00:00Z"
+  },
+  "stats": {
+    "benchmarks": [
+      {
+        "security_id": "fixture",
+        "symbol": "FIXTURE",
+        "windows": {
+          "full": {
+            "from": "2000-01-03",
+            "metrics": {
+              "avg_trade_return_pct": null,
+              "cagr_pct": 52.897736620480515,
+              "calmar": 1.1089593493181251,
+              "max_drawdown_days": 462.0,
+              "max_drawdown_pct": -47.70033874822028,
+              "n_entries": 1,
+              "sharpe": 1.4430259000957033,
+              "sortino": 2.272001521810294,
+              "time_in_market_pct": 99.89462592202318,
+              "total_return_pct": 367.68413799,
+              "ulcer_index": 20.54516481441689,
+              "volatility_pct": 31.921988013240945,
+              "win_rate_pct": null,
+              "worst_trade_pct": null
+            },
+            "to": "2003-08-22"
+          },
+          "in_sample": {
+            "from": "2000-01-03",
+            "metrics": {
+              "avg_trade_return_pct": null,
+              "cagr_pct": 65.36506250065044,
+              "calmar": 1.3703270084866899,
+              "max_drawdown_days": 462.0,
+              "max_drawdown_pct": -47.70033874822028,
+              "n_entries": 1,
+              "sharpe": 1.7389218867921712,
+              "sortino": 2.705962427850298,
+              "time_in_market_pct": 99.84101748807632,
+              "total_return_pct": 235.50606999000001,
+              "ulcer_index": 21.721279081665873,
+              "volatility_pct": 30.595068398706637,
+              "win_rate_pct": null,
+              "worst_trade_pct": null
+            },
+            "to": "2002-05-31"
+          },
+          "out_of_sample": {
+            "from": "2002-06-03",
+            "metrics": {
+              "avg_trade_return_pct": null,
+              "cagr_pct": 31.101436330534217,
+              "calmar": 0.891485827332884,
+              "max_drawdown_days": 351.0,
+              "max_drawdown_pct": -34.88719099840589,
+              "n_entries": 0,
+              "sharpe": 0.9308163812511178,
+              "sortino": 1.4948119748365711,
+              "time_in_market_pct": 100.0,
+              "total_return_pct": 39.39662492661895,
+              "ulcer_index": 17.978509144537906,
+              "volatility_pct": 34.414170031883586,
+              "win_rate_pct": null,
+              "worst_trade_pct": null
+            },
+            "to": "2003-08-22"
+          }
+        }
+      }
+    ],
+    "bootstrap": {
+      "benchmark": {
+        "cagr_p50_pct": 56.02601875053061,
+        "cagr_p5_pct": -2.804524529689234,
+        "cagr_p95_pct": 125.58400885177143
+      },
+      "mean_block_days": 63,
+      "method": "stationary_block",
+      "n_paths": 50,
+      "prob_beats_benchmark": 0.16,
+      "share_paths_below_minus_90_pct": 0.0,
+      "strategy": {
+        "cagr_p50_pct": 11.548927322366898,
+        "cagr_p5_pct": -3.7746515552894904,
+        "cagr_p95_pct": 25.11246666265321
+      }
+    },
+    "data": [
+      {
+        "quality_tier": "exercise_only",
+        "security_id": "fixture",
+        "series_id": "FIXTURE",
+        "synthetic": null,
+        "used_from": "2000-01-03",
+        "used_to": "2003-08-22"
+      }
+    ],
+    "equity_curves": {
+      "uri": "equity.csv"
+    },
+    "parameter_surface": {
+      "effective_n": 3.0,
+      "metric": "cagr",
+      "plateau_ratio": null,
+      "points": [
+        {
+          "excluded": false,
+          "in_sample_metric": 11.445301693331821,
+          "n_entries": 7,
+          "out_of_sample_metric": 19.421217890652432,
+          "params": {
+            "/strategy/entry/threshold_pct": 10.0,
+            "/strategy/exit/rules/1/pct": 10.0
+          }
+        },
+        {
+          "excluded": false,
+          "in_sample_metric": 11.36632338213479,
+          "n_entries": 4,
+          "out_of_sample_metric": 17.30921135346646,
+          "params": {
+            "/strategy/entry/threshold_pct": 10.0,
+            "/strategy/exit/rules/1/pct": 20.0
+          }
+        },
+        {
+          "excluded": false,
+          "in_sample_metric": 11.518981970849108,
+          "n_entries": 5,
+          "out_of_sample_metric": 24.699279650528116,
+          "params": {
+            "/strategy/entry/threshold_pct": 15.0,
+            "/strategy/exit/rules/1/pct": 10.0
+          }
+        },
+        {
+          "excluded": true,
+          "in_sample_metric": 12.381363634110354,
+          "n_entries": 3,
+          "out_of_sample_metric": 21.52089011666356,
+          "params": {
+            "/strategy/entry/threshold_pct": 15.0,
+            "/strategy/exit/rules/1/pct": 20.0
+          }
+        },
+        {
+          "excluded": false,
+          "in_sample_metric": 13.273965807084043,
+          "n_entries": 5,
+          "out_of_sample_metric": 25.876564627204157,
+          "params": {
+            "/strategy/entry/threshold_pct": 20.0,
+            "/strategy/exit/rules/1/pct": 10.0
+          }
+        },
+        {
+          "excluded": true,
+          "in_sample_metric": 13.722810122457417,
+          "n_entries": 3,
+          "out_of_sample_metric": 22.427743340493823,
+          "params": {
+            "/strategy/entry/threshold_pct": 20.0,
+            "/strategy/exit/rules/1/pct": 20.0
+          }
+        },
+        {
+          "excluded": false,
+          "in_sample_metric": 13.96715643936648,
+          "n_entries": 5,
+          "out_of_sample_metric": 45.509686867817535,
+          "params": {
+            "/strategy/entry/threshold_pct": 25.0,
+            "/strategy/exit/rules/1/pct": 10.0
+          }
+        },
+        {
+          "excluded": true,
+          "in_sample_metric": 13.429070254302955,
+          "n_entries": 3,
+          "out_of_sample_metric": 32.764694518584214,
+          "params": {
+            "/strategy/entry/threshold_pct": 25.0,
+            "/strategy/exit/rules/1/pct": 20.0
+          }
+        },
+        {
+          "excluded": false,
+          "in_sample_metric": 20.87164067925047,
+          "n_entries": 4,
+          "out_of_sample_metric": 39.07655265296077,
+          "params": {
+            "/strategy/entry/threshold_pct": 30.0,
+            "/strategy/exit/rules/1/pct": 10.0
+          }
+        },
+        {
+          "excluded": true,
+          "in_sample_metric": 19.733046424799316,
+          "n_entries": 2,
+          "out_of_sample_metric": 38.62220143893684,
+          "params": {
+            "/strategy/entry/threshold_pct": 30.0,
+            "/strategy/exit/rules/1/pct": 20.0
+          }
+        },
+        {
+          "excluded": true,
+          "in_sample_metric": 22.422994982067834,
+          "n_entries": 3,
+          "out_of_sample_metric": 5.005095597935472,
+          "params": {
+            "/strategy/entry/threshold_pct": 35.0,
+            "/strategy/exit/rules/1/pct": 10.0
+          }
+        },
+        {
+          "excluded": true,
+          "in_sample_metric": 23.84621751202709,
+          "n_entries": 2,
+          "out_of_sample_metric": 43.576943282827216,
+          "params": {
+            "/strategy/entry/threshold_pct": 35.0,
+            "/strategy/exit/rules/1/pct": 20.0
+          }
+        }
+      ],
+      "selected_index": 8,
+      "swept": [
+        "/strategy/entry/threshold_pct",
+        "/strategy/exit/rules/1/pct"
+      ]
+    },
+    "random_timing": {
+      "metric": "cagr",
+      "n_simulations": 1000,
+      "null_p5": -5.016496010129164,
+      "null_p50": 14.896303641241126,
+      "null_p95": 40.04959893074001,
+      "p_value": 0.2137862137862138,
+      "p_value_corrected": 0.5140160074157145,
+      "strategy_percentile": 78.7
+    },
+    "regimes": [],
+    "selected": {
+      "params": {
+        "/strategy/entry/threshold_pct": 30.0,
+        "/strategy/exit/rules/1/pct": 10.0
+      },
+      "windows": {
+        "full": {
+          "from": "2000-01-03",
+          "metrics": {
+            "avg_trade_return_pct": 20.656595263181675,
+            "cagr_pct": 26.7343777166547,
+            "calmar": 1.1070140298178206,
+            "max_drawdown_days": 206.0,
+            "max_drawdown_pct": -24.14998996991423,
+            "n_entries": 6,
+            "sharpe": 1.28058383771099,
+            "sortino": 2.0744103230247948,
+            "time_in_market_pct": 36.24868282402529,
+            "total_return_pct": 136.49864594,
+            "ulcer_index": 6.0217572470728165,
+            "volatility_pct": 19.301600600320413,
+            "win_rate_pct": 66.66666666666667,
+            "worst_trade_pct": -10.612478821538096
+          },
+          "to": "2003-08-22"
+        },
+        "in_sample": {
+          "from": "2000-01-03",
+          "metrics": {
+            "avg_trade_return_pct": 18.458669166909306,
+            "cagr_pct": 20.87164067925047,
+            "calmar": 0.8642504905903526,
+            "max_drawdown_days": 206.0,
+            "max_drawdown_pct": -24.14998996991423,
+            "n_entries": 4,
+            "sharpe": 0.988146574911769,
+            "sortino": 1.5384651187747858,
+            "time_in_market_pct": 39.7456279809221,
+            "total_return_pct": 57.804557540000005,
+            "ulcer_index": 7.245414990211843,
+            "volatility_pct": 20.646273688226078,
+            "win_rate_pct": 50.0,
+            "worst_trade_pct": -10.612478821538096
+          },
+          "to": "2002-05-31"
+        },
+        "out_of_sample": {
+          "from": "2002-06-03",
+          "metrics": {
+            "avg_trade_return_pct": 25.052447455726412,
+            "cagr_pct": 39.07655265296077,
+            "calmar": 3.8633400866818897,
+            "max_drawdown_days": 44.0,
+            "max_drawdown_pct": -10.114706905475279,
+            "n_entries": 2,
+            "sharpe": 2.0297953369360076,
+            "sortino": 3.8238833234157776,
+            "time_in_market_pct": 29.375,
+            "total_return_pct": 49.868070749510984,
+            "ulcer_index": 2.0703951990024168,
+            "volatility_pct": 16.356579772786446,
+            "win_rate_pct": 100.0,
+            "worst_trade_pct": 2.2567823271264498
+          },
+          "to": "2003-08-22"
+        }
+      }
+    },
+    "trades": [
+      {
+        "entry_date": "2001-02-16",
+        "entry_price": 118.42334115,
+        "exit_date": "2001-03-14",
+        "exit_price": 120.49054974,
+        "exit_reason": "trailing_stop",
+        "holding_days": 26,
+        "max_adverse_pct": -2.8296289544436637,
+        "return_pct": 1.7456090749724762,
+        "synthetic": false,
+        "window": "in_sample"
+      },
+      {
+        "entry_date": "2001-03-15",
+        "entry_price": 114.76007486,
+        "exit_date": "2001-05-09",
+        "exit_price": 105.37386156,
+        "exit_reason": "trailing_stop",
+        "holding_days": 55,
+        "max_adverse_pct": -8.369265070380072,
+        "return_pct": -8.178988477874904,
+        "synthetic": false,
+        "window": "in_sample"
+      },
+      {
+        "entry_date": "2001-05-10",
+        "entry_price": 107.35693461999999,
+        "exit_date": "2001-07-10",
+        "exit_price": 95.96370266999999,
+        "exit_reason": "trailing_stop",
+        "holding_days": 61,
+        "max_adverse_pct": -11.032388976010788,
+        "return_pct": -10.612478821538096,
+        "synthetic": false,
+        "window": "in_sample"
+      },
+      {
+        "entry_date": "2001-07-11",
+        "entry_price": 95.51035008,
+        "exit_date": "2002-02-06",
+        "exit_price": 182.31066711,
+        "exit_reason": "recover_to_high",
+        "holding_days": 210,
+        "max_adverse_pct": -2.381679135396997,
+        "return_pct": 90.88053489207775,
+        "synthetic": false,
+        "window": "in_sample"
+      },
+      {
+        "entry_date": "2003-02-24",
+        "entry_price": 269.62135944,
+        "exit_date": "2003-05-02",
+        "exit_price": 275.70612662999997,
+        "exit_reason": "trailing_stop",
+        "holding_days": 67,
+        "max_adverse_pct": -4.933755792801076,
+        "return_pct": 2.2567823271264498,
+        "synthetic": false,
+        "window": "out_of_sample"
+      },
+      {
+        "entry_date": "2003-05-05",
+        "entry_price": 275.82077932,
+        "exit_date": "2003-07-07",
+        "exit_price": 407.79581634,
+        "exit_reason": "recover_to_high",
+        "holding_days": 63,
+        "max_adverse_pct": -0.00999900009998056,
+        "return_pct": 47.84811258432637,
+        "synthetic": false,
+        "window": "out_of_sample"
+      }
+    ]
+  },
+  "verdict": {
+    "data_grade": "exercise_only",
+    "deciding_gate": "random_timing",
+    "gates": [
+      {
+        "comparison": {
+          "n_entries": ">=",
+          "n_entries_oos": ">="
+        },
+        "id": "evidence",
+        "measured": {
+          "n_entries": 6,
+          "n_entries_oos": 2
+        },
+        "status": "pass",
+        "summary": "6 entries (needs at least 5), 2 out of sample (needs at least 2).",
+        "threshold": {
+          "n_entries": 5,
+          "n_entries_oos": 2
+        }
+      },
+      {
+        "comparison": {
+          "strategy": ">"
+        },
+        "id": "oos_benchmark",
+        "measured": {
+          "benchmark": 31.101436330534217,
+          "strategy": 39.07655265296077
+        },
+        "status": "pass",
+        "summary": "Out of sample, cagr 39.08 against the benchmark's 31.1.",
+        "threshold": {
+          "strategy": 31.101436330534217
+        }
+      },
+      {
+        "comparison": {
+          "strategy_percentile": ">="
+        },
+        "id": "random_timing",
+        "measured": {
+          "strategy_percentile": 78.7
+        },
+        "status": "fail",
+        "summary": "Timing ranks at the 78.7th percentile of random entries with the same holding periods (needs 95).",
+        "threshold": {
+          "strategy_percentile": 95
+        }
+      },
+      {
+        "comparison": {
+          "p_value_corrected": "<"
+        },
+        "id": "multiple_testing",
+        "measured": {
+          "p_value_corrected": 0.5140160074157145
+        },
+        "status": "fail",
+        "summary": "Corrected p-value 0.514 over 3 effective variants (needs below 0.05).",
+        "threshold": {
+          "p_value_corrected": 0.05
+        }
+      },
+      {
+        "comparison": {
+          "plateau_ratio": ">="
+        },
+        "id": "plateau",
+        "measured": {
+          "plateau_ratio": null
+        },
+        "status": "fail",
+        "summary": "No plateau to measure: the selected point has no edge over the benchmark in sample, or no neighbours.",
+        "threshold": {
+          "plateau_ratio": 0.5
+        }
+      },
+      {
+        "comparison": {
+          "max_drawdown_pct": ">",
+          "share_paths_below_minus_90_pct": "<"
+        },
+        "id": "survival",
+        "measured": {
+          "max_drawdown_pct": -24.14998996991423,
+          "share_paths_below_minus_90_pct": 0.0
+        },
+        "status": "pass",
+        "summary": "Worst drawdown -24.15%, and 0% of resampled paths below -90%.",
+        "threshold": {
+          "max_drawdown_pct": -90,
+          "share_paths_below_minus_90_pct": 0.05
+        }
+      }
+    ],
+    "grade": "fragile",
+    "headline": {
+      "benchmark_oos_cagr_pct": 31.101436330534217,
+      "benchmark_oos_max_drawdown_pct": -34.88719099840589,
+      "outcome_range": {
+        "cagr_p50_pct": 11.548927322366898,
+        "cagr_p5_pct": -3.7746515552894904,
+        "cagr_p95_pct": 25.11246666265321
+      },
+      "strategy_oos_cagr_pct": 39.07655265296077,
+      "strategy_oos_max_drawdown_pct": -10.114706905475279
+    }
+  },
+  "warnings": [
+    {
+      "code": "EXERCISE_ONLY_DATA",
+      "message": "At least one series is exercise_only: this tests the pipeline and the data source, not a research-grade conclusion."
+    },
+    {
+      "code": "UNCALIBRATED_CORRECTION",
+      "message": "The effective-N correction has not yet been calibrated on null data."
+    },
+    {
+      "code": "FEW_TRADES_IN_SWEEP",
+      "message": "Some sweep points had too few entries to be ranked; they are shown, not chosen."
+    },
+    {
+      "code": "SWEEP_EDGE",
+      "message": "The selected value is at the edge of the swept range; the optimum may lie outside it."
+    }
+  ]
+}
