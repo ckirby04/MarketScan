@@ -12,7 +12,7 @@ export default function ChatPage({ id }: { id?: string }) {
   return (
     <div className="shell">
       <Rail current={id} version={version} />
-      <main className="main">
+      <main className="main conversation">
         <Chat id={id} onChange={changed} />
       </main>
     </div>

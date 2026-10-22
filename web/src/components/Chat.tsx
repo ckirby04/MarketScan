@@ -6,10 +6,9 @@
 // the gates behind it, the stats -- and the assistant's analysis follows them,
 // under a label saying an AI wrote it.
 //
-// The form is never in the way: a ready form shows as a short card with Run,
-// and the form itself only if the user opens it.
-import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+// The form never shows here: no fields, no JSON, no form paths. The user sees
+// the conversation, a Run button when the backtest is set up, and the Results.
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import Markdown from "@/components/Markdown";
 import ResultsView from "@/components/ResultsView";
@@ -24,7 +23,32 @@ const EXAMPLES = [
   "If I bought QQQ every time it fell 30% from its high and held, how would that have done?",
 ];
 
-type Live = Item & { live?: boolean };
+// `live`: text still streaming in. `sent`: the user's message as typed, shown
+// until the service's own copy of it arrives.
+type Live = Item & { live?: boolean; sent?: boolean };
+
+/** Within this distance of the bottom, the reader is following along. */
+const FOLLOW_PX = 80;
+
+/**
+ * The order things are shown in. A ready card goes after the assistant text
+ * that follows it in the same turn -- what will run and what it assumes --
+ * so Run comes after the explanation rather than before it.
+ */
+function displayOrder(items: Item[]): number[] {
+  const order: number[] = [];
+  for (let n = 0; n < items.length; n++) {
+    if (items[n].kind !== "ready") {
+      order.push(n);
+      continue;
+    }
+    let end = n + 1;
+    while (end < items.length && items[end].kind === "assistant") order.push(end++);
+    order.push(n);
+    n = end - 1;
+  }
+  return order;
+}
 
 export default function Chat({ id, onChange }: { id?: string; onChange?: () => void }) {
   const [conversationId, setConversationId] = useState(id);
@@ -34,8 +58,12 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const [draft, setDraft] = useState("");
-  const bottom = useRef<HTMLDivElement>(null);
+  // Run was pressed and the service has not answered yet.
+  const [starting, setStarting] = useState(false);
   const analysing = useRef(new Set<string>());
+  // Whether new content should bring the page down with it. Only a scroll by
+  // the reader changes it: content growing below them does not.
+  const following = useRef(true);
 
   const load = useCallback(async (which: string) => {
     const response = await fetch(`/api/conversations/${which}`);
@@ -50,8 +78,25 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
   }, [id, load]);
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [items, activity]);
+    const onScroll = () => {
+      const root = document.documentElement;
+      following.current = window.innerHeight + window.scrollY >= root.scrollHeight - FOLLOW_PX;
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Instant, not smooth: a smooth scroll's own scroll events would read as the
+  // reader leaving the bottom halfway down.
+  useEffect(() => {
+    if (following.current) window.scrollTo({ top: document.documentElement.scrollHeight });
+  }, [items, activity, busy]);
+
+  /** A run has its Results: show them from the verdict down, and stop following. */
+  const showResults = useCallback((card: HTMLElement) => {
+    following.current = false;
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
 
   // One turn's events onto the screen. Text deltas grow the last item while it
   // is live; anything else closes it, so the next text starts a new one.
@@ -76,7 +121,11 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
       return;
     }
     const close = (prev: Live[]) => prev.map((item) => (item.live ? { ...item, live: false } : item));
-    if (event.event === "item") setItems((prev) => [...close(prev), event.item]);
+    if (event.event === "item") {
+      // The service's copy of the message on screen replaces the page's.
+      const echo = event.item.kind === "user";
+      setItems((prev) => [...close(prev).filter((item) => !(echo && item.sent)), event.item]);
+    }
     if (event.event === "error") setItems((prev) => [...close(prev), { kind: "error", text: event.message }]);
   }, []);
 
@@ -106,12 +155,19 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
     const words = text.trim();
     if (!words || busy) return;
     setDraft("");
+    // On screen at once, and busy from now: creating the conversation and the
+    // first event of the turn can each take a few seconds.
+    following.current = true;
+    setItems((prev) => [...prev, { kind: "user", text: words, sent: true }]);
+    setBusy(true);
     let which = conversationId;
     if (!which) {
       const response = await fetch("/api/conversations", { method: "POST" });
       const body = await response.json();
       if (!response.ok) {
         setProblem(body.detail ?? body.error ?? `the service answered ${response.status}`);
+        setItems((prev) => prev.filter((item) => !item.sent));
+        setBusy(false);
         setDraft(words);
         return;
       }
@@ -119,21 +175,28 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
       setConversationId(which);
       // The address follows the conversation without remounting the page.
       window.history.replaceState(null, "", `/c/${which}`);
+      onChange?.();
     }
     await turn(which, "messages", { text: words }, "assistant");
   }
 
   async function run() {
-    if (!conversationId || busy) return;
+    if (!conversationId || busy || starting) return;
+    following.current = true;
     setProblem("");
-    const response = await fetch(`/api/conversations/${conversationId}/run`, { method: "POST" });
-    const body = await response.json();
-    if (response.status !== 202) {
-      setProblem(body.error ?? body.detail ?? `the service answered ${response.status}`);
-      return;
+    setStarting(true);
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}/run`, { method: "POST" });
+      const body = await response.json();
+      if (response.status !== 202) {
+        setProblem(body.error ?? body.detail ?? `the service answered ${response.status}`);
+        return;
+      }
+      await load(conversationId);
+      onChange?.();
+    } finally {
+      setStarting(false);
     }
-    await load(conversationId);
-    onChange?.();
   }
 
   // A run of this conversation has ended: the assistant reads its Results.
@@ -148,116 +211,189 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
 
   const lastReady = items.map((i) => i.kind).lastIndexOf("ready");
   const lastRun = items.map((i) => i.kind).lastIndexOf("run");
+  const loading = !!id && conversation === null && !problem;
+  const empty = items.length === 0 && !busy && !loading;
+
+  const composer = (
+    <Composer
+      value={draft}
+      onChange={setDraft}
+      onSend={() => send(draft)}
+      busy={busy}
+      placeholder={empty ? "Ask about a trading rule" : "Reply"}
+      autoFocus={empty}
+    />
+  );
+
+  if (empty) {
+    return (
+      <div className="chat empty">
+        <div className="welcome">
+          <h1>What do you want to test?</h1>
+          {composer}
+          {problem && <p className="notice">{problem}</p>}
+          <div className="examples">
+            {EXAMPLES.map((example) => (
+              <button key={example} className="example" onClick={() => send(example)}>
+                {example}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="chat">
-      {items.length === 0 && !busy && (
-        <div className="welcome">
-          <h1>Ask about a trading rule</h1>
-          <p className="dim">
-            Describe a rule in plain English. The assistant turns it into a backtest, asks only what would change the
-            answer, runs it on historical data, and shows you how it held up.
-          </p>
-          {EXAMPLES.map((example) => (
-            <button key={example} className="example" onClick={() => send(example)}>
-              {example}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="thread">
+        {loading && <p className="activity">Loading the conversation…</p>}
 
-      {items.map((item, n) => {
-        switch (item.kind) {
-          case "user":
-            return (
-              <div key={n} className="bubble user">
-                {item.text}
-              </div>
-            );
-          case "assistant":
-            return (
-              <div key={n} className="bubble assistant">
-                <Markdown text={item.text} />
-              </div>
-            );
-          case "analysis":
-            return (
-              <div key={n} className="bubble assistant">
-                <div className="heading">ANALYSIS - written by AI from the numbers above</div>
-                <Markdown text={item.text} />
-              </div>
-            );
-          case "error":
-            return (
-              <p key={n} className="error">
-                ! {item.text}
-              </p>
-            );
-          case "questions":
-            return (
-              <Questions
-                key={n}
-                message={item.message}
-                questions={item.questions}
-                answered={item.answered || busy || n !== items.length - 1}
-                onAnswer={send}
-              />
-            );
-          case "ready":
-            return (
-              <Ready
-                key={n}
-                form={item.form}
-                runnable={n === lastReady && lastRun < n && !!conversation?.ready && !busy}
-                onRun={run}
-              />
-            );
-          case "run":
-            return (
-              <RunCard
-                key={item.job_id}
-                jobId={item.job_id}
-                // A run the assistant started ends while its turn may still be
-                // streaming; the Results wait for the turn, then go to it.
-                analysed={!!conversation?.analysed.includes(item.job_id) || busy}
-                onEnded={analyse}
-              />
-            );
-        }
-      })}
+        {displayOrder(items).map((n) => {
+          const item = items[n];
+          switch (item.kind) {
+            case "user":
+              return (
+                <div key={n} className="message user">
+                  {item.text}
+                </div>
+              );
+            case "assistant":
+              return (
+                <div key={n} className="message assistant">
+                  <Markdown text={item.text} />
+                </div>
+              );
+            case "analysis":
+              return (
+                <div key={n} className="message assistant">
+                  <div className="caption">Analysis · written by AI from the results above</div>
+                  <Markdown text={item.text} />
+                </div>
+              );
+            case "error":
+              return (
+                <p key={n} className="notice">
+                  {item.text}
+                </p>
+              );
+            case "questions":
+              return (
+                <Questions
+                  key={n}
+                  message={item.message}
+                  questions={item.questions}
+                  answered={item.answered || busy || n !== items.length - 1}
+                  onAnswer={send}
+                />
+              );
+            case "ready":
+              // Only the one that can still be run: an older or already-run
+              // setup has nothing left to offer.
+              return n === lastReady && lastRun < n && !!conversation?.ready && !busy ? (
+                <div key={n} className="run-offer">
+                  <button className="primary" onClick={run} disabled={starting}>
+                    {starting ? "Starting…" : "Run the backtest"}
+                  </button>
+                  {!starting && <span className="faint">or reply to change something first</span>}
+                </div>
+              ) : null;
+            case "run":
+              return (
+                <RunCard
+                  key={item.job_id}
+                  jobId={item.job_id}
+                  // A run the assistant started ends while its turn may still be
+                  // streaming; the Results wait for the turn, then go to it.
+                  analysed={!!conversation?.analysed.includes(item.job_id) || busy}
+                  onEnded={analyse}
+                  onResults={showResults}
+                />
+              );
+          }
+        })}
 
-      {busy && <p className="activity">{activity || "Thinking..."}</p>}
-      {problem && <p className="error">! {problem}</p>}
-      <div ref={bottom} />
-
-      <form
-        className="composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(draft);
-        }}
-      >
-        <textarea
-          value={draft}
-          rows={2}
-          placeholder={items.length ? "Reply, or ask for a change" : "A question about a trading rule"}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send(draft);
-            }
-          }}
-        />
-        <button className="primary" type="submit" disabled={busy || !draft.trim()}>
-          Send
-        </button>
-      </form>
+        {busy && <Thinking text={activity} />}
+        {problem && <p className="notice">{problem}</p>}
+      </div>
+      <div className="dock">{composer}</div>
     </div>
   );
 }
 
-/** The assistant's questions, as buttons; one question answers on a click. */
+/** The message box: grows with its text, Enter sends, Shift+Enter is a new line. */
+function Composer({
+  value,
+  onChange,
+  onSend,
+  busy,
+  placeholder,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSend: () => void;
+  busy: boolean;
+  placeholder: string;
+  autoFocus?: boolean;
+}) {
+  const box = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+  }, [value]);
+
+  return (
+    <form
+      className="composer"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSend();
+      }}
+    >
+      <textarea
+        ref={box}
+        value={value}
+        rows={1}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            onSend();
+          }
+        }}
+      />
+      <button className="send" type="submit" disabled={busy || !value.trim()} aria-label="Send">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </form>
+  );
+}
+
+/** What the assistant is doing, while it works. */
+function Thinking({ text }: { text: string }) {
+  return (
+    <div className="activity" role="status">
+      <span className="dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
+      {text || "Thinking"}
+    </div>
+  );
+}
+
+/**
+ * The assistant's questions, as buttons; one question answers on a click.
+ * Once answered, only the message stays: the reply below it says what was chosen.
+ */
 function Questions({
   message,
   questions,
@@ -276,72 +412,60 @@ function Questions({
     onAnswer(questions.map((q, n) => (single ? picks[n] : `${q.question} ${picks[n]}`)).join("\n"));
   const complete = questions.every((_, n) => chosen[n] || other[n]?.trim());
 
-  return (
-    <div className={`card questions ${answered ? "answered" : ""}`}>
-      {message && <Markdown text={message} />}
-      {questions.map((q, n) => (
-        <div key={n} className="question">
-          <div>{q.question}</div>
-          <div className="options">
-            {q.options.map((option) => (
-              <button
-                key={option.label}
-                disabled={answered}
-                aria-pressed={chosen[n] === option.label}
-                title={option.hint}
-                onClick={() => {
-                  const next = { ...chosen, [n]: option.label };
-                  setChosen(next);
-                  if (single) answer(next);
-                }}
-              >
-                {option.label}
-                {option.hint && <span className="hint">{option.hint}</span>}
-              </button>
-            ))}
-          </div>
-          {!answered && q.allow_free_text !== false && !single && (
-            <input
-              placeholder="or in your own words"
-              value={other[n] ?? ""}
-              onChange={(e) => {
-                setOther({ ...other, [n]: e.target.value });
-                setChosen({ ...chosen, [n]: "" });
-              }}
-            />
-          )}
-        </div>
-      ))}
-      {!answered && !single && (
-        <button
-          className="primary"
-          disabled={!complete}
-          onClick={() => answer(Object.fromEntries(questions.map((_, n) => [n, chosen[n] || other[n].trim()])))}
-        >
-          Answer
-        </button>
-      )}
-      {!answered && single && <p className="faint">Or reply below in your own words.</p>}
-    </div>
-  );
-}
+  if (answered) {
+    return message ? (
+      <div className="message assistant">
+        <Markdown text={message} />
+      </div>
+    ) : null;
+  }
 
-/** A form the assistant has checked: Run, and the form for anyone who wants it. */
-function Ready({ form, runnable, onRun }: { form: object; runnable: boolean; onRun: () => void }) {
   return (
-    <div className="card ready">
-      <div className="ready-row">
-        <span>The backtest is set up.</span>
-        {runnable && (
-          <button className="primary" onClick={onRun}>
-            Run it
+    <div className="message assistant">
+      {message && <Markdown text={message} />}
+      <div className="questions">
+        {questions.map((q, n) => (
+          <div key={n} className="question">
+            <div className="question-text">{q.question}</div>
+            <div className="options">
+              {q.options.map((option) => (
+                <button
+                  key={option.label}
+                  aria-pressed={chosen[n] === option.label}
+                  onClick={() => {
+                    const next = { ...chosen, [n]: option.label };
+                    setChosen(next);
+                    setOther({ ...other, [n]: "" });
+                    if (single) answer(next);
+                  }}
+                >
+                  <span className="option-label">{option.label}</span>
+                  {option.hint && <span className="hint">{option.hint}</span>}
+                </button>
+              ))}
+            </div>
+            {q.allow_free_text !== false && !single && (
+              <input
+                placeholder="Something else…"
+                value={other[n] ?? ""}
+                onChange={(e) => {
+                  setOther({ ...other, [n]: e.target.value });
+                  setChosen({ ...chosen, [n]: "" });
+                }}
+              />
+            )}
+          </div>
+        ))}
+        {!single && (
+          <button
+            className="primary"
+            disabled={!complete}
+            onClick={() => answer(Object.fromEntries(questions.map((_, n) => [n, chosen[n] || other[n].trim()])))}
+          >
+            Continue
           </button>
         )}
       </div>
-      <details>
-        <summary className="faint">Show the form</summary>
-        <pre className="form-json">{JSON.stringify(form, null, 2)}</pre>
-      </details>
     </div>
   );
 }
@@ -351,15 +475,22 @@ function RunCard({
   jobId,
   analysed,
   onEnded,
+  onResults,
 }: {
   jobId: string;
   /** Already read by the assistant, or not to be sent now. */
   analysed: boolean;
   onEnded: (jobId: string) => void;
+  /** Called once, when Results arrive for a run this page watched. */
+  onResults: (card: HTMLElement) => void;
 }) {
   const [status, setStatus] = useState<JobStatus | null>(null);
   const [run, setRun] = useState<{ results: Results; curves: Curve[] } | null>(null);
   const [problem, setProblem] = useState("");
+  const card = useRef<HTMLDivElement>(null);
+  // Whether this page saw the run in progress; a finished run reopened later
+  // does not move the page.
+  const watched = useRef(false);
 
   useEffect(() => {
     let stopped = false;
@@ -367,10 +498,11 @@ function RunCard({
     const poll = async () => {
       try {
         const response = await fetch(`/api/jobs/${jobId}`);
-        if (!response.ok) throw new Error(`run ${jobId}: status ${response.status}`);
+        if (!response.ok) throw new Error(`status ${response.status}`);
         const next = (await response.json()) as JobStatus;
         if (stopped) return;
         setStatus(next);
+        if (!TERMINAL.has(next.state)) watched.current = true;
         if (next.state === "done") {
           const [results, curves] = await Promise.all([
             fetch(`/api/jobs/${jobId}/results`).then((r) => r.json()),
@@ -380,7 +512,7 @@ function RunCard({
         }
         if (!TERMINAL.has(next.state)) timer = setTimeout(poll, 1000);
       } catch (e) {
-        if (!stopped) setProblem((e as Error).message);
+        if (!stopped) setProblem(`Couldn't load this backtest (${(e as Error).message}).`);
       }
     };
     poll();
@@ -390,41 +522,47 @@ function RunCard({
     };
   }, [jobId]);
 
+  useEffect(() => {
+    if (run && watched.current && card.current) onResults(card.current);
+  }, [run, onResults]);
+
   const ended = !!status && TERMINAL.has(status.state);
   useEffect(() => {
     if (ended && !analysed) onEnded(jobId);
   }, [ended, analysed, jobId, onEnded]);
 
   return (
-    <div className="card run">
-      {problem && <p className="error">! {problem}</p>}
+    <div ref={card} className="card run">
+      {problem && <p className="notice">{problem}</p>}
+      {!status && !problem && <Thinking text="Starting the backtest" />}
       {status && !ended && (
         <>
-          <div>Running: {status.state === "queued" ? "queued" : status.stage || "starting"}</div>
+          <div className="run-stage">
+            Running the backtest
+            <span className="faint"> · {status.state === "queued" ? "waiting to start" : status.stage || "starting"}</span>
+          </div>
           <div className="progress">
             <div style={{ width: `${status.total ? (100 * status.done) / status.total : 0}%` }} />
           </div>
-          <p className="faint">No verdict is shown until every gate has been measured.</p>
+          <p className="faint">The verdict appears once every check has finished.</p>
         </>
       )}
       {status && (status.state === "refused" || status.state === "failed") && (
         <>
-          <div className="serious">{status.state === "refused" ? "The job refused this form." : "The job failed."}</div>
-          {status.errors.map((e) => (
-            <p key={e.path + e.message} className="error">
-              ! {e.path || "(engine)"}: {e.message}
-            </p>
-          ))}
+          <p className="notice">The backtest couldn&apos;t run. The assistant will explain what to change.</p>
+          {status.errors.length > 0 && (
+            <details>
+              <summary className="faint">Technical details</summary>
+              {status.errors.map((e) => (
+                <p key={e.path + e.message} className="faint mono">
+                  {e.message}
+                </p>
+              ))}
+            </details>
+          )}
         </>
       )}
-      {run && (
-        <>
-          <ResultsView results={run.results} curves={run.curves} inConversation />
-          <p className="faint">
-            <Link href={`/runs/${jobId}`}>Open this run on its own page</Link>
-          </p>
-        </>
-      )}
+      {run && <ResultsView results={run.results} curves={run.curves} inConversation />}
     </div>
   );
 }

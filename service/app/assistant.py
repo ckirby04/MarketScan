@@ -400,19 +400,20 @@ def _tool_result(tool_use_id: str, content, is_error: bool) -> dict:
 
 
 def _activity(call) -> str:
+    # Shown to the user while the tool runs: plain words, no tool or form names.
     args = call.input if isinstance(call.input, dict) else {}
     match call.name:
         case "search_securities":
-            return f"Looking up {args['query']!r}" if args.get("query") else "Listing the data held"
+            return f"Looking up {args['query']}" if args.get("query") else "Looking at the data available"
         case "resolve":
-            return f"Checking {args.get('ticker', '')} on {args.get('as_of', '')}"
+            return f"Checking {args['ticker']}" if args.get("ticker") else "Checking the ticker"
         case "get_coverage":
-            return f"Reading the coverage of {args.get('security_id', '')}"
+            return "Checking how far back the prices go"
         case "save_form":
-            return "Checking the form" if args.get("ready") else "Saving a draft of the form"
+            return "Checking the setup" if args.get("ready") else "Setting up the backtest"
         case "start_run":
-            return "Starting the run"
-    return call.name
+            return "Starting the backtest"
+    return "Working"
 
 
 def _describe(error: Exception) -> str:
