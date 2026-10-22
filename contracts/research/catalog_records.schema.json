@@ -134,7 +134,13 @@
             "leverage": { "type": "number" },
             "annual_fee_pct": { "type": "number", "minimum": 0 },
             "borrow_spread_pct": { "type": "number", "minimum": 0 },
-            "cash_rate_series_id": { "$ref": "#/$defs/id" }
+            "cash_rate_series_id": { "$ref": "#/$defs/id" },
+            "underlying_adjustment": {
+              "enum": ["split_only", "total_return"],
+              "default": "split_only",
+              "description": "Which of the underlying's series the recipe compounds. total_return when the target's index return is better matched with the underlying's dividends in: a fund like QQQ pays out what its index's price level does not show."
+            },
+            "fee_source": { "type": "string", "description": "Where annual_fee_pct was read, e.g. a prospectus. Never a figure from memory." }
           }
         },
         "available_from": { "$ref": "#/$defs/date" },

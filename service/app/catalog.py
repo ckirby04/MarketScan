@@ -1,11 +1,16 @@
 """What price data the service holds, for the assistant's data tools.
 
 This is not the data catalog of CATALOG.md (part R1): there are no ticker
-histories, renames or synthetic recipes yet. It answers from what is on disk:
-the daily directory's SYMBOL.msb files, with names and licence from the
-fetcher's manifest.json when it is there, and the CSV sources. Every date it
-reports is read from the files, so the assistant never has to state one from
+histories or renames yet. It answers from what is on disk: the daily
+directories' SYMBOL.msb files, with names and licence from each fetcher's
+manifest.json when it is there (a rate series from FRED is a security with
+asset_class "rate"), the CSV sources, and the synthetic recipes
+scripts/build_recipes.py wrote, each with the validation it measured. Every date
+it reports is read from the files, so the assistant never has to state one from
 memory -- the rule in its system prompt.
+
+SYMBOL.TR.msb, a total-return series, is another series of SYMBOL's, not a
+security of its own, and is not listed.
 
 A security's id is its ticker in lower case, which is what the job binds a
 form's `security_id` to today.
@@ -44,8 +49,9 @@ class Security:
 
 def _date(nanos: int) -> str:
     # Bars are stamped at the 16:00 New York close, which is the same calendar
-    # date in UTC.
-    return dt.datetime.fromtimestamp(nanos / 1e9, dt.timezone.utc).date().isoformat()
+    # date in UTC. Counted from the epoch rather than through fromtimestamp,
+    # which fails on Windows before 1970 -- and a rate series starts in 1954.
+    return (dt.date(1970, 1, 1) + dt.timedelta(days=nanos // 86_400_000_000_000)).isoformat()
 
 
 def _read_msb(path: Path) -> tuple[int, str, str] | None:
@@ -71,8 +77,13 @@ def _read_csv(path: Path) -> tuple[int, str, str] | None:
 class Catalog:
     def __init__(self, settings: Settings):
         self._securities: dict[str, Security] = {}
-        if settings.daily_dir is not None and settings.daily_dir.is_dir():
-            self._load_daily(settings.daily_dir)
+        for directory in settings.daily_dirs():
+            if directory.is_dir():
+                self._load_daily(directory)
+        self._recipes: list[dict] = []
+        if settings.recipes is not None and settings.recipes.exists():
+            self._recipes = [r for r in json.loads(settings.recipes.read_text(encoding="utf-8"))
+                             if r.get("record") == "synthetic_recipe" and r.get("validation")]
         for symbol, path in settings.csv_sources:
             span = _read_csv(path) if path.exists() else None
             if span:
@@ -83,9 +94,16 @@ class Catalog:
         if (directory / "manifest.json").exists():
             manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
         tickers = manifest.get("tickers", {})
+        rates = manifest.get("series", {})
         for path in sorted(directory.glob("*.msb")):
+            if path.stem.endswith(".TR") or path.stem.lower() in self._securities:
+                continue  # another series of a security, or one an earlier directory answers for
             span = _read_msb(path)
             if span is None:
+                continue
+            if path.stem in rates:
+                self._add(path.stem, rates[path.stem].get("title", ""), "rate", span,
+                          manifest.get("source", "daily"), manifest.get("terms_url", ""))
                 continue
             entry = tickers.get(path.stem, {})
             kind = {"funds": "etf", "stocks": "stock"}.get(entry.get("table", ""), "unknown")
@@ -114,22 +132,28 @@ class Catalog:
         if security is None:
             return {"security": None, "note": f"No data is held for {ticker}."}
         if as_of < security.first_bar:
-            return {"security": None,
-                    "note": f"The data for {security.symbol} starts on {security.first_bar}."}
+            note = f"The data for {security.symbol} starts on {security.first_bar}."
+            recipes = [r for r in self._recipes if r["target_security_id"] == security.security_id]
+            for r in recipes:
+                note += (f" Synthetic recipe {r['recipe_id']} extends it back to {r['available_from']};"
+                         " see get_coverage.")
+            return {"security": None, "note": note}
         return {"security": self._record(security)}
 
     def coverage(self, security_id: str) -> dict | None:
         security = self._securities.get(security_id.strip().lower())
         if security is None:
             return None
+        is_rate = security.asset_class == "rate"
         return {
             **asdict(security),
             # Not measured here; the catalog will record them.
             "gaps": "not checked",
-            "adjustments": "split-adjusted closes; dividends are not included",
-            "price_adjustment": "split_only",
+            "adjustments": "a rate in percent a year, as published" if is_rate
+            else "split-adjusted closes; dividends are not included",
+            "price_adjustment": None if is_rate else "split_only",
             "quality_tier": "exercise_only",
-            "synthetic_recipes": [],
+            "synthetic_recipes": [r for r in self._recipes if r["target_security_id"] == security.security_id],
         }
 
     @staticmethod

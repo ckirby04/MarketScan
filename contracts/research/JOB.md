@@ -29,7 +29,7 @@ Refused, until the part of the system that would honour them exists:
 |---|---|---|
 | `/template` | anything but `drawdown_entry` | the only template built |
 | `/universe/assets` | more than one asset | the template is single-instrument |
-| `/universe/assets/0/synthetic_extension` | present | needs the catalog (R1) |
+| `/universe/assets/0/synthetic_extension/...` | it names no recipe in the catalog's recipe file, a recipe with no validation, a recipe for another security or underlying, or numbers that differ from the recipe's | section 1a |
 | `/universe/price_adjustment` | `total_return` | the bar store holds no dividends |
 | `/cash/yield` | anything but `none` | there is no rate series |
 | `/execution/fill` | `next_open` | a daily feed has no opening quote |
@@ -44,6 +44,39 @@ neither changes a number that is:
   data catalog, which does not exist yet. The view says so.
 - `robustness.parameter_surface: false` reports `stats.parameter_surface` as null. The surface is
   still computed, because the `multiple_testing` and `plateau` gates measure it.
+
+## 1a. Synthetic history
+
+A form's `synthetic_extension` asks for the asset's history before its first real bar to be
+simulated from an underlying (CATALOG.md, "Synthetic recipe"). The job honours it only for a
+recipe in the recipe file it is given (`ms_research --recipes`), and only when the form's
+`leverage`, `annual_fee_pct` and `borrow_spread_pct` equal the recipe's exactly and its
+`underlying` is the recipe's (as a ticker, case aside): a changed fee is a different recipe,
+and the validation the results quote would not describe it.
+
+The underlying series is the recipe's `underlying_adjustment`: `SYMBOL` split-adjusted, or
+`SYMBOL.TR`, total return. The rate series is `cash_rate_series_id`, in percent a year.
+
+For each underlying bar `k > 0`, with `rate` the rate's last observation on or before the day
+of bar `k - 1`, and `L`, `fee`, `spread` the recipe's numbers:
+
+```
+cost = (fee + (L - 1) * (rate + spread)) / 100 / 252
+r_k  = L * (U_k / U_(k-1) - 1) - cost
+```
+
+each a separate floating-point operation, in that order. The synthetic close at the underlying's
+bar on the asset's first real day is the asset's real close there, and `S_(k-1) = S_k / (1 + r_k)`
+for every earlier underlying bar that has a rate. The underlying must have a bar on the first real
+day; a step with `1 + r_k <= 0` refuses the job. The synthetic bars, open, high, low and close
+all `S`, are joined in front of the real ones, and the result is cut to the date range and warmup
+like any series. research/synthetic.py implements the same arithmetic, and
+data/samples/research/synthetic_cases.json holds the two to exact agreement.
+
+A benchmark that names the asset is the asset's extended series. The Results mark what the
+simulation touched: `stats.data[0].synthetic` gives the recipe, the simulated dates used and the
+recipe's validation; a trade is `synthetic` when it was entered on a simulated bar; and when more
+than half the decision bars are simulated the run is warned `MOSTLY_SYNTHETIC`.
 
 Bound values: `date_range.start` is the first decision day; bars before it are loaded as warmup,
 the most recent `warmup_days` of them, or all earlier bars when `warmup_days` is 0. Bars after

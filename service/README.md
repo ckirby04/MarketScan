@@ -76,7 +76,8 @@ starter form runs before any real data is attached.
 | `MS_API_KEY` | the bearer key; empty refuses every request |
 | `MS_RESEARCH_BIN` | the engine; `/usr/local/bin/ms_research` in the image |
 | `MS_CONTRACTS` | the contract schemas |
-| `MS_DAILY_DIR` | a directory of `SYMBOL.msb` daily files |
+| `MS_DAILY_DIR` | directories of `SYMBOL.msb` daily files, comma-separated; the first holding a symbol answers |
+| `MS_RECIPES` | the synthetic recipes `scripts/build_recipes.py` wrote; without it a synthetic extension is refused |
 | `MS_CSV` | `SYMBOL=path,...` date,close CSVs |
 | `MS_RUNS_DIR` | where runs are written; `/tmp/runs` |
 | `MS_RUNS_BUCKET` | the bucket runs are copied to; empty keeps them local |
@@ -107,8 +108,14 @@ Two known limits, both acceptable for one user and both to revisit before more:
   ```powershell
   gcloud storage buckets create gs://<project>-marketscan-data --location us-central1
   gcloud storage cp ..\marketscan-data\sharadar\*.msb ..\marketscan-data\sharadar\manifest.json gs://<project>-marketscan-data/sharadar/
+  gcloud storage cp ..\marketscan-data\fred\*.msb ..\marketscan-data\fred\manifest.json gs://<project>-marketscan-data/fred/
+  gcloud storage cp ..\marketscan-data\recipes.json gs://<project>-marketscan-data/
   service\deploy.ps1 -Project <project> -DataBucket <project>-marketscan-data
   ```
+
+  The rates come from `scripts/fetch_fred.py` and the recipes from `scripts/build_recipes.py`,
+  which measures each recipe's validation on the data it will be used with. Rebuild the recipes
+  whenever the price or rate data is refreshed.
 
   The bucket is yours and private, and the data stays licensed to you: personal use, nothing
   redistributed (`docs/DATA_POLICY.md` section 5).

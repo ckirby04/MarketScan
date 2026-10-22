@@ -354,3 +354,58 @@ def test_the_catalog_reads_dates_from_msb_files_and_the_manifest(tmp_path):
     assert catalog.resolve("SQQQ", "2015-01-02")["security"] is None
     assert [s["security_id"] for s in catalog.search("ultrapro")] == ["tqqq"]
     assert catalog.coverage("nope") is None
+
+
+def test_the_catalog_reads_several_directories_rates_and_validated_recipes(tmp_path):
+    from fetch_stooq import closing_bell, write_msb
+    import datetime as dt
+
+    prices, rates = tmp_path / "prices", tmp_path / "rates"
+    prices.mkdir()
+    rates.mkdir()
+    bar = lambda day: (closing_bell(day), 1, 1, 1, 1, 0)  # noqa: E731
+    write_msb(prices / "TQQQ.msb", "TQQQ", [bar(dt.date(2010, 2, 11)), bar(dt.date(2026, 10, 21))])
+    write_msb(prices / "QQQ.TR.msb", "QQQ.TR", [bar(dt.date(1999, 3, 10))])
+    write_msb(rates / "DTB3.msb", "DTB3", [bar(dt.date(1954, 1, 4)), bar(dt.date(2026, 10, 20))])
+    (rates / "manifest.json").write_text(json.dumps({
+        "source": "fred", "terms_url": "https://fred.stlouisfed.org/docs/api/terms_of_use.html",
+        "series": {"DTB3": {"title": "3-Month Treasury Bill"}}}))
+    recipe = {"record": "synthetic_recipe", "recipe_id": "tqqq_from_qqq_3x", "target_security_id": "tqqq",
+              "available_from": "1999-03-10", "validation": {"daily_return_correlation": 0.999}}
+    unvalidated = {**recipe, "recipe_id": "unchecked"}
+    del unvalidated["validation"]
+    (tmp_path / "recipes.json").write_text(json.dumps([recipe, unvalidated]))
+
+    catalog = Catalog(config.Settings(daily_dir=prices, extra_daily_dirs=(rates,),
+                                      recipes=tmp_path / "recipes.json"))
+    # The total-return file is a series of QQQ's, not a security of its own.
+    assert [s["security_id"] for s in catalog.search("")] == ["dtb3", "tqqq"]
+    rate = catalog.coverage("dtb3")
+    assert (rate["asset_class"], rate["first_bar"], rate["price_adjustment"]) == ("rate", "1954-01-04", None)
+    # Only a recipe with a validation is offered.
+    assert [r["recipe_id"] for r in catalog.coverage("tqqq")["synthetic_recipes"]] == ["tqqq_from_qqq_3x"]
+    note = catalog.resolve("TQQQ", "2006-10-23")["note"]
+    assert "starts on 2010-02-11" in note and "tqqq_from_qqq_3x extends it back to 1999-03-10" in note
+
+
+def test_the_engine_is_given_every_daily_directory_and_the_recipes(tmp_path):
+    from app.jobs import JobManager
+
+    (tmp_path / "recipes.json").write_text("[]")
+    settings = config.Settings(daily_dir=tmp_path / "a", extra_daily_dirs=(tmp_path / "b",),
+                               recipes=tmp_path / "recipes.json")
+    command = JobManager(settings, store=None)._command(tmp_path / "run")
+    daily = [command[i + 1] for i, arg in enumerate(command) if arg == "--daily"]
+    assert daily == [str(tmp_path / "a"), str(tmp_path / "b")]
+    assert command[command.index("--recipes") + 1] == str(tmp_path / "recipes.json")
+    # No recipes file, no flag: the engine then refuses any synthetic extension by name.
+    missing = config.Settings(daily_dir=tmp_path / "a", recipes=tmp_path / "nope.json")
+    assert "--recipes" not in JobManager(missing, store=None)._command(tmp_path / "run")
+
+
+def test_ms_daily_dir_may_name_several_directories(monkeypatch):
+    monkeypatch.setenv("MS_DAILY_DIR", "/data/sharadar, /data/fred")
+    monkeypatch.setenv("MS_RECIPES", "/data/recipes.json")
+    settings = config.from_env()
+    assert settings.daily_dirs() == [Path("/data/sharadar"), Path("/data/fred")]
+    assert settings.recipes == Path("/data/recipes.json")

@@ -33,15 +33,20 @@ std::string BarSource::quality_tier(std::string_view) const {
 }
 
 DirectoryBarSource::DirectoryBarSource(std::filesystem::path directory)
-    : directory_(std::move(directory)) {}
+    : directories_{std::move(directory)} {}
+
+DirectoryBarSource::DirectoryBarSource(std::vector<std::filesystem::path> directories)
+    : directories_(std::move(directories)) {}
 
 std::optional<BarSeries> DirectoryBarSource::load(std::string_view symbol) const {
-    const std::filesystem::path path =
-        directory_ / (std::string(symbol) + std::string(bar_store::kExtension));
-    if (!std::filesystem::exists(path)) {
-        return std::nullopt;
+    for (const std::filesystem::path& directory : directories_) {
+        const std::filesystem::path path =
+            directory / (std::string(symbol) + std::string(bar_store::kExtension));
+        if (std::filesystem::exists(path)) {
+            return bar_store::read(path);
+        }
     }
-    return bar_store::read(path);
+    return std::nullopt;
 }
 
 BarSeries load_close_csv(const std::filesystem::path& path, std::string ticker) {
@@ -296,6 +301,11 @@ struct Series {
     std::size_t o = 0;  // first out-of-sample bar; e + 1 without a split
     std::size_t e = 0;  // last bar
     std::string quality;
+    // Bars on days before this are synthetic (section 1a); the lowest day
+    // when none are.
+    std::int64_t real_from_day = std::numeric_limits<std::int64_t>::min();
+
+    [[nodiscard]] bool synthetic_at(std::size_t t) const { return days[t] < real_from_day; }
 };
 
 struct Bound {
@@ -312,11 +322,30 @@ struct Bound {
     std::string metric;
     int min_trades = 3;
     std::string security_id;
+
+    // The recipe the asset's history was extended with, as {recipe_id,
+    // validation}; null when it was not.
+    json synthetic = nullptr;
 };
+
+[[nodiscard]] std::string lower(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return text;
+}
+
+[[nodiscard]] std::string upper(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+        return static_cast<char>(std::toupper(c));
+    });
+    return text;
+}
 
 class Binder {
 public:
-    Binder(const json& form, const BarSource& data) : form_(form), data_(data) {}
+    Binder(const json& form, const BarSource& data, const json& recipes)
+        : form_(form), data_(data), recipes_(recipes) {}
 
     std::optional<Bound> bind(std::vector<JobError>& errors) {
         Bound bound;
@@ -353,10 +382,6 @@ private:
         const json& assets = f.at("universe").at("assets");
         if (assets.size() != 1) {
             refuse("/universe/assets", "the drawdown_entry template trades exactly one asset");
-        }
-        if (!assets.empty() && assets[0].contains("synthetic_extension")) {
-            refuse("/universe/assets/0/synthetic_extension",
-                   "synthetic history needs the data catalog, which is not built yet");
         }
         if (f.at("universe").at("price_adjustment") == "total_return") {
             refuse("/universe/price_adjustment",
@@ -470,11 +495,7 @@ private:
             objective.contains("min_trades") ? objective.at("min_trades").get<int>() : 3;
     }
 
-    std::optional<Series> load_series(const std::string& symbol,
-                                      const std::string& path,
-                                      std::int64_t start_day,
-                                      std::int64_t end_day,
-                                      int warmup_days) {
+    std::optional<BarSeries> fetch(const std::string& symbol, const std::string& path) {
         std::optional<BarSeries> loaded;
         try {
             loaded = data_.load(symbol);
@@ -484,8 +505,116 @@ private:
         }
         if (!loaded) {
             refuse(path, "no data for " + symbol);
+        }
+        return loaded;
+    }
+
+    /// Section 1a: the asset's bars, with the synthetic history the form asks
+    /// for prepended. Returns the first real bar's day, or nothing (with the
+    /// reasons refused) if the extension cannot be honoured.
+    std::optional<std::int64_t> extend(BarSeries& bars, const json& ext, Bound& bound) {
+        const std::string at = "/universe/assets/0/synthetic_extension";
+        const std::string id = ext.at("recipe_id").get<std::string>();
+        const json* recipe = nullptr;
+        for (const json& candidate : recipes_) {
+            if (candidate.value("record", "") == "synthetic_recipe" &&
+                candidate.value("recipe_id", "") == id) {
+                recipe = &candidate;
+            }
+        }
+        if (recipe == nullptr) {
+            refuse(at + "/recipe_id", "no synthetic recipe named " + id + " in the catalog");
             return std::nullopt;
         }
+        const std::size_t before = errors_.size();
+        const json& params = recipe->at("params");
+        if (recipe->value("method", "") != "daily_leverage") {
+            refuse(at + "/recipe_id", id + " is not a daily_leverage recipe");
+        }
+        if (!recipe->contains("validation")) {
+            refuse(at + "/recipe_id", id + " has no validation, and a recipe without one cannot be used");
+        }
+        if (recipe->value("target_security_id", "") != bound.security_id) {
+            refuse(at + "/recipe_id",
+                   id + " extends " + recipe->value("target_security_id", "") + ", not " +
+                       bound.security_id);
+        }
+        const std::string underlying = ext.at("underlying").get<std::string>();
+        if (lower(underlying) != recipe->value("underlying_security_id", "")) {
+            refuse(at + "/underlying",
+                   "recipe " + id + " is built from " + recipe->value("underlying_security_id", "") +
+                       ", not " + underlying);
+        }
+        // The engine checks the form still matches the recipe it was copied
+        // from (the schema's promise): a changed fee is a different recipe,
+        // and its validation would not describe it.
+        for (const char* key : {"leverage", "annual_fee_pct", "borrow_spread_pct"}) {
+            if (ext.at(key).get<double>() != params.at(key).get<double>()) {
+                refuse(at + "/" + key,
+                       std::string("does not match recipe ") + id + ", which has " +
+                           params.at(key).dump());
+            }
+        }
+        if (errors_.size() != before || bars.bars.empty()) {
+            return std::nullopt;
+        }
+
+        const bool total_return = params.value("underlying_adjustment", "split_only") == "total_return";
+        const auto underlying_bars =
+            fetch(upper(underlying) + (total_return ? ".TR" : ""), at + "/underlying");
+        const auto rate = fetch(upper(params.at("cash_rate_series_id").get<std::string>()), at + "/recipe_id");
+        if (!underlying_bars || !rate) {
+            return std::nullopt;
+        }
+        const std::int64_t first_real = day_of(bars.bars.front().ts);
+        SyntheticBars synthetic;
+        try {
+            synthetic = extend_history(*underlying_bars,
+                                       *rate,
+                                       first_real,
+                                       bars.bars.front().close,
+                                       {params.at("leverage").get<double>(),
+                                        params.at("annual_fee_pct").get<double>(),
+                                        params.at("borrow_spread_pct").get<double>()});
+        } catch (const std::exception& error) {
+            refuse(at, error.what());
+            return std::nullopt;
+        }
+        std::vector<StoredBar> joined;
+        joined.reserve(synthetic.days.size() + bars.bars.size());
+        for (std::size_t i = 0; i < synthetic.days.size(); ++i) {
+            StoredBar bar;
+            bar.ts = bar_store::daily_close_stamp(synthetic.days[i]);
+            bar.open = bar.high = bar.low = bar.close = synthetic.closes[i];
+            // A synthetic bar has no volume of its own; this is load_close_csv's.
+            bar.volume = 1'000'000.0;
+            joined.push_back(bar);
+        }
+        joined.insert(joined.end(), bars.bars.begin(), bars.bars.end());
+        bars.bars = std::move(joined);
+        bound.synthetic = json{{"recipe_id", id}, {"validation", recipe->at("validation")}};
+        return first_real;
+    }
+
+    std::optional<Series> load_series(const std::string& symbol,
+                                      const std::string& path,
+                                      std::int64_t start_day,
+                                      std::int64_t end_day,
+                                      int warmup_days) {
+        auto loaded = fetch(symbol, path);
+        if (!loaded) {
+            return std::nullopt;
+        }
+        return cut(*loaded, symbol, path, start_day, end_day, warmup_days);
+    }
+
+    std::optional<Series> cut(const BarSeries& loaded_series,
+                              const std::string& symbol,
+                              const std::string& path,
+                              std::int64_t start_day,
+                              std::int64_t end_day,
+                              int warmup_days) {
+        const BarSeries* loaded = &loaded_series;
         std::vector<StoredBar> bars;
         for (const StoredBar& bar : loaded->bars) {
             if (day_of(bar.ts) <= end_day) {
@@ -548,11 +677,25 @@ private:
 
         const json& asset = form_.at("universe").at("assets").at(0);
         bound.security_id = asset.at("security_id").get<std::string>();
-        auto series = load_series(asset.at("symbol").get<std::string>(),
-                                  "/universe/assets/0/symbol",
-                                  bound.start_day,
-                                  end_day,
-                                  warmup);
+        const std::string symbol = asset.at("symbol").get<std::string>();
+        auto asset_bars = fetch(symbol, "/universe/assets/0/symbol");
+        std::optional<std::int64_t> real_from;
+        if (asset_bars && asset.contains("synthetic_extension")) {
+            real_from = extend(*asset_bars, asset.at("synthetic_extension"), bound);
+            if (!real_from) {
+                // Refused already. Going on with the real bars alone would
+                // only add refusals that follow from this one (a split before
+                // the shortened history, say), and bury it.
+                asset_bars.reset();
+            }
+        }
+        std::optional<Series> series;
+        if (asset_bars) {
+            series = cut(*asset_bars, symbol, "/universe/assets/0/symbol", bound.start_day, end_day, warmup);
+        }
+        if (series && real_from) {
+            series->real_from_day = *real_from;
+        }
         if (series) {
             place_split(*series, split);
             if (split && (series->o <= series->s || series->o > series->e)) {
@@ -566,11 +709,22 @@ private:
             refuse("/benchmarks", "at least one benchmark is needed to judge against");
         }
         for (std::size_t i = 0; i < benchmarks.size(); ++i) {
-            auto bench = load_series(benchmarks[i].get<std::string>(),
-                                     "/benchmarks/" + std::to_string(i),
-                                     bound.start_day,
-                                     end_day,
-                                     warmup);
+            const std::string name = benchmarks[i].get<std::string>();
+            const std::string at = "/benchmarks/" + std::to_string(i);
+            // A benchmark that names the asset is the asset's own series,
+            // synthetic history included: holding it is the comparison.
+            std::optional<Series> bench;
+            if (name == symbol) {
+                if (!asset_bars) {
+                    continue;  // the asset's own refusal says why
+                }
+                bench = cut(*asset_bars, name, at, bound.start_day, end_day, warmup);
+                if (bench && real_from) {
+                    bench->real_from_day = *real_from;
+                }
+            } else {
+                bench = load_series(name, at, bound.start_day, end_day, warmup);
+            }
             if (bench) {
                 place_split(*bench, split);
                 if (split && (bench->o <= bench->s || bench->o > bench->e)) {
@@ -593,6 +747,7 @@ private:
 
     const json& form_;
     const BarSource& data_;
+    const json& recipes_;
     std::vector<JobError> errors_;
 };
 
@@ -1262,6 +1417,56 @@ struct Gate {
 
 }  // namespace
 
+// --- 1a. Synthetic history ----------------------------------------------------
+
+SyntheticBars extend_history(const BarSeries& underlying,
+                             const BarSeries& rate,
+                             std::int64_t first_real_day,
+                             double first_real_close,
+                             const SyntheticParams& p) {
+    const std::vector<StoredBar>& u = underlying.bars;
+    std::size_t anchor = u.size();
+    for (std::size_t k = 0; k < u.size(); ++k) {
+        if (day_of(u[k].ts) == first_real_day) {
+            anchor = k;
+            break;
+        }
+    }
+    if (anchor == u.size()) {
+        throw std::runtime_error("the underlying has no bar on " + iso_date(first_real_day) +
+                                 ", where the real history starts");
+    }
+    std::vector<std::int64_t> rate_days;
+    for (const StoredBar& bar : rate.bars) {
+        rate_days.push_back(day_of(bar.ts));
+    }
+    SyntheticBars out;
+    double s = first_real_close;
+    for (std::size_t k = anchor; k > 0; --k) {
+        const std::int64_t previous = day_of(u[k - 1].ts);
+        // The rate observed on or before the day the interval starts.
+        const auto after = std::upper_bound(rate_days.begin(), rate_days.end(), previous);
+        if (after == rate_days.begin()) {
+            break;
+        }
+        const double rate_pct = rate.bars[static_cast<std::size_t>(after - rate_days.begin()) - 1].close;
+        // One operation at a time, in research/synthetic.py's order.
+        const double cost =
+            (p.annual_fee_pct + (p.leverage - 1.0) * (rate_pct + p.borrow_spread_pct)) / 100.0 / 252.0;
+        const double r = p.leverage * (u[k].close / u[k - 1].close - 1.0) - cost;
+        if (!(1.0 + r > 0.0)) {
+            throw std::runtime_error("the recipe takes the price to zero on " +
+                                     iso_date(day_of(u[k].ts)));
+        }
+        s = s / (1.0 + r);
+        out.days.push_back(previous);
+        out.closes.push_back(s);
+    }
+    std::reverse(out.days.begin(), out.days.end());
+    std::reverse(out.closes.begin(), out.closes.end());
+    return out;
+}
+
 JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& options) {
     JobOutcome outcome;
     if (!drawdown_entry_registered()) {
@@ -1270,7 +1475,7 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
     }
 
     // --- 1. Bind --------------------------------------------------------------
-    Binder binder(form, data);
+    Binder binder(form, data, options.recipes);
     std::optional<Bound> maybe = binder.bind(outcome.errors);
     if (!maybe) {
         return outcome;
@@ -1615,7 +1820,9 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
             {"exit_reason",
              trade.sell_bar ? std::string(to_string(trade.reason)) : std::string("open")},
             {"window", split && trade.first_buy_bar >= asset.o ? "out_of_sample" : "in_sample"},
-            {"synthetic", false}});
+            // A trade is held in date order, so it touched synthetic history
+            // exactly when it was entered on it.
+            {"synthetic", asset.synthetic_at(trade.first_buy_bar)}});
     }
 
     json surface = nullptr;
@@ -1661,13 +1868,37 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
         }
     }
 
+    // The synthetic part of the bars used, with the recipe's validation, so
+    // the analysis can say in numbers how far to trust those years.
+    json synthetic_used = nullptr;
+    std::size_t synthetic_decisions = 0;
+    if (!bound.synthetic.is_null() && asset.synthetic_at(0)) {
+        std::size_t last = 0;
+        while (last + 1 < asset.days.size() && asset.synthetic_at(last + 1)) {
+            ++last;
+        }
+        const json& validation = bound.synthetic.at("validation");
+        synthetic_used = json{
+            {"recipe_id", bound.synthetic.at("recipe_id")},
+            {"from", iso_date(asset.days.front())},
+            {"to", iso_date(asset.days[last])},
+            {"daily_return_correlation", validation.at("daily_return_correlation")},
+            {"annualized_tracking_difference_pct", validation.at("annualized_tracking_difference_pct")}};
+        for (std::size_t t = asset.s; t <= asset.e; ++t) {
+            synthetic_decisions += asset.synthetic_at(t) ? 1 : 0;
+        }
+    }
     json data_list = json::array();
     data_list.push_back(json{{"security_id", bound.security_id},
-                             {"series_id", asset.symbol},
+                             {"series_id",
+                              synthetic_used.is_null()
+                                  ? asset.symbol
+                                  : asset.symbol + "+synthetic:" +
+                                        bound.synthetic.at("recipe_id").get<std::string>()},
                              {"quality_tier", asset.quality},
                              {"used_from", iso_date(asset.days.front())},
                              {"used_to", iso_date(asset.days.back())},
-                             {"synthetic", nullptr}});
+                             {"synthetic", synthetic_used}});
     for (const Series& series : bound.benchmarks) {
         if (series.symbol == asset.symbol) {
             continue;
@@ -1713,6 +1944,11 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
     const auto warn = [&](const char* code, const char* message) {
         warnings.push_back(json{{"code", code}, {"message", message}});
     };
+    if (2 * synthetic_decisions > asset.e - asset.s + 1) {
+        warn("MOSTLY_SYNTHETIC",
+             "Over half the range is synthetic history, simulated from the underlying by a "
+             "recipe: the result is mostly about the simulation's years.");
+    }
     if (!research_grade) {
         warn("EXERCISE_ONLY_DATA",
              "At least one series is exercise_only: this tests the pipeline and the data "

@@ -146,6 +146,25 @@ def write_msb(path: Path, ticker: str, bars: list[tuple[int, float, float, float
     temporary.replace(path)
 
 
+def read_msb(path: Path) -> tuple[str, list[tuple[str, float]]]:
+    """A daily .msb file back as (ticker, [(ISO date, close), ...]), oldest first.
+
+    The inverse of write_msb for the fields a daily close needs. Dates come from
+    the closing-bell stamps, counted from the epoch so that a series before 1970
+    (a rate from the 1950s) reads as well as any other.
+    """
+    raw = path.read_bytes()
+    magic, _version, count, ticker, _interval, _ = HEADER.unpack_from(raw, 0)
+    if magic != struct.unpack("<I", MAGIC)[0]:
+        raise ValueError(f"{path} is not a .msb file")
+    epoch = dt.date(1970, 1, 1)
+    rows = []
+    for i in range(count):
+        ts, _o, _h, _l, close, _v = RECORD.unpack_from(raw, HEADER.size + i * RECORD.size)
+        rows.append(((epoch + dt.timedelta(days=ts // NANOS_PER_DAY)).isoformat(), close))
+    return ticker.rstrip(b"\0").decode("ascii"), rows
+
+
 @dataclass
 class Entry:
     ticker: str

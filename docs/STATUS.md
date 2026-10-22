@@ -19,9 +19,14 @@ assistant (R2): a conversation in the service (`service/app/assistant.py`) that
 fills the form through the contract's tools, starts the run when asked, and writes
 the analysis from the Results; the web app's home page is that conversation, with
 the form behind it. Its data tools answer from the files the service holds, not
-from a catalog. Not built: the data catalog (R1), synthetic history, and Open in
-Operator. Green locally; not yet run in CI. 545 C++ tests (one skipped,
-allowlisted), 418 Python, 19 service.
+from a catalog. Synthetic history (JOB.md section 1a): a leveraged fund extended
+before its first bar from its underlying, financed at FRED's 3-month T-bill
+(`scripts/fetch_fred.py`), honoured only for a recipe whose validation
+`scripts/build_recipes.py` measured; the engine and `research/synthetic.py`
+agree on it exactly. One recipe, TQQQ from QQQ's total return, back to 1999.
+Not built: the data catalog (R1), a cash yield, and Open in Operator. Green
+locally; not yet run in CI. 550 C++ tests (one skipped, allowlisted), 439
+Python, 22 service.
 
 The counts and version identifiers in this document are descriptive facts about
 the tree and are corrected whenever they are found wrong. Measured results are
@@ -148,8 +153,8 @@ linked and launched at once will stall regardless.
 Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
-**545 C++ tests** on `ci` and `ci-debug`, measured; **546** on `full`, for the
-reason in [`AUDIT.md`](AUDIT.md) check 9. **418 Python tests** in
+**550 C++ tests** on `ci` and `ci-debug`, measured; **551** on `full`, for the
+reason in [`AUDIT.md`](AUDIT.md) check 9. **439 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import
 that changes that turns the job red.

@@ -151,6 +151,7 @@ a risk-free rate lowers the Sharpe ratio
 a rolling window reports nothing until it is full
 a rule run refuses what it cannot run, by name
 a run directory written by write_run reads back the same curves
+a run on synthetic history marks every part of it that used the simulation
 a run token that cannot be read back is refused
 a schema keyword outside the subset is refused, not ignored
 a second terminal update for one order is dropped
@@ -184,6 +185,7 @@ a summary reads the ends without reading the middle
 a sweep over five hundred points is refused
 a sweep step too small to count is refused, not cast
 a symbol nobody subscribed to is counted, not interned
+a synthetic extension is honoured only for the recipe it was copied from
 a target waits for a price and is abandoned if none comes
 a theory can be unloaded and loaded again
 a theory gets the same result alone as it does in company
@@ -410,6 +412,7 @@ seeking reproduces the same state as playing there
 session arithmetic works before the epoch
 session detection survives a daylight-saving transition
 sessions are separated by a gap
+several daily directories answer in order
 several sources are merged into one timestamp order
 shorting is always affordable
 side helpers
@@ -429,6 +432,8 @@ symmetric eigenvalues of small known matrices
 synthesized quotes straddle the close and precede the bar
 synthetic bars are internally consistent
 synthetic events are in non-decreasing timestamp order
+synthetic history matches research/synthetic.py exactly
+synthetic history under half the range is marked but not warned about
 text that is not a JSON array is an error, not silence
 the 128/124/0 bug: a Rejected order that was never counted fails the identity
 the 1976 rules apply before 1987

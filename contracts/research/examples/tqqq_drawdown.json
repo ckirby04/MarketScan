@@ -11,7 +11,7 @@
           "recipe_id": "tqqq_from_qqq_3x",
           "underlying": "QQQ",
           "leverage": 3,
-          "annual_fee_pct": 0.84,
+          "annual_fee_pct": 0.95,
           "borrow_spread_pct": 0.5
         }
       }
@@ -48,7 +48,7 @@
   "provenance": {
     "/template": { "source": "inferred", "quote": "optimal drawdown to buy into", "note": "Entry triggered by a drawdown level." },
     "/universe/assets/0/symbol": { "source": "stated", "quote": "TQQQ" },
-    "/universe/assets/0/synthetic_extension": { "source": "default", "note": "TQQQ began trading 2010-02-09; 2006-10 to 2010-02 is simulated 3x QQQ. Fee is TQQQ's expense ratio, verify before relying on it." },
+    "/universe/assets/0/synthetic_extension": { "source": "default", "note": "TQQQ's data starts on 2010-02-11; 2006-10 to 2010-02 is simulated 3x QQQ by recipe tqqq_from_qqq_3x, whose numbers are copied here unchanged." },
     "/date_range/start": { "source": "stated", "quote": "past 20 years" },
     "/date_range/warmup_days": { "source": "default", "note": "With no warmup the all-time high is measured from 2006, not from the 2000 dot-com peak. Loading 1999+ history would leave synthetic TQQQ >90% below its high for most of the range and change every result. Worth surfacing to the user." },
     "/strategy/reference": { "source": "stated", "note": "Answered in follow-up.", "options": ["all_time_high", "rolling_high (52-week)", "since_last_exit"] },

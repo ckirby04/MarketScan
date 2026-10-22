@@ -47,15 +47,41 @@ public:
     [[nodiscard]] virtual std::string quality_tier(std::string_view symbol) const;
 };
 
-/// `<directory>/<SYMBOL>.msb`, the layout of the daily cache.
+/// `<directory>/<SYMBOL>.msb`, the layout of the daily cache. With several
+/// directories (prices from one source, rates from another) the first that
+/// holds the symbol answers.
 class DirectoryBarSource final : public BarSource {
 public:
     explicit DirectoryBarSource(std::filesystem::path directory);
+    explicit DirectoryBarSource(std::vector<std::filesystem::path> directories);
     [[nodiscard]] std::optional<BarSeries> load(std::string_view symbol) const override;
 
 private:
-    std::filesystem::path directory_;
+    std::vector<std::filesystem::path> directories_;
 };
+
+/// JOB.md section 1a's synthetic history for a leveraged fund, before its
+/// first real bar: the closes, oldest first, for every bar of the underlying
+/// before `first_real_day` that has a rate on or before its day. Throws
+/// std::runtime_error when the underlying has no bar on `first_real_day`, or
+/// the recipe takes the price to zero. research/synthetic.py implements the
+/// same arithmetic, and the cross-test holds the two to exact agreement.
+struct SyntheticParams {
+    double leverage = 1.0;
+    double annual_fee_pct = 0.0;
+    double borrow_spread_pct = 0.0;
+};
+
+struct SyntheticBars {
+    std::vector<std::int64_t> days;  // day numbers, as session_calendar counts them
+    std::vector<double> closes;
+};
+
+[[nodiscard]] SyntheticBars extend_history(const BarSeries& underlying,
+                                           const BarSeries& rate,
+                                           std::int64_t first_real_day,
+                                           double first_real_close,
+                                           const SyntheticParams& params);
 
 /// Reads a `date,close` CSV with a header row into daily bars stamped at each
 /// day's close, as a daily file is. Open, high and low are set to the close.
@@ -86,6 +112,11 @@ struct JobOptions {
     std::string data_snapshot = "unspecified";
     std::string engine_version;  // empty means this build's version
     std::string equity_uri = "equity.csv";
+
+    /// The catalog's synthetic recipes (catalog_records.schema.json records
+    /// with `record: synthetic_recipe`). A form's `synthetic_extension` is
+    /// honoured only when it names one of these and matches its parameters.
+    nlohmann::json recipes = nlohmann::json::array();
 
     /// Called as the job goes: once per sweep point, once for the null, once
     /// per bootstrap path. Returning false cancels the job, which then returns
