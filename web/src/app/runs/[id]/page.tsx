@@ -75,14 +75,14 @@ export default function RunPage({ params }: { params: Promise<{ id: string }> })
                 ! {e.path || "(engine)"}: {e.message}
               </p>
             ))}
-            <Link href={`/?from=${id}`}>Edit the form</Link>
+            <Link href={`/form?from=${id}`}>Edit the form by hand</Link>
           </>
         )}
         {run && (
           <>
             <ResultsView results={run.results} curves={run.curves} />
             <p>
-              <Link href={`/?from=${id}`}>Edit the form</Link>
+              <Link href={`/form?from=${id}`}>Edit the form by hand</Link>
             </p>
           </>
         )}

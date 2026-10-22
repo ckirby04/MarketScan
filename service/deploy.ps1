@@ -96,6 +96,43 @@ $number = (& $gcloud projects describe $Project --format "value(projectNumber)")
 $account = "$number-compute@developer.gserviceaccount.com"
 Invoke-Gcloud secrets add-iam-policy-binding ms-api-key `
     --member "serviceAccount:$account" --role roles/secretmanager.secretAccessor
+
+# The assistant's Anthropic key, from ANTHROPIC_API_KEY in the user's
+# environment, kept as a secret: a new version only when it has changed, and
+# never echoed. With no key anywhere the service runs without the assistant.
+$secrets = "MS_API_KEY=ms-api-key:latest"
+$anthropicKey = [Environment]::GetEnvironmentVariable("ANTHROPIC_API_KEY", "User")
+if (-not $anthropicKey) { $anthropicKey = $env:ANTHROPIC_API_KEY }
+$haveAnthropicSecret = Test-Gcloud secrets describe anthropic-api-key
+if ($anthropicKey) {
+    $anthropicKey = $anthropicKey.Trim()
+    $stored = ""
+    if ($haveAnthropicSecret) {
+        $stored = ((& $gcloud secrets versions access latest --secret anthropic-api-key 2> $null) -join "").Trim()
+    }
+    if ($stored -ne $anthropicKey) {
+        $file = New-TemporaryFile
+        try {
+            [IO.File]::WriteAllText($file, $anthropicKey)
+            if ($haveAnthropicSecret) {
+                Invoke-Gcloud secrets versions add anthropic-api-key --data-file $file
+            } else {
+                Invoke-Gcloud secrets create anthropic-api-key --data-file $file
+            }
+        } finally {
+            Remove-Item $file
+        }
+        Write-Host "stored ANTHROPIC_API_KEY as secret anthropic-api-key"
+    }
+    $haveAnthropicSecret = $true
+}
+if ($haveAnthropicSecret) {
+    Invoke-Gcloud secrets add-iam-policy-binding anthropic-api-key `
+        --member "serviceAccount:$account" --role roles/secretmanager.secretAccessor
+    $secrets += ",ANTHROPIC_API_KEY=anthropic-api-key:latest"
+} else {
+    Write-Host "no ANTHROPIC_API_KEY: deploying without the assistant"
+}
 Invoke-Gcloud storage buckets add-iam-policy-binding "gs://$Bucket" `
     --member "serviceAccount:$account" --role roles/storage.objectAdmin
 
@@ -138,7 +175,7 @@ Invoke-Gcloud run deploy $Service `
     --memory 2Gi `
     --timeout 3600 `
     --set-env-vars "MS_RUNS_BUCKET=$Bucket$dataEnv" `
-    --set-secrets "MS_API_KEY=ms-api-key:latest" `
+    --set-secrets $secrets `
     @dataArgs
 
 $url = (& $gcloud run services describe $Service --region $Region --format "value(status.url)").Trim()

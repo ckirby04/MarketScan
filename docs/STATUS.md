@@ -11,13 +11,17 @@ Then the web: the live seam split into its own library so the research path cann
 link it (and a test reads the built `ms_research` to prove it); a `linux` preset,
 under which the research path builds with GCC and reproduces the Windows fixtures
 exactly (the plugin loader's tests are not ported to Linux and fail there); a job
-service in `service/` for Cloud Run and a Next.js front end in `web/` for Vercel,
-neither deployed yet. Sharadar is an approved price source
+service in `service/` on Cloud Run and a Next.js front end in `web/` on Vercel,
+both deployed. Sharadar is an approved price source
 ([`DATA_POLICY.md`](DATA_POLICY.md) section 5), fetched by `scripts/fetch_sharadar.py`
-into a cache outside the repository; the free key covers about five years of a
-sample of large stocks and no funds. Not built: the assistant (R2), the data
-catalog (R1), and Open in Operator. Green locally; not yet run in CI. 545 C++ tests
-(one skipped, allowlisted), 418 Python, 10 service.
+into a cache outside the repository and a private bucket the service mounts. The
+assistant (R2): a conversation in the service (`service/app/assistant.py`) that
+fills the form through the contract's tools, starts the run when asked, and writes
+the analysis from the Results; the web app's home page is that conversation, with
+the form behind it. Its data tools answer from the files the service holds, not
+from a catalog. Not built: the data catalog (R1), synthetic history, and Open in
+Operator. Green locally; not yet run in CI. 545 C++ tests (one skipped,
+allowlisted), 418 Python, 19 service.
 
 The counts and version identifiers in this document are descriptive facts about
 the tree and are corrected whenever they are found wrong. Measured results are

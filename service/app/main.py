@@ -12,6 +12,16 @@
     GET  /contracts/form-schema  strategy_form.schema.json, for a form editor
     GET  /health               no auth; for the platform's checks
 
+The assistant (assistant.py), when ANTHROPIC_API_KEY is set; 503 otherwise:
+
+    POST /conversations                  a new conversation
+    GET  /conversations                  recent ones, newest first
+    GET  /conversations/{id}             what the user sees of it
+    POST /conversations/{id}/messages    {"text": ...}; the turn, as NDJSON events
+    POST /conversations/{id}/run         the Run button: start the saved form
+    POST /conversations/{id}/results     {"job_id": ...}; once a run has ended,
+                                         the analysis, as NDJSON events
+
 Run with `uvicorn app.main:create_app --factory`: the app is built when the
 server starts, from the environment then, rather than as a side effect of
 importing this module.
@@ -30,10 +40,12 @@ import hmac
 import json
 import sys
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
-from fastapi.responses import JSONResponse
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import config
+from .assistant import Assistant, Busy
+from .catalog import Catalog
 from .jobs import JobManager
 from .storage import GcsStore, LocalStore, read_json
 
@@ -41,7 +53,7 @@ sys.path.insert(0, str(config.REPO))
 from research import contracts  # noqa: E402  (the repository root is the path)
 
 
-def create_app(settings: config.Settings | None = None) -> FastAPI:
+def create_app(settings: config.Settings | None = None, assistant_client=None) -> FastAPI:
     settings = settings or config.from_env()
     settings.runs_dir.mkdir(parents=True, exist_ok=True)
     local = LocalStore(settings.runs_dir)
@@ -51,6 +63,10 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         (settings.contracts / "strategy_form.schema.json").read_text(encoding="utf-8")
     )
     validator = contracts.validator(form_schema)
+    # A test passes a fake model client; otherwise the assistant needs a key.
+    assistant = None
+    if assistant_client is not None or settings.anthropic_api_key:
+        assistant = Assistant(settings, store, jobs, Catalog(settings), validator, assistant_client)
 
     app = FastAPI(title="MarketScan research service", version="0.1")
 
@@ -114,6 +130,64 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     def cancel(job_id: str) -> Response:
         found(job_id)
         return Response(status_code=202 if jobs.cancel(job_id) else 409)
+
+    # --- The assistant ------------------------------------------------------
+
+    def conversation(conversation_id: str):
+        if assistant is None:
+            raise HTTPException(status_code=503, detail="the assistant is not configured: set ANTHROPIC_API_KEY")
+        found_conversation = assistant.get(conversation_id)
+        if found_conversation is None:
+            raise HTTPException(status_code=404, detail="no such conversation")
+        return found_conversation
+
+    def ndjson(events) -> StreamingResponse:
+        return StreamingResponse(
+            (json.dumps(event) + "\n" for event in events),
+            media_type="application/x-ndjson",
+            # No proxy between here and the browser should hold the stream back.
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/conversations", status_code=201, dependencies=[Depends(authorised)])
+    def new_conversation() -> dict:
+        if assistant is None:
+            raise HTTPException(status_code=503, detail="the assistant is not configured: set ANTHROPIC_API_KEY")
+        return assistant.create().public()
+
+    @app.get("/conversations", dependencies=[Depends(authorised)])
+    def conversations() -> list[dict]:
+        return [] if assistant is None else assistant.recent()
+
+    @app.get("/conversations/{conversation_id}", dependencies=[Depends(authorised)])
+    def show_conversation(conversation_id: str) -> dict:
+        return conversation(conversation_id).public()
+
+    @app.post("/conversations/{conversation_id}/messages", dependencies=[Depends(authorised)])
+    def message(conversation_id: str, text: str = Body(..., embed=True)):
+        if not text.strip():
+            raise HTTPException(status_code=422, detail="empty message")
+        try:
+            return ndjson(assistant.say(conversation(conversation_id), text))
+        except Busy:
+            raise HTTPException(status_code=409, detail="the conversation is already in a turn")
+
+    @app.post("/conversations/{conversation_id}/run", dependencies=[Depends(authorised)])
+    def run_conversation(conversation_id: str) -> JSONResponse:
+        try:
+            item = assistant.run(conversation(conversation_id))
+        except Busy:
+            raise HTTPException(status_code=409, detail="the conversation is already in a turn")
+        return JSONResponse(status_code=409 if "error" in item else 202, content=item)
+
+    @app.post("/conversations/{conversation_id}/results", dependencies=[Depends(authorised)])
+    def conversation_results(conversation_id: str, job_id: str = Body(..., embed=True)):
+        try:
+            return ndjson(assistant.results(conversation(conversation_id), job_id))
+        except KeyError:
+            raise HTTPException(status_code=404, detail="no such run in this conversation")
+        except Busy:
+            raise HTTPException(status_code=409, detail="that run has not ended, or is already analysed")
 
     return app
 

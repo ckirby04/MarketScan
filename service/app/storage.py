@@ -3,6 +3,10 @@
 Cloud Run scales to zero and its disk goes with the instance, so a run written
 to /tmp is copied to a bucket and read back from there. Locally there is no
 bucket and the run directory is the store.
+
+Conversations with the assistant are kept the same way, one JSON document each:
+under _conversations/ beside the runs locally, under conversations/ in the
+bucket.
 """
 
 from __future__ import annotations
@@ -28,6 +32,19 @@ class LocalStore:
         if not self.root.exists():
             return []
         return [p.name for p in self.root.iterdir() if (p / "status.json").exists()]
+
+    def put_conversation(self, conversation_id: str, data: bytes) -> None:
+        path = self.root / "_conversations" / f"{conversation_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    def get_conversation(self, conversation_id: str) -> bytes | None:
+        path = self.root / "_conversations" / f"{conversation_id}.json"
+        return path.read_bytes() if path.exists() else None
+
+    def conversation_ids(self) -> list[str]:
+        directory = self.root / "_conversations"
+        return [p.stem for p in directory.glob("*.json")] if directory.exists() else []
 
 
 class GcsStore:
@@ -58,6 +75,25 @@ class GcsStore:
             parts = blob.name.split("/")
             if len(parts) == 3 and parts[2] == "status.json":
                 ids.add(parts[1])
+        return sorted(ids)
+
+    def put_conversation(self, conversation_id: str, data: bytes) -> None:
+        self.local.put_conversation(conversation_id, data)
+        self.bucket.blob(f"conversations/{conversation_id}.json").upload_from_string(
+            data, content_type="application/json")
+
+    def get_conversation(self, conversation_id: str) -> bytes | None:
+        cached = self.local.get_conversation(conversation_id)
+        if cached is not None:
+            return cached
+        blob = self.bucket.blob(f"conversations/{conversation_id}.json")
+        return blob.download_as_bytes() if blob.exists() else None
+
+    def conversation_ids(self) -> list[str]:
+        ids = set(self.local.conversation_ids())
+        for blob in self.bucket.list_blobs(prefix="conversations/"):
+            if blob.name.endswith(".json"):
+                ids.add(blob.name[len("conversations/"):-len(".json")])
         return sorted(ids)
 
 
