@@ -395,7 +395,7 @@ export default function ResultsView({
                 {gateName(g.id)}
                 {g.id === v.deciding_gate && <span className="faint"> · decided the grade</span>}
               </div>
-              {GATES[g.id] && <div className="dim">{GATES[g.id].asks}</div>}
+              {GATES[g.id]?.asks && <div className="dim">{GATES[g.id]?.asks}</div>}
               <div className="faint">{g.summary}</div>
             </div>
           </li>
