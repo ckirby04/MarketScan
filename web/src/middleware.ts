@@ -26,4 +26,9 @@ export function middleware(request: NextRequest) {
   });
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
+// Node.js rather than the default Edge runtime: Vercel services deploy no Edge
+// functions, and refuse a service whose build produces one.
+export const config = {
+  runtime: "nodejs",
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+};
