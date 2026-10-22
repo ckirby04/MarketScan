@@ -9,9 +9,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <limits>
 #include <vector>
 
+#include "marketscan/research/rule_run.hpp"
 #include "marketscan/strategy/istrategy.hpp"
 #include "marketscan/strategy/registry.hpp"
 
@@ -48,7 +50,6 @@ using marketscan::research::kTagPayload;
 using marketscan::research::ReferenceKind;
 
 constexpr double kMinusInfinity = -std::numeric_limits<double>::infinity();
-constexpr MS_Nanos kDayNanos = 86'400LL * 1'000'000'000LL;
 
 class DrawdownEntry final : public marketscan::IStrategy {
 public:
@@ -84,7 +85,7 @@ public:
         marketscan::param_int(
             p::kStartDay, "First decision day, days since 1970-01-01.", -1e6, 1e6, 0.0),
     };
-    static constexpr uint32_t kParamCount = 20;
+    static constexpr uint32_t kParamCount = static_cast<uint32_t>(std::size(kParams));
 
     DrawdownEntry() {
         bind_param(p::kReference, &reference_);
@@ -122,7 +123,7 @@ public:
         const double high = reference_high();
         const double drawdown = std::max(0.0, 100.0 * (1.0 - c / high));
 
-        if (bar.ts / kDayNanos < start_day_ || in_flight_) {
+        if (marketscan::research::day_of(bar.ts) < start_day_ || in_flight_) {
             return;
         }
 

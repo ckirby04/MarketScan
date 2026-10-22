@@ -78,7 +78,18 @@ int main(int argc, char** argv) {
             app_options.view_mode = marketscan::app::ViewMode::Overview;
         } else if (options.view_mode == "operator") {
             app_options.view_mode = marketscan::app::ViewMode::Operator;
+        } else if (options.view_mode == "research") {
+            app_options.view_mode = marketscan::app::ViewMode::Research;
         }
+        app_options.research.daily_dir = options.research_daily;
+        for (const std::string& spec : options.research_csv) {
+            const auto equals = spec.find('=');
+            if (equals != std::string::npos && equals > 0) {
+                app_options.research.csv_sources.emplace_back(spec.substr(0, equals),
+                                                              spec.substr(equals + 1));
+            }
+        }
+        app_options.research_form = options.research_form;
         app_options.screenshot = options.screenshot;
         app_options.screenshot_after = options.screenshot_after;
         app_options.speed = options.speed;

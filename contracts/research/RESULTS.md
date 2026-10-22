@@ -73,8 +73,10 @@ the UI says so beside it.
 
 ## Gates
 
-Criteria version `0.1`. Thresholds live in the engine's criteria file, not in this document; the
-values here are the initial settings.
+Criteria version `0.1`. Every Results document records the version it was graded under. The
+exact definitions -- each measured quantity, each threshold, the order -- are
+[`JOB.md`](JOB.md) section 10, which is what both implementations follow; this table is the
+summary. Changing a threshold is a new criteria version.
 
 | id | test | passes when | failing gives |
 |---|---|---|---|
@@ -83,7 +85,7 @@ values here are the initial settings.
 | `random_timing` | Timing, not just exposure | Objective metric at or above the 95th percentile of the random-timing null | `fragile` |
 | `multiple_testing` | Survives having searched | Random-timing p-value, corrected for the effective number of variants tried, below 0.05 | `fragile` |
 | `plateau` | Neighbouring parameters also work | Plateau ratio ≥ 0.5 | `fragile` |
-| `survival` | No near-ruin | Worst drawdown in any regime above -90%, and fewer than 5% of bootstrap paths lose more than 90% | `fragile` |
+| `survival` | No near-ruin | Full-range max drawdown above -90%, and fewer than 5% of bootstrap paths with a drawdown below -90% | `fragile` |
 
 The grade is the first failing gate in table order, or `supported` if all pass. Gates that don't
 apply are recorded as `not_applicable` (for example `plateau` and `multiple_testing` when no
@@ -101,9 +103,13 @@ selected parameters:
 
 1. Take the rule's actual holding periods.
 2. Draw 1,000 alternatives: the same number of entries, the same holding lengths in shuffled
-   order, placed at random non-overlapping dates in the range, with cash earning the same yield
-   in between.
+   order, placed at random non-overlapping dates in the range.
 3. Report the rule's percentile among them on the objective metric.
+
+Both the alternatives and the rule are measured here on a frictionless curve -- fully invested
+while holding, flat otherwise, no costs -- so the comparison is about timing alone and not about
+how the costs fell. The rule's own reported figures are after costs. JOB.md section 6 has the
+generator and the placement exactly.
 
 A drawdown rule that beats buy-and-hold only by being out of the market during 2008 should
 also beat most random placements. If it doesn't, the "timing" is luck.
@@ -133,9 +139,11 @@ divided by the selected edge. Near 1 is a broad plateau; near 0 or negative mean
 
 A stationary block bootstrap (Politis and Romano) of the underlying's daily returns, with a
 mean block length of 63 trading days so crashes and recoveries stay intact, 1,000 paths.
-Synthetic history is resampled along with real history. The selected rule and the primary
-benchmark are re-run on each path. Reported: CAGR percentiles for both, the probability the
-rule beats the benchmark, and the share of paths with a drawdown worse than -90%.
+Synthetic history is resampled along with real history. The selected rule is re-run on each
+path, and so is buy-and-hold of that same path: on a path the benchmark is always the instrument
+itself, whatever the form's primary benchmark is, because the question a path answers is whether
+the timing beat holding what was timed. Reported: CAGR percentiles for both, the probability the
+rule beats holding, and the share of paths with a drawdown worse than -90%.
 
 The rule is re-run on each path rather than resampling its own returns, because a drawdown
 rule's trades depend on the path.
@@ -157,15 +165,18 @@ If `oos_split` is null, only `full` exists, and `oos_benchmark` is judged on `fu
 
 ## Metric definitions
 
-All computed from daily closing equity, after costs, with cash earning the form's cash yield.
+All computed from daily closing equity, after costs. Cash earns nothing: the only cash yield the
+job can honour today is `none` (JOB.md section 1), so Sharpe and Sortino below are on raw daily
+returns, and become excess returns when a rate series exists. JOB.md section 4 has every
+definition exactly, including the order of operations.
 
 | metric | definition |
 |---|---|
 | `total_return_pct` | `100 * (E_end / E_start - 1)` |
 | `cagr_pct` | `100 * ((E_end / E_start)^(365.25 / calendar_days) - 1)` |
 | `volatility_pct` | Standard deviation of daily returns × √252, in percent. |
-| `sharpe` | Mean daily return in excess of the cash rate, divided by the standard deviation of daily excess return, × √252. |
-| `sortino` | As Sharpe, with the denominator replaced by downside deviation of daily excess return (below zero). |
+| `sharpe` | Mean daily return divided by the sample standard deviation of daily returns, × √252. |
+| `sortino` | Mean daily return divided by the downside deviation of daily returns (below zero), × √252. |
 | `max_drawdown_pct` | Largest peak-to-trough fall in equity, as a negative percent. |
 | `max_drawdown_days` | Longest stretch, in calendar days, from a peak to the recovery of that peak (or the end of the window if not recovered). |
 | `calmar` | `cagr_pct / abs(max_drawdown_pct)` |
@@ -174,7 +185,10 @@ All computed from daily closing equity, after costs, with cash earning the form'
 | `n_entries` | Entries that started in the window. |
 | `win_rate_pct`, `avg_trade_return_pct`, `worst_trade_pct` | Over trades closed in the window. Null when there are none. A position still open at the end is marked to market and flagged `open`. |
 
-A trade that straddles `oos_split` belongs to the window it started in.
+A trade that straddles `oos_split` is counted twice, for two different questions, and JOB.md
+section 4 fixes both: its *entry* belongs to the window it started in (`n_entries`, and the
+`window` field in `stats.trades`), and its *result* to the window it closed in (`win_rate_pct`,
+`avg_trade_return_pct`, `worst_trade_pct`).
 
 ---
 

@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 
+#include "research_session.hpp"
 #include "session.hpp"
 #include "ui_state.hpp"
 
@@ -15,6 +16,12 @@ namespace marketscan::app {
 
 struct AppOptions {
     SessionConfig session;
+
+    /// The Research view's job: where its bars and contracts come from.
+    ResearchConfig research;
+
+    /// A Strategy Form to load into the Research view and run at startup.
+    std::filesystem::path research_form;
 
     /// Directory holding fonts/. Defaults to `assets` beside the executable,
     /// falling back to the source tree so a build tree runs without an install
@@ -92,6 +99,7 @@ private:
 
     AppOptions options_;
     std::unique_ptr<Session> session_;
+    std::unique_ptr<ResearchSession> research_;
     UiState ui_;
 
     GLFWwindow* window_ = nullptr;

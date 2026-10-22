@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "temp_paths.hpp"
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
@@ -44,9 +45,7 @@ SyntheticFeedConfig small_config(std::uint64_t seed = 12345) {
 class TempFile {
 public:
     explicit TempFile(std::string_view content, std::string_view suffix = ".csv") {
-        static int counter = 0;
-        path_ = std::filesystem::temp_directory_path() /
-                ("marketscan_test_" + std::to_string(++counter) + std::string(suffix));
+        path_ = test::unique_temp_path("marketscan_test_", suffix);
         std::ofstream out(path_, std::ios::binary);
         out << content;
     }

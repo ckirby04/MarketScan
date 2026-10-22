@@ -53,8 +53,11 @@ data/*
 data/samples/*
 !data/samples/*.csv
 !data/samples/README.md
-# Hand-written JSON fixtures for the research contracts. No prices in them.
+# Research fixtures: hand-written JSON and a seeded synthetic price path. No market data.
 !data/samples/research/
+
+# --- Research runs: written by the Research view, one directory each ---
+runs/
 
 # --- Python ---
 __pycache__/

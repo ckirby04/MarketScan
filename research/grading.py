@@ -10,6 +10,18 @@ see docs/AUDIT.md "Deliberate duplication".
 
 The two must agree. research/tests/test_grading.py holds them to it on a
 committed trace.
+
+ONE THING THIS DOES NOT RECOMPUTE
+
+The bootstrap paths are regenerated here from the generator, and the first is
+checked close for close against the engine's, but the strategy is not re-run on
+them: the trace carries each path's first and last equity and the strategy's
+max drawdown, and the outcome range, the share of paths beating holding and the
+survival gate's path share are computed from those. Re-running the rule on a
+thousand paths would need this layer to mark positions the way the engine's
+ledger does, which is not part of any specification. The trades' descriptive
+fields (entry price, holding days, worst excursion) are likewise not
+recomputed; JOB.md section 4 says so.
 """
 
 from __future__ import annotations

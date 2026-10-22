@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "marketscan/core/types.hpp"
 
 namespace marketscan::app {
@@ -27,6 +29,10 @@ struct SessionSnapshot;
 enum class ViewMode : std::uint8_t {
     Overview = 0,
     Operator = 1,
+    /// A question about a trading rule, answered by a graded job rather than a
+    /// replay. SPEC_RESEARCH_VIEW.md. Reached with F3; F2 still toggles the
+    /// other two.
+    Research = 2,
 };
 
 [[nodiscard]] const char* to_string(ViewMode mode) noexcept;
@@ -40,6 +46,13 @@ struct UiState {
 
     /// Which theory every panel focuses on. Empty means the first one.
     std::string selected_theory;
+
+    // --- Research ---
+    /// The form being edited, and the session's form_version it was taken
+    /// from. When the session's moves on -- a run was opened, the starter form
+    /// was loaded -- the working copy is replaced.
+    nlohmann::json research_form;
+    std::uint64_t research_form_version = static_cast<std::uint64_t>(-1);
 
     /// Panel visibility, driven by the View menu.
     bool show_leaderboard = true;

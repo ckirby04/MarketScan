@@ -108,8 +108,12 @@ struct RuleRun {
 [[nodiscard]] RuleRun run_rule(const RuleRunConfig& config);
 
 /// Days since 1970-01-01 of a bar's UTC stamp: the unit of `start_day`.
+///
+/// Floor division: C++ truncates toward zero, which would put every instant in
+/// the day before the epoch into day 0 along with the day after it.
 [[nodiscard]] constexpr std::int64_t day_of(Timestamp ts) noexcept {
-    return ts / (86'400LL * 1'000'000'000LL);
+    constexpr std::int64_t kDay = 86'400LL * 1'000'000'000LL;
+    return ts >= 0 ? ts / kDay : (ts - (kDay - 1)) / kDay;
 }
 
 }  // namespace marketscan::research

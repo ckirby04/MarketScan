@@ -1,0 +1,25 @@
+{
+  "schema_version": "0.1",
+  "prompt": "",
+  "template": "drawdown_entry",
+  "universe": {
+    "assets": [ { "symbol": "FIXTURE", "security_id": "fixture" } ],
+    "price_adjustment": "split_only"
+  },
+  "date_range": { "start": "2000-01-03", "end": "2003-08-29", "warmup_days": 0 },
+  "capital": { "initial": 10000, "currency": "USD" },
+  "costs": { "commission_per_trade": 0, "slippage_bps": 1 },
+  "cash": { "yield": "none" },
+  "execution": { "fill": "next_close" },
+  "strategy": {
+    "template": "drawdown_entry",
+    "reference": { "type": "all_time_high" },
+    "entry": { "style": "single", "threshold_pct": { "sweep": { "min": 10, "max": 40, "step": 5 } }, "position_pct": 100 },
+    "exit": { "rules": [ { "type": "recover_to_high" } ] },
+    "reentry": true
+  },
+  "objective": { "metric": "cagr", "min_trades": 3 },
+  "benchmarks": ["FIXTURE"],
+  "robustness": { "oos_split": "2002-06-03", "regime_breakdown": true, "parameter_surface": true },
+  "provenance": {}
+}

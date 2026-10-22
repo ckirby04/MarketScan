@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://quant.local/backtest-app/strategy_form.schema.json",
   "title": "Strategy Form",
-  "description": "A runnable backtest request. The LLM fills this from a plain-English prompt; the engine only accepts forms that validate. Percent values are positive numbers in percent (40 = a 40% drawdown). Custom annotations: x-ask = when the LLM should ask the user (always | if_ambiguous | never); x-default = value used when the user says nothing.",
+  "description": "A runnable backtest request. The LLM fills this from a plain-English prompt; the engine only accepts forms that validate. Percent values are positive numbers in percent (40 = a 40% drawdown). Custom annotations: x-ask = when the LLM should ask the user (always | if_ambiguous | never); x-default = the literal value used when the user says nothing, always one the job can honour; x-default-note = a description of a default that depends on the rest of the form, for a reader rather than a program.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "prompt", "template", "universe", "date_range", "capital", "costs", "cash", "execution", "strategy", "objective", "benchmarks", "robustness", "provenance"],
@@ -33,7 +33,7 @@
         "price_adjustment": {
           "enum": ["total_return", "split_only"],
           "description": "total_return reinvests dividends; split_only ignores them.",
-          "x-default": "total_return",
+          "x-default": "split_only",
           "x-ask": "never"
         }
       }
@@ -45,7 +45,7 @@
       "required": ["start", "end"],
       "properties": {
         "start": { "type": "string", "format": "date", "x-ask": "if_ambiguous" },
-        "end": { "type": "string", "format": "date", "x-default": "latest available bar" },
+        "end": { "type": "string", "format": "date", "x-default-note": "the latest available bar" },
         "warmup_days": {
           "type": "integer",
           "minimum": 0,
@@ -81,7 +81,7 @@
       "required": ["yield"],
       "description": "What uninvested cash earns while the strategy waits for a signal. Matters a lot for entry-timing strategies that sit in cash for years.",
       "properties": {
-        "yield": { "enum": ["none", "tbill_3m", "fixed"], "x-default": "tbill_3m", "x-ask": "never" },
+        "yield": { "enum": ["none", "tbill_3m", "fixed"], "x-default": "none", "x-ask": "never" },
         "fixed_rate_pct": { "type": "number", "description": "Annual rate, required when yield = fixed." }
       },
       "if": { "properties": { "yield": { "const": "fixed" } } },
@@ -96,7 +96,7 @@
         "fill": {
           "enum": ["next_open", "next_close"],
           "description": "Signals are computed on a bar's close; fills happen on a later bar. Same-bar fills are deliberately not offered because they are look-ahead.",
-          "x-default": "next_open",
+          "x-default": "next_close",
           "x-ask": "never"
         }
       }
@@ -116,7 +116,7 @@
       "properties": {
         "metric": {
           "enum": ["cagr", "sharpe", "sortino", "calmar", "max_drawdown", "ulcer_index", "total_return"],
-          "description": "max_drawdown and ulcer_index are minimized; the rest are maximized.",
+          "description": "Higher is better, except ulcer_index, where lower is. max_drawdown is negative, so higher means shallower (JOB.md section 5).",
           "x-ask": "always"
         },
         "min_trades": {
@@ -132,7 +132,7 @@
       "type": "array",
       "description": "Symbols held buy-and-hold over the same range for comparison. Synthetic extensions in universe apply to benchmarks with the same symbol.",
       "items": { "type": "string" },
-      "x-default": ["<each universe asset>", "SPY"]
+      "x-default-note": "each universe asset, then SPY"
     },
 
     "robustness": {
@@ -146,7 +146,7 @@
             { "type": "null" },
             { "type": "string", "format": "date" }
           ],
-          "x-default": "date at 60% of the range"
+          "x-default-note": "the date 60% of the way through the range"
         },
         "walk_forward": {
           "type": "object",

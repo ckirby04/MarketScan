@@ -44,9 +44,10 @@ you do not have one. The full account is in [`docs/STATUS.md`](docs/STATUS.md).
 
 ---
 
-## The two views
+## The views
 
-One running engine, two presentations, one keystroke apart (<kbd>F2</kbd>).
+One running engine, two presentations, one keystroke apart (<kbd>F2</kbd>) — and a third view for
+research, on <kbd>F3</kbd>.
 
 **Overview** — *is this working, and is it beating the market?* One number, one chart, one
 drawdown strip, four figures. Legible from across a room, and deliberately missing everything
@@ -66,6 +67,26 @@ test asserts the two produce identical curve geometry and identical entity-to-co
 
 Colour follows the entity, assigned from its stable plugin id — never from draw order — so hiding
 a series repaints nothing and the leaderboard never stops matching the chart.
+
+### Research (<kbd>F3</kbd>)
+
+A third view asks a different question: *is this idea any good, according to history?* A trading
+rule is written as a Strategy Form — by hand for now; the assistant that will fill it from plain
+English is not connected yet — and the research job runs it as a sweep, grades it against fixed
+gates, and returns a Results document. The screen reads in a fixed order: the verdict, the gates
+behind it, the stats, and only then any analysis, because analysis, however careful, can mislead.
+
+![Research form](docs/screenshots/research_form.png)
+
+![Research results](docs/screenshots/research_results.png)
+
+The verdict is a grade — supported, fragile, not supported, insufficient evidence — computed by
+published rules, never written by a language model, and never phrased as advice. The job's
+specification is [`contracts/research/JOB.md`](contracts/research/JOB.md); the research layer
+regrades every committed run from the engine's trace and must agree. Headless, the same job is
+`ms_research --form form.json --daily <dir> --out <dir>`. See
+[`SPEC_RESEARCH_VIEW.md`](docs/specs/SPEC_RESEARCH_VIEW.md) and
+[`contracts/`](contracts/README.md).
 
 ---
 
@@ -465,10 +486,15 @@ include/marketscan/   public headers
   live/               the paper-only live execution seam: HTTPS, WebSocket,
                       stream parser, recorder, live feed, live broker, calendar
   run/                the one run_backtest the CLI and Python both call
-  util/               logging, latency histogram
+  research/           the Research view's engine half: schema validator, the
+                      drawdown_entry rule, the graded research job
+  util/               logging, latency histogram, SHA-256
 src/                  implementation, mirroring include/
 apps/marketscan/      the desktop application
 apps/live/            ms_live: the paper-only command line to the live seam
+apps/research/        ms_research: a Strategy Form in, a graded Results document out
+contracts/            machine-readable contracts the engine and research layer
+                      both load: the Strategy Form, Results, catalog, assistant
 theories/             the USB port: strategy plugins, discovered at runtime
 bindings/python/      pybind11 module
 research/             the dynamometer: synthetic panels, and what the pipeline

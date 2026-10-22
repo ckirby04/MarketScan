@@ -69,8 +69,18 @@ struct HeadlessOptions {
     /// dashboard that has something on it.
     bool autoplay = false;
 
-    /// GUI only: "overview" or "operator". Empty uses the remembered mode.
+    /// GUI only: "overview", "operator" or "research". Empty uses the
+    /// remembered mode.
     std::string view_mode;
+
+    /// GUI only: where the Research view takes bars from -- a directory of
+    /// SYMBOL.msb files, and date,close CSVs as SYMBOL=PATH. With neither, the
+    /// committed fixture series.
+    std::string research_daily;
+    std::vector<std::string> research_csv;
+
+    /// GUI only: a Strategy Form to load into the Research view and run.
+    std::string research_form;
 
     /// GUI only: capture the window to this path and quit.
     std::string screenshot;

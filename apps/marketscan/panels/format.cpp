@@ -63,6 +63,24 @@ std::string format_percent(double fraction, int precision) {
     return buffer;
 }
 
+std::string format_points(double percent, int precision) {
+    if (!metrics::is_defined(percent)) {
+        return "--";
+    }
+    char buffer[32];
+    std::snprintf(buffer, sizeof buffer, "%+.*f%%", precision, percent);
+    return buffer;
+}
+
+std::string format_share(double share, int precision) {
+    if (!metrics::is_defined(share)) {
+        return "--";
+    }
+    char buffer[32];
+    std::snprintf(buffer, sizeof buffer, "%.*f%%", precision, share * 100.0);
+    return buffer;
+}
+
 std::string format_metric(double value, int precision) {
     // A dash, never a zero. Zero is a result; "undefined" is not.
     if (!metrics::is_defined(value)) {

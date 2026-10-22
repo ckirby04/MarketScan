@@ -150,6 +150,50 @@ TEST_CASE("the binder refuses missing data and a duplicated exit by path") {
     CHECK(paths.contains("/strategy/exit/rules/2"));
 }
 
+TEST_CASE("parameter_surface false hides the surface but the gates still measure it") {
+    json form = read_json(kFixtures / "job_form.json");
+    form["robustness"]["parameter_surface"] = false;
+    JobOptions options = fixture_options();
+    options.bootstrap_paths = 3;
+    const JobOutcome hidden = run_job(form, fixture_data(), options);
+    REQUIRE(hidden.ok());
+    CHECK(hidden.results["stats"]["parameter_surface"].is_null());
+    bool plateau_measured = false;
+    for (const json& gate : hidden.results["verdict"]["gates"]) {
+        plateau_measured =
+            plateau_measured || (gate["id"] == "plateau" && gate["status"] != "not_applicable");
+    }
+    CHECK(plateau_measured);
+}
+
+TEST_CASE("a sweep step too small to count is refused, not cast") {
+    json form = read_json(kFixtures / "job_form.json");
+    form["strategy"]["entry"]["threshold_pct"] = {
+        {"sweep", {{"min", 0.0}, {"max", 50.0}, {"step", 1e-300}}}};
+    const JobOutcome outcome = run_job(form, fixture_data(), fixture_options());
+    CHECK_FALSE(outcome.ok());
+}
+
+TEST_CASE("a run directory written by write_run reads back the same curves") {
+    JobOptions options = fixture_options();
+    options.bootstrap_paths = 2;
+    const JobOutcome outcome =
+        run_job(read_json(kFixtures / "job_form.json"), fixture_data(), options);
+    REQUIRE(outcome.ok());
+    const auto dir = std::filesystem::temp_directory_path() / "ms_write_run_test";
+    std::filesystem::remove_all(dir);
+    write_run(dir, read_json(kFixtures / "job_form.json"), outcome, true);
+    for (const char* file :
+         {"form.json", "results.json", "equity.csv", "curves.json", "trace.json"}) {
+        CHECK(std::filesystem::exists(dir / file));
+    }
+    const auto curves = read_curves(dir / "curves.json");
+    REQUIRE(curves.size() == outcome.curves.size());
+    CHECK(curves.front().equity == outcome.curves.front().equity);
+    CHECK(curves.back().drawdown == outcome.curves.back().drawdown);
+    std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("a sweep over five hundred points is refused") {
     json form = read_json(kFixtures / "job_form.json");
     form["strategy"]["entry"]["threshold_pct"] = {

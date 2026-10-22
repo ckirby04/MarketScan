@@ -212,6 +212,17 @@ TEST_CASE("a rule run refuses what it cannot run, by name") {
     CHECK(run.error.find("tranches") != std::string::npos);
 }
 
+TEST_CASE("day_of floors, so the day before the epoch is day -1") {
+    constexpr Timestamp kDay = 86'400LL * 1'000'000'000LL;
+    CHECK(day_of(0) == 0);
+    CHECK(day_of(kDay - 1) == 0);
+    CHECK(day_of(kDay) == 1);
+    // Truncation would call both of these day 0.
+    CHECK(day_of(-1) == -1);
+    CHECK(day_of(-kDay) == -1);
+    CHECK(day_of(-kDay - 1) == -2);
+}
+
 TEST_CASE("the drawdown_entry strategy is registered once the runner is linked") {
     CHECK(drawdown_entry_registered());
 }

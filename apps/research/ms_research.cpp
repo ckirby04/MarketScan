@@ -9,13 +9,14 @@
 // document that fails its own schema is an engine bug, and it is reported as
 // one rather than handed to a renderer.
 //
-// Writes, under --out: form.json (as run), results.json, equity.csv, and with
-// --trace, trace.json for research/grading.py.
+// Writes, under --out, the run directory research::write_run lays out -- the
+// same one the Research view writes, so a run made here can be opened there:
+// form.json (as run), results.json, equity.csv, curves.json, and with --trace,
+// trace.json for research/grading.py.
 
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -61,23 +62,6 @@ void usage() {
         throw std::runtime_error("cannot open '" + path.string() + "'");
     }
     return json::parse(in);
-}
-
-void write_text(const fs::path& path, const std::string& text) {
-    std::ofstream out(path, std::ios::binary);
-    if (!out) {
-        throw std::runtime_error("cannot write '" + path.string() + "'");
-    }
-    out << text;
-}
-
-[[nodiscard]] std::string utc_now() {
-    const std::time_t now = std::time(nullptr);
-    std::tm parts{};
-    gmtime_s(&parts, &now);
-    char buffer[32];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &parts);
-    return buffer;
 }
 
 void print_errors(const std::vector<marketscan::research::SchemaError>& errors) {
@@ -171,7 +155,8 @@ int main(int argc, char** argv) {
         }
 
         const auto began = std::chrono::steady_clock::now();
-        options.started_at = fixed_time ? "1970-01-01T00:00:00Z" : utc_now();
+        options.started_at =
+            fixed_time ? "1970-01-01T00:00:00Z" : marketscan::research::utc_timestamp();
         auto outcome = marketscan::research::run_job(form, *data, options);
         if (!outcome.ok()) {
             std::cerr << "the job refused this form:\n";
@@ -193,13 +178,7 @@ int main(int argc, char** argv) {
             return kEngineBug;
         }
 
-        fs::create_directories(out_dir);
-        write_text(out_dir / "form.json", form.dump(2) + "\n");
-        write_text(out_dir / "results.json", outcome.results.dump(2) + "\n");
-        write_text(out_dir / "equity.csv", outcome.equity_csv);
-        if (trace) {
-            write_text(out_dir / "trace.json", outcome.trace.dump() + "\n");
-        }
+        marketscan::research::write_run(out_dir, form, outcome, trace);
 
         const json& verdict = outcome.results["verdict"];
         std::cout << "grade      " << verdict["grade"].get<std::string>() << " ("

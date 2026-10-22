@@ -182,6 +182,17 @@ bool Application::initialise() {
     layout_built_ = layout_file_covers_all_panels();
 
     session_ = std::make_unique<Session>(options_.session);
+    research_ = std::make_unique<ResearchSession>(options_.research);
+    if (!options_.research_form.empty()) {
+        try {
+            std::ifstream in(options_.research_form, std::ios::binary);
+            research_->set_form(nlohmann::json::parse(in));
+            research_->run();
+        } catch (const std::exception& error) {
+            log::error("research",
+                       "could not load " + options_.research_form.string() + ": " + error.what());
+        }
+    }
     session_->set_speed(options_.speed);
     if (options_.autoplay) {
         session_->play();
@@ -326,10 +337,25 @@ void Application::draw_frame() {
     const float status_height =
         ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2.0F;
 
-    panels::Context context{*session_, *snapshot, ui_};
+    panels::Context context{*session_, *snapshot, ui_, research_.get()};
     const bool overview = ui_.view_mode == ViewMode::Overview;
 
-    if (overview) {
+    if (ui_.view_mode == ViewMode::Research) {
+        // Like Overview: a whole view, nothing dockable, so Operator's layout
+        // is untouched while it shows. The replay keeps running underneath --
+        // switching views never touches either session.
+        ImGui::BeginChild("##research_body", ImVec2(0.0F, -status_height));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0F, 12.0F));
+        ImGui::Indent(16.0F);
+        ImGui::Dummy(ImVec2(0.0F, 6.0F));
+        panels::research(context);
+        ImGui::Unindent(16.0F);
+        ImGui::PopStyleVar();
+        ImGui::EndChild();
+
+        draw_status_bar();
+        ImGui::End();
+    } else if (overview) {
         // No dockspace, and no panels submitted.
         //
         // That is how each mode keeps its own layout state without any being
@@ -375,7 +401,7 @@ void Application::draw_frame() {
     // Two frames apart, and in this order: focusing the leaderboard hands the
     // bottom node back, and focusing the equity chart afterwards moves the
     // focus out of that node without disturbing the selection it just made.
-    if (!overview && default_focus_stage_ > 0) {
+    if (ui_.view_mode == ViewMode::Operator && default_focus_stage_ > 0) {
         --default_focus_stage_;
         if (default_focus_stage_ == 2) {
             ImGui::SetWindowFocus("Leaderboard");
@@ -436,11 +462,14 @@ void Application::draw_menu_bar() {
         if (ImGui::MenuItem("Operator", "F2", ui_.view_mode == ViewMode::Operator)) {
             ui_.view_mode = ViewMode::Operator;
         }
+        if (ImGui::MenuItem("Research", "F3", ui_.view_mode == ViewMode::Research)) {
+            ui_.view_mode = ViewMode::Research;
+        }
         ImGui::Separator();
 
         // The panel toggles below belong to Operator. Greyed rather than hidden
         // in Overview, so the menu does not appear to lose entries.
-        ImGui::BeginDisabled(ui_.view_mode == ViewMode::Overview);
+        ImGui::BeginDisabled(ui_.view_mode != ViewMode::Operator);
         ImGui::MenuItem("Leaderboard", nullptr, &ui_.show_leaderboard);
         ImGui::MenuItem("Equity Curves", nullptr, &ui_.show_equity);
         ImGui::MenuItem("Drawdown", nullptr, &ui_.show_drawdown);
@@ -580,6 +609,9 @@ void Application::handle_shortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) {
         ui_.view_mode =
             ui_.view_mode == ViewMode::Overview ? ViewMode::Operator : ViewMode::Overview;
+    }
+    if (ImGui::IsKeyPressed(ImGuiKey_F3, false)) {
+        ui_.view_mode = ViewMode::Research;
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
         session_->toggle_play();

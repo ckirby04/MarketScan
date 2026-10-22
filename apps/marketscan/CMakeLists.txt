@@ -14,7 +14,10 @@ add_library(marketscan_app STATIC
     ui_state.cpp
     palette.cpp
     series_colors.cpp
-    chart_model.cpp)
+    chart_model.cpp
+    research_session.cpp
+    research_view.cpp
+    schema_form.cpp)
 add_library(marketscan::app ALIAS marketscan_app)
 
 target_include_directories(marketscan_app PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
@@ -53,6 +56,7 @@ if(MARKETSCAN_BUILD_GUI)
         panels/leaderboard.cpp
         panels/equity_chart.cpp
         panels/overview.cpp
+        panels/research.cpp
         panels/equity_curves.cpp
         panels/charts.cpp
         panels/tables.cpp

@@ -37,6 +37,14 @@ Refused, until the part of the system that would honour them exists:
 | `/strategy/entry/tranches` | more than four | the rule's limit |
 | any data | a symbol with no series, or no bar on or after the start date | |
 
+Accepted, with a known limit, rather than refused, because both are about what is reported and
+neither changes a number that is:
+
+- `robustness.regime_breakdown: true` gives an empty `stats.regimes`: named periods come from the
+  data catalog, which does not exist yet. The view says so.
+- `robustness.parameter_surface: false` reports `stats.parameter_surface` as null. The surface is
+  still computed, because the `multiple_testing` and `plateau` gates measure it.
+
 Bound values: `date_range.start` is the first decision day; bars before it are loaded as warmup,
 the most recent `warmup_days` of them, or all earlier bars when `warmup_days` is 0. Bars after
 `date_range.end` are dropped. `costs.slippage_bps` is the half-spread: the synthesized spread is
@@ -54,6 +62,11 @@ index is its position in that enumeration. More than 500 points is refused.
 
 The benchmark is run once: buy-and-hold of the primary benchmark (`benchmarks[0]`) over the same
 bars, costs and reserve (DRAWDOWN_ENTRY.md, "The benchmark").
+
+Every run -- sweep point, benchmark, bootstrap path -- is checked by the engine's own instruments
+before anything is graded. A ledger whose accounting identity did not hold, or a fill whose
+`price_ts` is not later than its `decision_ts`, refuses the whole job as an engine bug: a grade
+built on either would be a statement about the bug.
 
 ## 3. Windows
 
@@ -102,6 +115,17 @@ bar of a campaign's first buy fill, up to and including the bar of its sell fill
 `price * quantity + commission`, and its value is `price * quantity - commission` of its sell
 fill, or `close * quantity` at the last bar if still open. `return_pct = 100 * (value / cost - 1)`.
 A trade is closed in a window if its sell fill's bar is in it, and is `open` otherwise.
+
+A trade that straddles the split is counted by where it *started* for `n_entries` and for its
+`window` in `stats.trades`, and by where it *closed* for the win rate, average and worst trade.
+
+The rest of a trade's row in `stats.trades`: `entry_price` is `sum(price * quantity) / sum(quantity)`
+over its buy fills, without commission; `exit_price` is its sell fill's price, or the last close if
+open; `holding_days` is calendar days from its first buy fill's bar to its sell fill's bar, or to
+the last bar; `max_adverse_pct` is the least of `100 * (c_t / entry_price - 1)` over the bars from
+its first buy fill to its sell fill (or the last bar), and never above 0; `exit_reason` is the
+sell tag's reason, or `open`. These describe the trade and feed no gate, and the research layer
+does not recompute them.
 
 ## 5. Selection
 

@@ -31,9 +31,19 @@ The engine accepts only forms that validate against it.
 Add the name to `template`'s enum, define it under `$defs` with a `template` const, and add a
 `$ref` to it in `strategy.oneOf`. Shared sections (universe, costs, objective, robustness) do not change.
 
+## What the job can run today
+
+The schema describes the forms the system is meant to accept; the job honours a subset, and
+refuses the rest by path rather than approximating it ([`JOB.md`](JOB.md) section 1). Every
+`x-default` is a value the job can honour, so a form that leaves those fields alone runs. The
+committed example, `examples/tqqq_drawdown.json`, is the *target* shape -- synthetic history,
+total return, a T-bill cash yield, next-open fills -- and is refused today on each of those
+counts. `examples/starter_form.json` is one that runs.
+
+The sweep is capped at 500 points (JOB.md section 2).
+
 ## Open questions
 
-- Cap on sweep size (combinations across all params) before the engine refuses or samples.
 - Multi-asset templates will need `position_pct` per asset and a rebalancing block.
 - Whether `warmup_days` should default to "all available history", given how much it moves
   all-time-high-based results (see the TQQQ example).

@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -85,6 +86,30 @@ struct JobOptions {
     std::string data_snapshot = "unspecified";
     std::string engine_version;  // empty means this build's version
     std::string equity_uri = "equity.csv";
+
+    /// Called as the job goes: once per sweep point, once for the null, once
+    /// per bootstrap path. Returning false cancels the job, which then returns
+    /// an error and no Results -- never a partial grade, because a grade from
+    /// half the gates is a different claim from the one the Results make.
+    std::function<bool(std::string_view stage, int done, int total)> progress;
+};
+
+/// One curve for a chart, from the first decision bar to the last.
+///
+/// Computed here rather than by whoever draws it: the Research view reads these
+/// the way Overview reads a snapshot, and a view that derived its own drawdown
+/// would be the second implementation SPEC_VIEW_MODES.md forbids.
+struct JobCurve {
+    std::string id;
+    std::string label;
+    bool is_benchmark = false;
+    /// Seconds since the epoch, at each bar's close.
+    std::vector<double> times;
+    std::vector<double> equity;
+    /// Rebased to 1 at the first decision bar.
+    std::vector<double> normalised;
+    /// Underwater, as negative fractions of the running peak.
+    std::vector<double> drawdown;
 };
 
 struct JobError {
@@ -106,11 +131,32 @@ struct JobOutcome {
     /// Daily equity, "date,strategy,<benchmark>..." with a header.
     std::string equity_csv;
 
+    /// The selected point first, then each benchmark, in form order.
+    std::vector<JobCurve> curves;
+
+    /// True when `progress` returned false.
+    bool cancelled = false;
+
     [[nodiscard]] bool ok() const noexcept { return errors.empty(); }
 };
 
 [[nodiscard]] JobOutcome
 run_job(const nlohmann::json& form, const BarSource& data, const JobOptions& options = {});
+
+/// The current UTC time, RFC 3339, for `JobOptions::started_at`.
+[[nodiscard]] std::string utc_timestamp();
+
+/// Writes a finished job as a run directory: form.json, results.json,
+/// equity.csv, curves.json, and trace.json when asked. The one layout both
+/// `ms_research` and the Research view write, so a run from either appears in
+/// the view's Recent list. Throws std::runtime_error on a failed write.
+void write_run(const std::filesystem::path& directory,
+               const nlohmann::json& form,
+               const JobOutcome& outcome,
+               bool with_trace = false);
+
+/// Reads curves.json as write_run wrote it. Throws on anything malformed.
+[[nodiscard]] std::vector<JobCurve> read_curves(const std::filesystem::path& path);
 
 /// JOB.md section 6: the form without `prompt` and `provenance`, keys sorted,
 /// no whitespace. Its SHA-256 names the form and seeds the job.

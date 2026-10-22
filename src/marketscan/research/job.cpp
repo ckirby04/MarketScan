@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <limits>
 #include <numeric>
@@ -99,6 +100,77 @@ std::optional<BarSeries> MemoryBarSource::load(std::string_view symbol) const {
         return std::nullopt;
     }
     return it->second;
+}
+
+// --- Run directories --------------------------------------------------------
+
+std::string utc_timestamp() {
+    const std::time_t now = std::time(nullptr);
+    std::tm parts{};
+#ifdef _WIN32
+    gmtime_s(&parts, &now);
+#else
+    gmtime_r(&now, &parts);
+#endif
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%SZ", &parts);
+    return buffer;
+}
+
+namespace {
+
+void write_file(const std::filesystem::path& path, const std::string& text) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out) {
+        throw std::runtime_error("cannot write '" + path.string() + "'");
+    }
+    out << text;
+}
+
+}  // namespace
+
+void write_run(const std::filesystem::path& directory,
+               const json& form,
+               const JobOutcome& outcome,
+               bool with_trace) {
+    std::filesystem::create_directories(directory);
+    write_file(directory / "form.json", form.dump(2) + "\n");
+    write_file(directory / "results.json", outcome.results.dump(2) + "\n");
+    write_file(directory / "equity.csv", outcome.equity_csv);
+    json curves = json::array();
+    for (const JobCurve& curve : outcome.curves) {
+        curves.push_back(json{{"id", curve.id},
+                              {"label", curve.label},
+                              {"is_benchmark", curve.is_benchmark},
+                              {"times", curve.times},
+                              {"equity", curve.equity},
+                              {"normalised", curve.normalised},
+                              {"drawdown", curve.drawdown}});
+    }
+    write_file(directory / "curves.json", curves.dump() + "\n");
+    if (with_trace) {
+        write_file(directory / "trace.json", outcome.trace.dump() + "\n");
+    }
+}
+
+std::vector<JobCurve> read_curves(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) {
+        throw std::runtime_error("cannot open '" + path.string() + "'");
+    }
+    std::vector<JobCurve> out;
+    for (const json& c : json::parse(in)) {
+        JobCurve curve;
+        curve.id = c.at("id").get<std::string>();
+        curve.label = c.at("label").get<std::string>();
+        curve.is_benchmark = c.at("is_benchmark").get<bool>();
+        curve.times = c.at("times").get<std::vector<double>>();
+        curve.equity = c.at("equity").get<std::vector<double>>();
+        curve.normalised = c.at("normalised").get<std::vector<double>>();
+        curve.drawdown = c.at("drawdown").get<std::vector<double>>();
+        out.push_back(std::move(curve));
+    }
+    return out;
 }
 
 // --- Shared pieces ----------------------------------------------------------
@@ -322,11 +394,14 @@ private:
                 refuse(path + "/sweep", "max is below min");
                 return;
             }
-            const auto n = static_cast<long long>(std::floor((max - min) / step + 1e-9)) + 1;
-            if (n > kMaxPoints) {
+            // Counted in double first: a tiny step makes the count too large
+            // for an integer, and the cast would be undefined.
+            const double count = std::floor((max - min) / step + 1e-9) + 1.0;
+            if (!(count <= static_cast<double>(kMaxPoints))) {
                 refuse(path + "/sweep", "more than " + std::to_string(kMaxPoints) + " values");
                 return;
             }
+            const auto n = static_cast<long long>(count);
             for (long long i = 0; i < n; ++i) {
                 param.values.push_back(min + static_cast<double>(i) * step);
             }
@@ -1214,17 +1289,42 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
     }
     SplitMix64 rng(seed);
 
+    // Every run is checked by the engine's own instruments before it is graded:
+    // a ledger that did not balance, or a fill priced off something its decision
+    // had already seen, is an engine bug, and a grade built on it would be a
+    // statement about the bug.
     const auto run = [&](const Series& series, const RuleParams& rule) {
         RuleRunConfig config = bound.base;
         config.series = series.bars;
         config.rule = rule;
-        return run_rule(config);
+        RuleRun result = run_rule(config);
+        if (result.ok() && !result.invariant_held) {
+            result.error = "ENGINE BUG: the ledger's accounting identity did not hold";
+        }
+        for (const RuleFill& fill : result.fills) {
+            if (result.ok() && !fill.honest) {
+                result.error = "ENGINE BUG: a fill was priced no later than its decision";
+            }
+        }
+        return result;
     };
 
     // --- 2. The sweep ---------------------------------------------------------
     const auto grid = enumerate_points(bound);
     std::vector<Measured> points;
+    const auto report = [&](std::string_view stage, int done, int total) {
+        if (options.progress && !options.progress(stage, done, total)) {
+            outcome.errors.push_back({"", "cancelled"});
+            outcome.cancelled = true;
+            return false;
+        }
+        return true;
+    };
+    const auto grid_size = static_cast<int>(grid.size());
     for (const auto& point : grid) {
+        if (!report("sweep", static_cast<int>(points.size()), grid_size)) {
+            return outcome;
+        }
         const RuleRun result = run(asset, rule_for(bound, point));
         if (!result.ok()) {
             outcome.errors.push_back({"/strategy", result.error});
@@ -1275,6 +1375,9 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
     const Measured& best = points[selected];
 
     // --- 6, 7, 8 --------------------------------------------------------------
+    if (!report("random timing", 0, 1)) {
+        return outcome;
+    }
     const NullResult null =
         random_timing(asset, best.analysis, bound.metric, options.null_draws, rng);
     const bool swept = !bound.swept.empty();
@@ -1292,6 +1395,9 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
     json trace_paths = json::array();
     json first_path_closes = json::array();
     for (int n = 0; n < options.bootstrap_paths; ++n) {
+        if (!report("bootstrap", n, options.bootstrap_paths)) {
+            return outcome;
+        }
         Series path = asset;
         path.bars = resample(asset, rng);
         for (std::size_t t = 0; t < path.closes.size(); ++t) {
@@ -1547,6 +1653,12 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
                        {"selected_index", selected},
                        {"plateau_ratio", num(plateau)},
                        {"effective_n", n_eff}};
+        // Reported unless the form asked not to. The gates still use it: the
+        // surface is what multiple_testing and plateau measure, whether or not
+        // it is shown.
+        if (!form.at("robustness").value("parameter_surface", true)) {
+            surface = nullptr;
+        }
     }
 
     json data_list = json::array();
@@ -1686,6 +1798,37 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
             }
         }
         csv << "\n";
+    }
+
+    // --- The curves -----------------------------------------------------------------
+    const auto curve_of = [](const Series& series,
+                             const std::vector<double>& equity,
+                             std::string id,
+                             std::string label,
+                             bool is_benchmark) {
+        JobCurve curve;
+        curve.id = std::move(id);
+        curve.label = std::move(label);
+        curve.is_benchmark = is_benchmark;
+        double peak = equity[series.s];
+        for (std::size_t t = series.s; t <= series.e; ++t) {
+            curve.times.push_back(static_cast<double>(series.bars.bars[t].ts) / 1e9);
+            curve.equity.push_back(equity[t]);
+            curve.normalised.push_back(equity[t] / equity[series.s]);
+            peak = std::max(peak, equity[t]);
+            curve.drawdown.push_back(equity[t] / peak - 1.0);
+        }
+        return curve;
+    };
+    outcome.curves.push_back(
+        curve_of(asset, best.analysis.equity, "strategy", "Drawdown entry", false));
+    for (std::size_t i = 0; i < benchmarks.size(); ++i) {
+        const Series& series = bound.benchmarks[i];
+        outcome.curves.push_back(curve_of(series,
+                                          benchmarks[i].analysis.equity,
+                                          "benchmark:" + series.symbol,
+                                          "Buy and hold " + series.symbol,
+                                          true));
     }
 
     outcome.results = std::move(results);

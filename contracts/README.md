@@ -36,7 +36,8 @@ ms_research --form form.json --csv FIXTURE=prices.csv --out runs/fixture --trace
 It validates the form against `strategy_form.schema.json`, runs the job
 ([`research/JOB.md`](research/JOB.md)), validates the Results against `results.schema.json` -- a
 Results document that fails its own schema is reported as an engine bug, not written -- and writes
-`form.json`, `results.json` and `equity.csv`. A form the job cannot honour is refused with every
+`form.json`, `results.json`, `equity.csv` and `curves.json`: the same run directory the Research view
+writes, so a run made here appears in its Recent list. A form the job cannot honour is refused with every
 reason, each naming the form path it is about.
 
 `ms_research` is its own executable rather than `marketscan --headless --research`, as

@@ -370,6 +370,11 @@ void Broker::on_market_event(SymbolId symbol, Timestamp now) {
             // flight until now, because a zero-latency one resolved in
             // submit().
             finalise_immediate(order, now, outcome);
+            // Counted here rather than in finalise_immediate, which submit()
+            // also calls and then counts for itself.
+            if (order.status == OrderStatus::Rejected) {
+                ++rejected_count_;
+            }
         }
     }
 

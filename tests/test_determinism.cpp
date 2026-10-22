@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "temp_paths.hpp"
 #include <catch2/catch_test_macros.hpp>
 
 #include "marketscan/core/engine.hpp"
@@ -510,9 +511,7 @@ namespace {
 class SoloTheoryDir {
 public:
     explicit SoloTheoryDir(const std::string& dll_name) {
-        static int counter = 0;
-        path_ = std::filesystem::temp_directory_path() /
-                ("marketscan_solo_" + std::to_string(++counter) + "_" + dll_name);
+        path_ = test::unique_temp_path("marketscan_solo_", "_" + std::string(dll_name));
         std::filesystem::create_directories(path_);
         std::filesystem::copy_file(std::filesystem::path(MARKETSCAN_THEORY_DIR) / dll_name,
                                    path_ / dll_name,

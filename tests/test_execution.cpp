@@ -254,6 +254,30 @@ TEST_CASE("an order refused on arrival is reported and counted", "[exec][latency
     CHECK(log.statuses[0].filled_quantity == 0.0);
 }
 
+// The other way an order can be refused on arrival: nothing on its side of the
+// book to cross. It was always reported; it was not always counted.
+TEST_CASE("an order with nothing to fill against on arrival is counted as refused",
+          "[exec][latency][reject]") {
+    Market market;
+    market.quote(99.95, 500, 100.05, 500);
+
+    FillModelConfig config = bare();
+    config.submit_latency = 50 * kMillis;
+    const SpreadCrossingFillModel model(config);
+    Broker broker(Money::from_dollars(1'000'000), &model, &market.view());
+
+    const OrderId id = broker.submit(market_order(market.symbol(), MS_SIDE_BUY, 100), market.now());
+    REQUIRE(id != kInvalidOrderId);
+
+    // The offer is gone by the time the order arrives.
+    market.advance(60 * kMillis);
+    market.quote(99.95, 500, 0.0, 0.0);
+    broker.on_market_event(market.symbol(), market.now());
+
+    CHECK(broker.find_order(id)->status == OrderStatus::Rejected);
+    CHECK(broker.rejected_count() == 1);
+}
+
 TEST_CASE("latency is deterministic, jitter included", "[exec][latency][determinism]") {
     const auto run = [](std::uint64_t seed) {
         Market market;

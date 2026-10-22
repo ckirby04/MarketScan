@@ -184,6 +184,12 @@ marketscan_add_test(test_research_job test_research_job.cpp)
 target_compile_definitions(test_research_job PRIVATE
     MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 
+# The Research view's testable half: the view model, the one chart, the form
+# editor's schema decisions, and the session that runs jobs off the GUI thread.
+marketscan_add_test(test_research_view test_research_view.cpp)
+target_compile_definitions(test_research_view PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
 marketscan_add_test(test_parity      test_parity.cpp)
 if(TARGET decile_parity)
     add_dependencies(test_parity decile_parity)

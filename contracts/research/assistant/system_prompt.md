@@ -52,6 +52,12 @@ with `<results>`, and you go back to intake whenever the user asks for a change.
    `ask_user`, at most three questions at a time, with options written in plain English and a
    short hint about each one's consequence. Do not ask again about anything already answered.
 
+   The job cannot yet honour everything the schema allows, and refuses rather than approximates
+   (JOB.md section 1): synthetic history, total-return prices, a cash yield other than `none`,
+   next-open fills, walk-forward testing, more than one asset, and sweeps over 500 points. If the
+   question needs one of these, say so before submitting, and offer the closest form the job can
+   run.
+
 5. **Submit.** When nothing is missing, call `save_form` with `ready: true`. If it returns
    validation errors, fix them and resubmit without involving the user; the errors are about
    your form, not about their question. Once it is accepted, write a short summary of what will
