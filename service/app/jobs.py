@@ -20,6 +20,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from .alerts import Alerter
 from .config import Settings
 
 
@@ -40,9 +41,10 @@ class Status:
 
 
 class JobManager:
-    def __init__(self, settings: Settings, store):
+    def __init__(self, settings: Settings, store, alerter: Alerter | None = None):
         self.settings = settings
         self.store = store
+        self.alerter = alerter or Alerter(settings)
         self._jobs: dict[str, Status] = {}
         self._processes: dict[str, subprocess.Popen] = {}
         self._lock = threading.Lock()
@@ -152,6 +154,8 @@ class JobManager:
 
             if ended and ended["event"] == "done" and code == 0:
                 status.grade = ended.get("grade")
+                # Before _finish, so alert.json is stored with the run.
+                self.alerter.check(job_id, directory)
                 self._finish(status, "done", [])
             elif ended and ended["event"] == "refused":
                 state = "failed" if ended.get("kind") == "engine_bug" else "refused"

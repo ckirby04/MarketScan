@@ -58,6 +58,26 @@ classifier are re-run server-side on Anthropic's recommended fallback model
 Without `ANTHROPIC_API_KEY` the assistant's routes answer 503 and everything else
 works as before.
 
+## Alerts
+
+When a job finishes, [`app/alerts.py`](app/alerts.py) reads the Results' scorecard (JOB.md
+section 11) and emails when the overall score is at least `MS_ALERT_MIN_SCORE` (80) and the
+verdict is at least `MS_ALERT_MIN_ROBUSTNESS` (`supported`; empty lets any verdict through).
+The floor is on by default because a sweep's luckiest point can score an A while failing its
+robustness checks: the committed fixture is one. Every run records its decision, sent or not and
+why, as `alert.json` beside its Results; a failed email never fails the job.
+
+| variable | |
+|---|---|
+| `MS_ALERT_EMAIL_TO` | where alerts go; unset, nothing is sent |
+| `RESEND_API_KEY` | the email service's key ([Resend](https://resend.com)); unset, nothing is sent |
+| `MS_ALERT_FROM` | the sender, default Resend's shared test address, which only delivers to the account's own email |
+| `MS_ALERT_MIN_SCORE`, `MS_ALERT_MIN_ROBUSTNESS` | the rule |
+| `MS_PUBLIC_URL` | the web app's address, for the link in an alert |
+
+`deploy.ps1 -AlertEmail you@example.com -PublicUrl https://...` stores `RESEND_API_KEY` from your
+user environment as the secret `resend-api-key`, the same way it keeps the Anthropic key.
+
 ## Running it locally
 
 ```powershell

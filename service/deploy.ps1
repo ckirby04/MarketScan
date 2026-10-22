@@ -36,7 +36,16 @@ param(
     # Folders in the data bucket holding .msb files, in the order the engine
     # looks: prices, then rates. recipes.json at the bucket's root, when there,
     # is the catalog's synthetic recipes (scripts/build_recipes.py).
-    [string[]]$DataDirs = @("sharadar", "fred")
+    [string[]]$DataDirs = @("sharadar", "fred"),
+    # Alerts (docs/specs/SPEC_SCORECARD_ALERTS.md section 5). An address and
+    # RESEND_API_KEY in the user's environment turn them on; either missing
+    # deploys without them.
+    [string]$AlertEmail = "",
+    [double]$AlertMinScore = 80,
+    # The weakest verdict that may alert; "" lets any verdict through.
+    [string]$AlertMinRobustness = "supported",
+    # The web app's address, for the link in an alert.
+    [string]$PublicUrl = ""
 )
 # Failures are caught by exit code (Invoke-Gcloud and Test-Gcloud), not by
 # $ErrorActionPreference: gcloud writes progress and notices to stderr, and
@@ -100,41 +109,57 @@ $account = "$number-compute@developer.gserviceaccount.com"
 Invoke-Gcloud secrets add-iam-policy-binding ms-api-key `
     --member "serviceAccount:$account" --role roles/secretmanager.secretAccessor
 
-# The assistant's Anthropic key, from ANTHROPIC_API_KEY in the user's
-# environment, kept as a secret: a new version only when it has changed, and
-# never echoed. With no key anywhere the service runs without the assistant.
-$secrets = "MS_API_KEY=ms-api-key:latest"
-$anthropicKey = [Environment]::GetEnvironmentVariable("ANTHROPIC_API_KEY", "User")
-if (-not $anthropicKey) { $anthropicKey = $env:ANTHROPIC_API_KEY }
-$haveAnthropicSecret = Test-Gcloud secrets describe anthropic-api-key
-if ($anthropicKey) {
-    $anthropicKey = $anthropicKey.Trim()
-    $stored = ""
-    if ($haveAnthropicSecret) {
-        $stored = ((& $gcloud secrets versions access latest --secret anthropic-api-key 2> $null) -join "").Trim()
-    }
-    if ($stored -ne $anthropicKey) {
-        $file = New-TemporaryFile
-        try {
-            [IO.File]::WriteAllText($file, $anthropicKey)
-            if ($haveAnthropicSecret) {
-                Invoke-Gcloud secrets versions add anthropic-api-key --data-file $file
-            } else {
-                Invoke-Gcloud secrets create anthropic-api-key --data-file $file
-            }
-        } finally {
-            Remove-Item $file
+# A key from the user's environment, kept as a secret: a new version only when
+# it has changed, and never echoed. Returns whether the secret exists, so the
+# service can be given it; with no key anywhere the feature is left off.
+function Sync-KeySecret([string]$Variable, [string]$Secret) {
+    $key = [Environment]::GetEnvironmentVariable($Variable, "User")
+    if (-not $key) { $key = [Environment]::GetEnvironmentVariable($Variable) }
+    $have = Test-Gcloud secrets describe $Secret
+    if ($key) {
+        $key = $key.Trim()
+        $stored = ""
+        if ($have) {
+            $stored = ((& $gcloud secrets versions access latest --secret $Secret 2> $null) -join "").Trim()
         }
-        Write-Host "stored ANTHROPIC_API_KEY as secret anthropic-api-key"
+        if ($stored -ne $key) {
+            $file = New-TemporaryFile
+            try {
+                [IO.File]::WriteAllText($file, $key)
+                if ($have) {
+                    Invoke-Gcloud secrets versions add $Secret --data-file $file | Out-Host
+                } else {
+                    Invoke-Gcloud secrets create $Secret --data-file $file | Out-Host
+                }
+            } finally {
+                Remove-Item $file
+            }
+            Write-Host "stored $Variable as secret $Secret"
+        }
+        $have = $true
     }
-    $haveAnthropicSecret = $true
+    if ($have) {
+        Invoke-Gcloud secrets add-iam-policy-binding $Secret `
+            --member "serviceAccount:$account" --role roles/secretmanager.secretAccessor | Out-Host
+    }
+    return $have
 }
-if ($haveAnthropicSecret) {
-    Invoke-Gcloud secrets add-iam-policy-binding anthropic-api-key `
-        --member "serviceAccount:$account" --role roles/secretmanager.secretAccessor
+
+$secrets = "MS_API_KEY=ms-api-key:latest"
+# The assistant's Anthropic key. Without it the service runs without the assistant.
+if (Sync-KeySecret "ANTHROPIC_API_KEY" "anthropic-api-key") {
     $secrets += ",ANTHROPIC_API_KEY=anthropic-api-key:latest"
 } else {
     Write-Host "no ANTHROPIC_API_KEY: deploying without the assistant"
+}
+# The email service's key, for alerts.
+$alerting = $false
+if (Sync-KeySecret "RESEND_API_KEY" "resend-api-key") {
+    $secrets += ",RESEND_API_KEY=resend-api-key:latest"
+    $alerting = [bool]$AlertEmail
+}
+if (-not $alerting) {
+    Write-Host "alerts off: they need -AlertEmail and RESEND_API_KEY"
 }
 Invoke-Gcloud storage buckets add-iam-policy-binding "gs://$Bucket" `
     --member "serviceAccount:$account" --role roles/storage.objectAdmin
@@ -165,6 +190,14 @@ if ($DataBucket) {
     )
     $environment["MS_DAILY_DIR"] = ($DataDirs | ForEach-Object { "/data/$_" }) -join ","
     $environment["MS_RECIPES"] = "/data/recipes.json"
+}
+if ($alerting) {
+    $environment["MS_ALERT_EMAIL_TO"] = $AlertEmail
+    $environment["MS_ALERT_MIN_SCORE"] = "$AlertMinScore"
+    $environment["MS_ALERT_MIN_ROBUSTNESS"] = $AlertMinRobustness
+}
+if ($PublicUrl) {
+    $environment["MS_PUBLIC_URL"] = $PublicUrl
 }
 
 # The variables go in a file rather than on the command line: MS_DAILY_DIR
