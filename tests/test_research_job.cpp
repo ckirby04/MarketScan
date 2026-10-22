@@ -139,7 +139,8 @@ TEST_CASE("the binder refuses what it cannot honour, every reason at once, by pa
     CHECK(paths.contains("/cash/yield"));
     CHECK(paths.contains("/execution/fill"));
     CHECK(paths.contains("/robustness/walk_forward"));
-    CHECK(paths.contains("/universe/assets/0/synthetic_extension"));
+    // No recipe "r" in the (empty) catalog: refused by name, not approximated.
+    CHECK(paths.contains("/universe/assets/0/synthetic_extension/recipe_id"));
 }
 
 TEST_CASE("the binder refuses missing data and a duplicated exit by path") {

@@ -195,6 +195,12 @@ target_compile_definitions(test_research_job PRIVATE
 # have to exist first.
 add_dependencies(test_research_job ms_research ms_live)
 
+# Synthetic history (JOB.md section 1a), cross-tested against
+# research/synthetic.py through data/samples/research/synthetic_cases.json.
+marketscan_add_test(test_research_synthetic test_research_synthetic.cpp)
+target_compile_definitions(test_research_synthetic PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
 # The Research view's testable half: the view model, the one chart, the form
 # editor's schema decisions, and the session that runs jobs off the GUI thread.
 marketscan_add_test(test_research_view test_research_view.cpp)

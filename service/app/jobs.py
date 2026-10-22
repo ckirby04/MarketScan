@@ -100,8 +100,12 @@ class JobManager:
             "--paths", str(s.bootstrap_paths),
             "--machine",
         ]
-        if s.daily_dir is not None:
-            command += ["--daily", str(s.daily_dir), "--data-snapshot", str(s.daily_dir)]
+        for directory in s.daily_dirs():
+            command += ["--daily", str(directory)]
+        if s.daily_dirs():
+            command += ["--data-snapshot", ",".join(str(d) for d in s.daily_dirs())]
+        if s.recipes is not None and s.recipes.exists():
+            command += ["--recipes", str(s.recipes)]
         for symbol, path in s.csv_sources:
             command += ["--csv", f"{symbol}={path}"]
         return command

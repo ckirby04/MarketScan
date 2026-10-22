@@ -33,7 +33,10 @@ param(
     # A bucket holding the daily price cache, mounted read-only into the
     # service at /data. Empty runs on the committed synthetic fixture only.
     [string]$DataBucket = "",
-    [string]$DataPrefix = "sharadar"
+    # Folders in the data bucket holding .msb files, in the order the engine
+    # looks: prices, then rates. recipes.json at the bucket's root, when there,
+    # is the catalog's synthetic recipes (scripts/build_recipes.py).
+    [string[]]$DataDirs = @("sharadar", "fred")
 )
 # Failures are caught by exit code (Invoke-Gcloud and Test-Gcloud), not by
 # $ErrorActionPreference: gcloud writes progress and notices to stderr, and
@@ -159,7 +162,10 @@ if ($DataBucket) {
         "--add-volume", "name=data,type=cloud-storage,bucket=$DataBucket,readonly=true",
         "--add-volume-mount", "volume=data,mount-path=/data"
     )
-    $dataEnv = ",MS_DAILY_DIR=/data/$DataPrefix"
+    # MS_DAILY_DIR holds commas, so the variables are separated by "|" instead:
+    # the "^|^" at the start of --set-env-vars is gcloud's syntax for that.
+    $daily = ($DataDirs | ForEach-Object { "/data/$_" }) -join ","
+    $dataEnv = "|MS_DAILY_DIR=$daily|MS_RECIPES=/data/recipes.json"
 } else {
     $dataEnv = ""
 }
@@ -174,7 +180,7 @@ Invoke-Gcloud run deploy $Service `
     --cpu 2 `
     --memory 2Gi `
     --timeout 3600 `
-    --set-env-vars "MS_RUNS_BUCKET=$Bucket$dataEnv" `
+    --set-env-vars "^|^MS_RUNS_BUCKET=$Bucket$dataEnv" `
     --set-secrets $secrets `
     @dataArgs
 

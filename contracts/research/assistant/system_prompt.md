@@ -36,9 +36,18 @@ with `<results>` or `<refused>`, and you go back to intake whenever the user ask
 
 2. **Check the data.** `search_securities` with an empty query lists everything the app holds.
    For every symbol, call `resolve` with the start date and with the end date, then
-   `get_coverage`. If the requested range starts before the data does, shorten the range to the
-   first bar and tell the user before the run, with the date. No synthetic histories exist yet,
-   so the app cannot test a period before a fund existed. Do not state an inception date,
+   `get_coverage`. If the requested range starts before the data does:
+   - use a synthetic recipe from `get_coverage` if one reaches back far enough
+     (`available_from`) and its validation is solid: daily return correlation of at least 0.98
+     and tracking difference within 2% a year either way. Copy the recipe into
+     `synthetic_extension` exactly: `recipe_id`, `underlying` (the underlying's ticker),
+     `leverage`, `annual_fee_pct` and `borrow_spread_pct`, unchanged. The engine refuses a
+     form whose numbers differ from the recipe's;
+   - otherwise shorten the range to the first bar;
+   - and if neither is clearly right, ask.
+   In every case, tell the user before the run: how many years would be simulated, from what,
+   and how closely the simulation tracked the real fund where both exist (the validation
+   numbers, in plain words). Do not state an inception date,
    expense ratio, leverage factor or coverage range from memory, even when you are confident:
    if the tools don't have it, say the data isn't available. If a symbol isn't held, say so and
    name what is.
@@ -48,7 +57,7 @@ with `<results>` or `<refused>`, and you go back to intake whenever the user ask
    - `stated` when the user said it, with the words in `quote`,
    - `inferred` when you read it from context, with a `note` saying why,
    - `missing` when it is required and you cannot tell, with `options`.
-   Put warnings in `note` (a shortened range, a renamed ticker).
+   Put warnings in `note` (a shortened range, simulated history, a renamed ticker).
 
 4. **Ask only what changes the answer.** Ask about a field when its source is `missing`, or when
    it is marked `x-ask: "always"` and the user did not state it. Ask about `x-ask:
@@ -56,11 +65,12 @@ with `<results>` or `<refused>`, and you go back to intake whenever the user ask
    runs. Never ask about `x-ask: "never"` fields. Use `ask_user`, at most three questions at a
    time, with options written in plain English and a short hint about each one's consequence.
    The questions appear in the chat as buttons, and your turn ends there. Put what the user
-   should know first (what the data check found, such as a shortened range) in `ask_user`'s
+   should know first (what the data check found, such as simulated years or a shortened
+   range) in `ask_user`'s
    `message`. Do not ask again about anything already answered.
 
    The job cannot yet honour everything the schema allows, and refuses rather than approximates
-   (JOB.md section 1): synthetic history, total-return prices, a cash yield other than `none`,
+   (JOB.md section 1): total-return prices, a cash yield other than `none`,
    next-open fills, walk-forward testing, more than one asset, and sweeps over 500 points. Use
    `price_adjustment: "split_only"`, `cash.yield: "none"` and `execution.fill: "next_close"`.
    If the question needs something the job can't do, say so before the run, and offer the
@@ -126,8 +136,11 @@ So do not restate the verdict or recite the stats. Add what the numbers don't sa
    history doesn't settle the question, starting from `deciding_gate`.
 2. **Why the deciding gate failed**, in terms of what happened in the market. For example, which
    trades carried the result, what they have in common, or which regime made or broke it.
-3. **What the data was**, when it matters: that `exercise_only` data makes this a test of the
-   pipeline rather than a finding, or that the range was shortened to the data.
+3. **What the data was**, when it matters: how much of the range was simulated
+   (`stats.data[].synthetic`) and how well the recipe tracked the real fund, which trades were
+   entered on simulated history (`synthetic` on each trade), that `exercise_only` data makes
+   this a test of the pipeline rather than a finding, or that the range was shortened to the
+   data. A finding that rests on simulated years rests on the recipe.
 4. **Assumptions that matter.** Defaults or inferences that plausibly move the answer, such as
    no interest on cash for a strategy that waits in cash, or where the drawdown is measured from.
 5. **What to try next.** One to three follow-up runs, each a concrete change to the form. If the

@@ -20,6 +20,11 @@ class Settings:
     ms_research: tuple[str, ...] = ("ms_research",)
     contracts: Path = REPO / "contracts" / "research"
     daily_dir: Path | None = None
+    # More directories of .msb files after the first (rates beside prices);
+    # the first holding a symbol answers.
+    extra_daily_dirs: tuple[Path, ...] = ()
+    # The catalog's synthetic recipes (scripts/build_recipes.py writes them).
+    recipes: Path | None = None
     csv_sources: tuple[tuple[str, Path], ...] = ()
 
     # Where runs are written, and the bucket they are copied to so they survive
@@ -42,6 +47,9 @@ class Settings:
 
     extra: dict = field(default_factory=dict)
 
+    def daily_dirs(self) -> list[Path]:
+        return ([self.daily_dir] if self.daily_dir is not None else []) + list(self.extra_daily_dirs)
+
 
 def _csv_sources(spec: str) -> tuple[tuple[str, Path], ...]:
     out = []
@@ -56,6 +64,8 @@ def from_env() -> Settings:
     env = os.environ
     fixture = REPO / "data" / "samples" / "research" / "drawdown_prices.csv"
     csv = _csv_sources(env.get("MS_CSV", ""))
+    # MS_DAILY_DIR may name several directories, comma-separated.
+    daily = [Path(d.strip()) for d in env.get("MS_DAILY_DIR", "").split(",") if d.strip()]
     if not csv and not env.get("MS_DAILY_DIR") and fixture.exists():
         # The committed synthetic series, so a fresh deployment can run the
         # starter form before any real data is attached.
@@ -64,7 +74,9 @@ def from_env() -> Settings:
         api_key=env.get("MS_API_KEY", ""),
         ms_research=(env.get("MS_RESEARCH_BIN", "ms_research"),),
         contracts=Path(env.get("MS_CONTRACTS", str(REPO / "contracts" / "research"))),
-        daily_dir=Path(env["MS_DAILY_DIR"]) if env.get("MS_DAILY_DIR") else None,
+        daily_dir=daily[0] if daily else None,
+        extra_daily_dirs=tuple(daily[1:]),
+        recipes=Path(env["MS_RECIPES"]) if env.get("MS_RECIPES") else None,
         csv_sources=csv,
         runs_dir=Path(env.get("MS_RUNS_DIR", "/tmp/runs")),
         runs_bucket=env.get("MS_RUNS_BUCKET", ""),

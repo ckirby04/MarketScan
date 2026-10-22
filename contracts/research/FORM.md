@@ -36,9 +36,10 @@ Add the name to `template`'s enum, define it under `$defs` with a `template` con
 The schema describes the forms the system is meant to accept; the job honours a subset, and
 refuses the rest by path rather than approximating it ([`JOB.md`](JOB.md) section 1). Every
 `x-default` is a value the job can honour, so a form that leaves those fields alone runs. The
-committed example, `examples/tqqq_drawdown.json`, is the *target* shape -- synthetic history,
-total return, a T-bill cash yield, next-open fills -- and is refused today on each of those
-counts. `examples/starter_form.json` is one that runs.
+committed example, `examples/tqqq_drawdown.json`, is the *target* shape -- total return, a
+T-bill cash yield, next-open fills -- and is refused today on each of those counts.
+`examples/starter_form.json` is one that runs, and so is the assistant's example,
+`assistant/example_form.json`, which extends TQQQ before 2010 with synthetic history.
 
 The sweep is capped at 500 points (JOB.md section 2).
 

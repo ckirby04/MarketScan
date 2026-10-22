@@ -67,13 +67,22 @@ underlying.
 |---|---|
 | `recipe_id` | |
 | `target_security_id`, `underlying_security_id` | |
-| `method` | `daily_leverage` only for now: `r = L * r_u - (fee + (L - 1) * (cash_rate + borrow_spread)) / 252`. |
-| `params` | `leverage`, `annual_fee_pct`, `borrow_spread_pct`, `cash_rate_series_id`. |
+| `method` | `daily_leverage` only for now: `r = L * r_u - (fee + (L - 1) * (cash_rate + borrow_spread)) / 252`, rates in percent, the cash rate as of the start of each day's interval. [`JOB.md`](JOB.md) section 1a fixes the arithmetic exactly. |
+| `params` | `leverage`, `annual_fee_pct` (with `fee_source`: where it was read), `borrow_spread_pct`, `cash_rate_series_id`, and `underlying_adjustment`: whether `r_u` is the underlying's split-adjusted or total return. |
 | `available_from` | The earliest date the recipe can produce: the later of the underlying's and the cash rate's first bar. |
 | `validation` | Measured over the period where both the real and the synthetic series exist: `overlap_from`, `overlap_to`, `daily_return_correlation`, `annualized_tracking_difference_pct` (synthetic minus real), `max_cumulative_gap_pct`. A recipe with no validation block cannot be used. |
 
 Validation is what lets the insight step say how far to trust the simulated years, in numbers.
-It is computed by a script from the two series, never typed in.
+It is computed by a script from the two series, never typed in: `scripts/build_recipes.py`, with
+`research/synthetic.py`, writes the recipe file beside the data it measured, since the numbers
+are measurements of licensed data.
+
+The one recipe built, `tqqq_from_qqq_3x`, compounds QQQ's total return: TQQQ tracks three times
+the index, and QQQ's price alone leaves out the dividends the index's members pay, which over
+2010 to 2026 put a split-adjusted simulation about 1.8% a year behind the real fund. With QQQ's
+total return, TQQQ's launch fee (0.95%, from its 2010 prospectus) and the 0.5% spread the form
+contract's example carried before any validation was run, it tracks the real fund within 0.53%
+a year, at a daily correlation of 0.999.
 
 ### Rate series
 

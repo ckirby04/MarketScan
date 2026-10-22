@@ -25,6 +25,9 @@ What is written, per ticker, under --out:
 
   SYMBOL.msb   split-adjusted daily OHLCV, Sharadar's `close`: the form's
                `price_adjustment: split_only`, which is what the job honours
+  SYMBOL.TR.msb  the same bars scaled to Sharadar's `closeadj` (splits,
+               dividends, spinoffs): a total-return series, which is what a
+               synthetic recipe compounds its underlying from (CATALOG.md)
   csv/SYMBOL.csv  every column as delivered, including `closeadj` (splits,
                dividends, spinoffs) and `closeunadj`, for the catalog and for
                total return later
@@ -192,6 +195,42 @@ def to_bars(rows: list[dict], closing_bell) -> list[tuple]:
     return bars
 
 
+def to_total_return_bars(rows: list[dict], closing_bell) -> list[tuple]:
+    """Each bar scaled by closeadj / close, so the closes compound to total return."""
+    bars = []
+    for row in rows:
+        close, adjusted = row.get("close"), row.get("closeadj")
+        if close in (None, "") or adjusted in (None, ""):
+            continue
+        close, adjusted = float(close), float(adjusted)
+        if not (close > 0 and adjusted > 0):
+            continue
+        factor = adjusted / close
+        bars.append((
+            closing_bell(dt.date.fromisoformat(row["date"])),
+            float(row.get("open") or close) * factor,
+            float(row.get("high") or close) * factor,
+            float(row.get("low") or close) * factor,
+            adjusted,
+            float(row.get("volume") or 0.0),
+        ))
+    return bars
+
+
+def rebuild_total_return(out: Path, writer) -> int:
+    """SYMBOL.TR.msb for every ticker already in csv/, without fetching anything."""
+    count = 0
+    for path in sorted((out / "csv").glob("*.csv")):
+        with path.open(newline="", encoding="utf-8") as handle:
+            rows = sorted(csv.DictReader(handle), key=lambda row: row["date"])
+        bars = to_total_return_bars(rows, writer.closing_bell)
+        if bars:
+            writer.write_msb(out / f"{path.stem}.TR.msb", f"{path.stem}.TR", bars)
+            print(f"{path.stem:8} {len(bars):6} total-return bars")
+            count += 1
+    return count
+
+
 def write_csv(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -208,7 +247,7 @@ def load_manifest(out: Path) -> dict:
         "source": "sharadar",
         "terms_url": "https://sharadar.com/terms",
         "licence": "personal use; not redistributable; publish aggregate results only",
-        "adjustment": "SYMBOL.msb is split-adjusted (Sharadar close); csv/ also has closeadj and closeunadj",
+        "adjustment": "SYMBOL.msb is split-adjusted (Sharadar close); SYMBOL.TR.msb is total return (closeadj); csv/ has every column",
         "tickers": {},
     }
 
@@ -240,6 +279,9 @@ def fetch(tickers: list[str], out: Path, start: str, refresh: bool, delay: float
             if not bars:
                 raise FetchError("no priced bars returned")
             writer.write_msb(out / f"{ticker}.msb", ticker, bars)
+            total_return = to_total_return_bars(rows, writer.closing_bell)
+            if total_return:
+                writer.write_msb(out / f"{ticker}.TR.msb", f"{ticker}.TR", total_return)
             write_csv(out / "csv" / f"{ticker}.csv", rows)
             manifest["tickers"][ticker] = {
                 "status": "ok",
@@ -288,12 +330,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--refresh", action="store_true", help="fetch again even if cached")
     parser.add_argument("--delay", type=float, default=0.5, help="seconds between requests")
     parser.add_argument("--status", action="store_true", help="list what is cached and stop")
+    parser.add_argument("--rebuild-tr", action="store_true",
+                        help="write SYMBOL.TR.msb from the cached csv/ files, fetching nothing")
     args = parser.parse_args(argv)
 
     try:
         out = check_out_dir(args.out)
         if args.status:
             return show_status(out)
+        if args.rebuild_tr:
+            rebuild_total_return(out, load_writer())
+            return 0
         tickers = list(args.tickers)
         if args.tickers_file:
             tickers += [line.split("#")[0].strip() for line in args.tickers_file.read_text().splitlines()]

@@ -46,7 +46,9 @@ void usage() {
     std::cout
         << "ms_research -- run a Strategy Form headless\n\n"
            "  --form PATH            the form (contracts/research/strategy_form.schema.json)\n"
-           "  --daily DIR            a directory of SYMBOL.msb daily files\n"
+           "  --daily DIR            a directory of SYMBOL.msb daily files; repeatable,\n"
+           "                         the first holding a symbol answers\n"
+           "  --recipes PATH         the catalog's synthetic recipes, a JSON array\n"
            "  --csv SYMBOL=PATH      a date,close CSV for SYMBOL; repeatable\n"
            "  --out DIR              where to write form.json, results.json, equity.csv\n"
            "  --trace                also write trace.json, for research/grading.py\n"
@@ -92,7 +94,8 @@ void print_errors(const std::vector<marketscan::research::SchemaError>& errors) 
 
 int main(int argc, char** argv) {
     fs::path form_path;
-    fs::path daily;
+    std::vector<fs::path> daily;
+    fs::path recipes;
     fs::path out_dir;
     fs::path contracts = "contracts/research";
     std::vector<std::pair<std::string, fs::path>> csvs;
@@ -116,7 +119,9 @@ int main(int argc, char** argv) {
         } else if (arg == "--form") {
             form_path = value();
         } else if (arg == "--daily") {
-            daily = value();
+            daily.emplace_back(value());
+        } else if (arg == "--recipes") {
+            recipes = value();
         } else if (arg == "--csv") {
             const std::string spec = value();
             const auto eq = spec.find('=');
@@ -166,6 +171,14 @@ int main(int argc, char** argv) {
             std::cerr << "the form is not valid:\n";
             print_errors(errors);
             return kInvalidForm;
+        }
+
+        if (!recipes.empty()) {
+            options.recipes = read_json(recipes);
+            if (!options.recipes.is_array()) {
+                std::cerr << recipes.string() << " is not a JSON array of recipes\n";
+                return kUsage;
+            }
         }
 
         std::unique_ptr<marketscan::research::BarSource> data;
