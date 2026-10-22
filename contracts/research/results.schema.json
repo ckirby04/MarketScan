@@ -24,6 +24,45 @@
       }
     },
 
+    "scorecard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rubric_version", "window", "overall", "subgrades"],
+      "description": "JOB.md section 11: sub-grades and an overall grade read from the judged window. Independent of the verdict, which is one of its sub-grades. Absent from Results written before it existed.",
+      "properties": {
+        "rubric_version": { "const": "0.1" },
+        "window": { "enum": ["out_of_sample", "full"] },
+        "overall": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["score", "letter"],
+          "properties": {
+            "score": { "type": "number", "minimum": 0, "maximum": 100 },
+            "letter": { "$ref": "#/$defs/letter" }
+          }
+        },
+        "subgrades": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "status", "score", "letter", "measured"],
+            "properties": {
+              "id": { "enum": ["return", "risk", "volatility", "risk_adjusted", "versus_holding", "robustness"] },
+              "status": { "enum": ["scored", "not_applicable"] },
+              "score": { "oneOf": [ { "type": "null" }, { "type": "number", "minimum": 0, "maximum": 100 } ] },
+              "letter": { "oneOf": [ { "type": "null" }, { "$ref": "#/$defs/letter" } ] },
+              "measured": {
+                "type": "object",
+                "description": "What the score was read from; a null value scored 0.",
+                "additionalProperties": { "oneOf": [ { "type": "null" }, { "type": "number" }, { "type": "string" } ] }
+              }
+            }
+          }
+        }
+      }
+    },
+
     "verdict": {
       "type": "object",
       "additionalProperties": false,
@@ -263,6 +302,8 @@
 
   "$defs": {
     "num": { "oneOf": [ { "type": "number" }, { "type": "null" } ] },
+
+    "letter": { "enum": ["A", "B", "C", "D", "F"] },
 
     "gate_id": { "enum": ["evidence", "oos_benchmark", "random_timing", "multiple_testing", "plateau", "survival"] },
 

@@ -370,6 +370,82 @@ def cagr(first: float, last: float, days: int) -> float:
 # --- Everything -----------------------------------------------------------------
 
 
+# --- Section 11: the scorecard ------------------------------------------------------
+
+# Each sub-grade's anchors, (x, score) with x ascending.
+RETURN_ANCHORS = ((-10.0, 0.0), (2.0, 40.0), (6.0, 55.0), (10.0, 70.0), (15.0, 85.0), (25.0, 100.0))
+RISK_ANCHORS = ((-90.0, 0.0), (-50.0, 40.0), (-35.0, 55.0), (-25.0, 70.0), (-15.0, 85.0),
+                (-5.0, 100.0))
+VOLATILITY_ANCHORS = ((5.0, 100.0), (10.0, 85.0), (15.0, 70.0), (20.0, 55.0), (30.0, 40.0),
+                      (60.0, 0.0))
+SHARPE_ANCHORS = ((-0.5, 0.0), (0.25, 40.0), (0.5, 55.0), (0.75, 70.0), (1.0, 85.0), (2.0, 100.0))
+RETURN_GAP_ANCHORS = ((-10.0, 0.0), (-3.0, 40.0), (-1.0, 55.0), (1.0, 70.0), (3.0, 85.0),
+                      (6.0, 100.0))
+DRAWDOWN_GAP_ANCHORS = ((-30.0, 0.0), (-5.0, 40.0), (0.0, 55.0), (5.0, 70.0), (15.0, 85.0),
+                        (30.0, 100.0))
+ROBUSTNESS = {"supported": 95.0, "fragile": 60.0, "not_supported": 45.0,
+              "insufficient_evidence": 30.0}
+WEIGHTS = {"return": 25.0, "risk": 20.0, "volatility": 10.0, "risk_adjusted": 15.0,
+           "versus_holding": 15.0, "robustness": 15.0}
+
+
+def interpolate(x: float, anchors) -> float:
+    """Section 11's interpolation; a null (NaN) x scores 0."""
+    if math.isnan(x):
+        return 0.0
+    if x <= anchors[0][0]:
+        return anchors[0][1]
+    if x >= anchors[-1][0]:
+        return anchors[-1][1]
+    for (x0, s0), (x1, s1) in zip(anchors, anchors[1:]):
+        if x0 < x <= x1:
+            return s0 + (x - x0) * (s1 - s0) / (x1 - x0)
+    raise AssertionError("anchors must ascend")
+
+
+def letter(score: float) -> str:
+    for bound, name in ((85.0, "A"), (70.0, "B"), (55.0, "C"), (40.0, "D")):
+        if score >= bound:
+            return name
+    return "F"
+
+
+def scorecard(mine: dict, bench: dict, verdict: str, split: bool) -> dict:
+    """The judged window's metrics for the selected point and the primary benchmark."""
+    return_gap = mine["cagr_pct"] - bench["cagr_pct"]
+    drawdown_gap = mine["max_drawdown_pct"] - bench["max_drawdown_pct"]
+    scores = [
+        ("return", interpolate(mine["cagr_pct"], RETURN_ANCHORS),
+         {"cagr_pct": mine["cagr_pct"]}),
+        ("risk", interpolate(mine["max_drawdown_pct"], RISK_ANCHORS),
+         {"max_drawdown_pct": mine["max_drawdown_pct"]}),
+        ("volatility", interpolate(mine["volatility_pct"], VOLATILITY_ANCHORS),
+         {"volatility_pct": mine["volatility_pct"]}),
+        ("risk_adjusted", interpolate(mine["sharpe"], SHARPE_ANCHORS),
+         {"sharpe": mine["sharpe"]}),
+        ("versus_holding",
+         (interpolate(return_gap, RETURN_GAP_ANCHORS)
+          + interpolate(drawdown_gap, DRAWDOWN_GAP_ANCHORS)) / 2.0,
+         {"cagr_difference_pct": return_gap, "max_drawdown_difference_pct": drawdown_gap}),
+        ("robustness", ROBUSTNESS[verdict], {"grade": verdict}),
+    ]
+    weighted = 0.0
+    total = 0.0
+    for name, score, _ in scores:
+        weighted += WEIGHTS[name] * score
+        total += WEIGHTS[name]
+    overall = weighted / total
+    return {
+        "window": "out_of_sample" if split else "full",
+        "overall": {"score": overall, "letter": letter(overall)},
+        "subgrades": [
+            {"id": name, "status": "scored", "score": score, "letter": letter(score),
+             "measured": measured}
+            for name, score, measured in scores
+        ],
+    }
+
+
 def grade(trace: dict) -> dict:
     """Regrades a job trace. Returns the Results' graded parts, in their shape."""
     metric, split = trace["metric"], trace["has_split"]
@@ -477,6 +553,7 @@ def grade(trace: dict) -> dict:
             "p_value": null["p"],
             "p_value_corrected": p_corrected,
         },
+        "scorecard": scorecard(best[judged], primary[judged], verdict, split),
         "first_path_closes": first_path,
         "bootstrap": {
             "strategy": [percentile(s_cagr, q) for q in (0.05, 0.50, 0.95)],

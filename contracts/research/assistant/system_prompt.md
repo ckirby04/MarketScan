@@ -151,6 +151,10 @@ Rules for this phase:
 - The grade is final. Never contradict it or soften it, and never describe a `fragile` or
   `insufficient_evidence` result as a finding. If you think a gate is miscalibrated for this
   case, say so as a caveat; the grade still stands.
+- The scorecard (`scorecard`, shown to the user beside the verdict) is a separate reading of
+  the same numbers, and independent of the grade: a `fragile` rule can score an A. When it
+  scores well and the grade is weak, say plainly that the grade is the one to trust. A high score
+  is never a recommendation.
 - The outcome range is not a forecast or an expected return. Describe it as the spread of
   results across resampled histories.
 - Every number you state is in `<results>`, or is simple arithmetic on numbers in it that you

@@ -4,12 +4,14 @@
 #include "marketscan/research/job.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <numeric>
 #include <set>
 #include <sstream>
@@ -1375,6 +1377,116 @@ struct NullResult {
     return text.str();
 }
 
+// --- 11. The scorecard ---------------------------------------------------------------
+
+using Anchors = std::array<std::pair<double, double>, 6>;
+
+/// Section 11's interpolation: `x` ascending, clamped at both ends, a null scoring 0.
+[[nodiscard]] double score_of(double x, const Anchors& anchors) {
+    if (std::isnan(x)) {
+        return 0.0;
+    }
+    if (x <= anchors.front().first) {
+        return anchors.front().second;
+    }
+    if (x >= anchors.back().first) {
+        return anchors.back().second;
+    }
+    for (std::size_t i = 0; i + 1 < anchors.size(); ++i) {
+        const auto [x0, s0] = anchors[i];
+        const auto [x1, s1] = anchors[i + 1];
+        if (x <= x1) {
+            return s0 + (x - x0) * (s1 - s0) / (x1 - x0);
+        }
+    }
+    return anchors.back().second;  // not reached: x < anchors.back().first here
+}
+
+[[nodiscard]] const char* letter_of(double score) {
+    if (score >= 85.0) {
+        return "A";
+    }
+    if (score >= 70.0) {
+        return "B";
+    }
+    if (score >= 55.0) {
+        return "C";
+    }
+    if (score >= 40.0) {
+        return "D";
+    }
+    return "F";
+}
+
+/// `mine` and `bench` are the judged window's metrics for the selected point and
+/// the primary benchmark; `grade` is section 10's.
+[[nodiscard]] json
+scorecard_json(const Metrics& mine, const Metrics& bench, const std::string& grade, bool split) {
+    static const Anchors kReturn = {
+        {{-10.0, 0.0}, {2.0, 40.0}, {6.0, 55.0}, {10.0, 70.0}, {15.0, 85.0}, {25.0, 100.0}}};
+    static const Anchors kRisk = {
+        {{-90.0, 0.0}, {-50.0, 40.0}, {-35.0, 55.0}, {-25.0, 70.0}, {-15.0, 85.0}, {-5.0, 100.0}}};
+    static const Anchors kVolatility = {
+        {{5.0, 100.0}, {10.0, 85.0}, {15.0, 70.0}, {20.0, 55.0}, {30.0, 40.0}, {60.0, 0.0}}};
+    static const Anchors kSharpe = {
+        {{-0.5, 0.0}, {0.25, 40.0}, {0.5, 55.0}, {0.75, 70.0}, {1.0, 85.0}, {2.0, 100.0}}};
+    static const Anchors kReturnGap = {
+        {{-10.0, 0.0}, {-3.0, 40.0}, {-1.0, 55.0}, {1.0, 70.0}, {3.0, 85.0}, {6.0, 100.0}}};
+    static const Anchors kDrawdownGap = {
+        {{-30.0, 0.0}, {-5.0, 40.0}, {0.0, 55.0}, {5.0, 70.0}, {15.0, 85.0}, {30.0, 100.0}}};
+    static const std::map<std::string, double> kRobustness = {{"supported", 95.0},
+                                                              {"fragile", 60.0},
+                                                              {"not_supported", 45.0},
+                                                              {"insufficient_evidence", 30.0}};
+
+    const double return_gap = mine.cagr_pct - bench.cagr_pct;
+    const double drawdown_gap = mine.max_drawdown_pct - bench.max_drawdown_pct;
+
+    struct Sub {
+        const char* id;
+        double weight;
+        double score;
+        json measured;
+    };
+
+    const std::array<Sub, 6> subs = {{
+        {"return", 25.0, score_of(mine.cagr_pct, kReturn), {{"cagr_pct", num(mine.cagr_pct)}}},
+        {"risk",
+         20.0,
+         score_of(mine.max_drawdown_pct, kRisk),
+         {{"max_drawdown_pct", num(mine.max_drawdown_pct)}}},
+        {"volatility",
+         10.0,
+         score_of(mine.volatility_pct, kVolatility),
+         {{"volatility_pct", num(mine.volatility_pct)}}},
+        {"risk_adjusted", 15.0, score_of(mine.sharpe, kSharpe), {{"sharpe", num(mine.sharpe)}}},
+        {"versus_holding",
+         15.0,
+         (score_of(return_gap, kReturnGap) + score_of(drawdown_gap, kDrawdownGap)) / 2.0,
+         {{"cagr_difference_pct", num(return_gap)},
+          {"max_drawdown_difference_pct", num(drawdown_gap)}}},
+        {"robustness", 15.0, kRobustness.at(grade), {{"grade", grade}}},
+    }};
+
+    json list = json::array();
+    double weighted = 0.0;
+    double weights = 0.0;
+    for (const Sub& sub : subs) {
+        weighted += sub.weight * sub.score;
+        weights += sub.weight;
+        list.push_back(json{{"id", sub.id},
+                            {"status", "scored"},
+                            {"score", sub.score},
+                            {"letter", letter_of(sub.score)},
+                            {"measured", sub.measured}});
+    }
+    const double overall = weighted / weights;
+    return json{{"rubric_version", "0.1"},
+                {"window", split ? "out_of_sample" : "full"},
+                {"overall", {{"score", overall}, {"letter", letter_of(overall)}}},
+                {"subgrades", list}};
+}
+
 struct Gate {
     std::string id;
     std::string status;  // pass | fail | not_applicable
@@ -1789,6 +1901,8 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
           {"benchmark_oos_max_drawdown_pct", num(judged_window(primary).max_drawdown_pct)},
           {"outcome_range", outcome_range}}},
         {"gates", gate_list}};
+    results["scorecard"] =
+        scorecard_json(judged_window(best), judged_window(primary), grade, split);
 
     json selected_params = json::object();
     for (std::size_t d = 0; d < bound.swept.size(); ++d) {

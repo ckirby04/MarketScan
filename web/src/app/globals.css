@@ -897,3 +897,90 @@ button.send:disabled {
     font-size: 18px;
   }
 }
+
+/* --- The scorecard ---------------------------------------------------------- */
+
+.score-overall {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.score-letter,
+.sub-letter {
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.score-letter {
+  width: 56px;
+  height: 56px;
+  font-size: 28px;
+}
+
+.sub-letter {
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+  border-radius: 8px;
+}
+
+/* Letters lean on the status palette as reinforcement only; the letter itself carries the grade. */
+.grade-A,
+.grade-B {
+  color: var(--status-good);
+}
+
+.grade-C {
+  color: var(--status-warning);
+}
+
+.grade-D,
+.grade-F {
+  color: var(--status-serious);
+}
+
+.score-title {
+  font-weight: 500;
+}
+
+.score-number {
+  font-size: 15px;
+}
+
+.score-overall .faint {
+  font-size: 12px;
+}
+
+.subgrades {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.subgrades li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 0;
+}
+
+.sub-body {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.sub-name {
+  font-weight: 500;
+}

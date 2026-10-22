@@ -71,6 +71,27 @@ the UI says so beside it.
 
 ---
 
+## The scorecard
+
+`scorecard`, beside the verdict: six sub-grades and an overall grade, each a score from 0 to 100
+and a letter (A 85+, B 70+, C 55+, D 40+, F). The rules are [JOB.md](JOB.md) section 11, and the
+reasoning is in [`SPEC_SCORECARD_ALERTS.md`](../../docs/specs/SPEC_SCORECARD_ALERTS.md).
+
+| sub-grade | reads, in the judged window |
+|---|---|
+| `return` | CAGR |
+| `risk` | max drawdown |
+| `volatility` | volatility |
+| `risk_adjusted` | Sharpe |
+| `versus_holding` | CAGR and max drawdown against the primary benchmark |
+| `robustness` | the grade above |
+
+The scorecard does not replace the grade and is not bounded by it: a `fragile` run can score B.
+It reads as historical evidence, like the grade, and never as advice. Results written before it
+existed have no `scorecard`.
+
+---
+
 ## Gates
 
 Criteria version `0.1`. Every Results document records the version it was graded under. The

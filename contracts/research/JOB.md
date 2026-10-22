@@ -260,3 +260,43 @@ passes nor fails.
 `evidence` fails to `insufficient_evidence`, `oos_benchmark` to `not_supported`, and every other
 gate to `fragile`. All pass: `supported`. The data grade is `exercise_only` unless every series used
 is `research` tier.
+
+## 11. The scorecard
+
+A reading of numbers already in the Results, not a new measurement, and independent of the
+grade: a run can score well and still be `fragile`. Specified in
+`docs/specs/SPEC_SCORECARD_ALERTS.md`; this section makes it exact. `rubric_version` is `0.1`.
+
+**Window.** `out_of_sample` with a split, `full` without, for the selected point and the primary
+benchmark alike: the same window as `oos_benchmark` and the headline.
+
+**Interpolation.** Each sub-grade maps a measured `x` to a score through anchors
+`(x_0, s_0) .. (x_5, s_5)` with `x` ascending: `s_0` if `x <= x_0`, `s_5` if `x >= x_5`, and
+otherwise, for the `i` with `x_i < x <= x_{i+1}`, `s_i + (x - x_i) * (s_{i+1} - s_i) / (x_{i+1} - x_i)`,
+evaluated in that order. A null `x` scores 0.
+
+| sub-grade | `x` | anchors `(x, s)` |
+|---|---|---|
+| `return` | `cagr_pct` | (-10, 0) (2, 40) (6, 55) (10, 70) (15, 85) (25, 100) |
+| `risk` | `max_drawdown_pct` | (-90, 0) (-50, 40) (-35, 55) (-25, 70) (-15, 85) (-5, 100) |
+| `volatility` | `volatility_pct` | (5, 100) (10, 85) (15, 70) (20, 55) (30, 40) (60, 0) |
+| `risk_adjusted` | `sharpe` | (-0.5, 0) (0.25, 40) (0.5, 55) (0.75, 70) (1, 85) (2, 100) |
+
+`versus_holding` is `(a + b) / 2`, with `a` the score of `cagr_pct - benchmark cagr_pct` through
+(-10, 0) (-3, 40) (-1, 55) (1, 70) (3, 85) (6, 100), and `b` the score of
+`max_drawdown_pct - benchmark max_drawdown_pct` (positive: the rule fell less) through
+(-30, 0) (-5, 40) (0, 55) (5, 70) (15, 85) (30, 100). A difference with a null side is null. The
+binder requires a benchmark (section 1), so it is always measured; a form without one would make
+it `not_applicable`.
+
+`robustness` is the grade: `supported` 95, `fragile` 60, `not_supported` 45,
+`insufficient_evidence` 30.
+
+**Overall.** `sum(w * s) / sum(w)` over the sub-grades in the order above, then `robustness`,
+with weights `return` 25, `risk` 20, `volatility` 10, `risk_adjusted` 15, `versus_holding` 15,
+`robustness` 15, a `not_applicable` one left out of both sums.
+
+**Letters.** `A` at 85 or more, `B` 70, `C` 55, `D` 40, `F` below.
+
+Scores are not rounded in the Results. A score reached through `cagr_pct` (`return`,
+`versus_holding`, and so the overall) carries its relative 1e-12 allowance (see "Arithmetic").

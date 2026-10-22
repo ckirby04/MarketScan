@@ -9,6 +9,7 @@
 import { useState } from "react";
 
 import EquityChart from "@/components/EquityChart";
+import ScoreCard from "@/components/ScoreCard";
 import {
   gradeWords,
   metric,
@@ -375,6 +376,13 @@ export default function ResultsView({
             <li key={w.code}>{warningText(w.code, w.message)}</li>
           ))}
         </ul>
+      )}
+
+      {results.scorecard && (
+        <>
+          <div className="heading">Scorecard</div>
+          <ScoreCard card={results.scorecard} />
+        </>
       )}
 
       <div className="heading">Why</div>

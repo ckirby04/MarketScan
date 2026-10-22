@@ -45,6 +45,17 @@ class Settings:
     assistant_model: str = "claude-opus-5-5"
     assistant_effort: str = "medium"
 
+    # Alerts (docs/specs/SPEC_SCORECARD_ALERTS.md section 5). No address or no
+    # key means no email; every run still records its decision in alert.json.
+    alert_email_to: str = ""
+    alert_from: str = "MarketScan <onboarding@resend.dev>"
+    alert_min_score: float = 80.0
+    # The weakest verdict that may alert; "" lets any verdict through.
+    alert_min_robustness: str = "supported"
+    resend_api_key: str = ""
+    # Where the web app is, for the link in an alert.
+    public_url: str = ""
+
     extra: dict = field(default_factory=dict)
 
     def daily_dirs(self) -> list[Path]:
@@ -86,4 +97,10 @@ def from_env() -> Settings:
         anthropic_api_key=env.get("ANTHROPIC_API_KEY", "").strip(),
         assistant_model=env.get("MS_ASSISTANT_MODEL", "claude-opus-5-5"),
         assistant_effort=env.get("MS_ASSISTANT_EFFORT", "medium"),
+        alert_email_to=env.get("MS_ALERT_EMAIL_TO", "").strip(),
+        alert_from=env.get("MS_ALERT_FROM", "MarketScan <onboarding@resend.dev>"),
+        alert_min_score=float(env.get("MS_ALERT_MIN_SCORE", "80")),
+        alert_min_robustness=env.get("MS_ALERT_MIN_ROBUSTNESS", "supported").strip(),
+        resend_api_key=env.get("RESEND_API_KEY", "").strip(),
+        public_url=env.get("MS_PUBLIC_URL", "").strip(),
     )
