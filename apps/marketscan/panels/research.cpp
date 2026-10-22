@@ -814,6 +814,73 @@ void letter_box(const std::string& letter, float size) {
     return {};
 }
 
+// --- Chips, cards and section titles ------------------------------------------------
+//
+// The web app's look, as far as ImGui allows: tinted rounded chips for grades
+// and statuses, cards for groups of figures, and large numbers. Every colour is
+// a palette colour or a tint of one, as in the web app.
+
+/// A label in `color` on a rounded tint of it, flowing like any other item.
+void chip(const std::string& text,
+          unsigned int color,
+          ImFont* font = nullptr,
+          ImVec2 pad = ImVec2(10.0F, 3.0F)) {
+    if (font != nullptr) {
+        ImGui::PushFont(font);
+    }
+    const ImVec2 extent = ImGui::CalcTextSize(text.c_str());
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const ImVec2 box(extent.x + pad.x * 2.0F, extent.y + pad.y * 2.0F);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(at, ImVec2(at.x + box.x, at.y + box.y), tint(color, 40), box.y * 0.5F);
+    draw->AddText(ImVec2(at.x + pad.x, at.y + pad.y), color, text.c_str());
+    ImGui::Dummy(box);
+    if (font != nullptr) {
+        ImGui::PopFont();
+    }
+}
+
+/// A rounded panel that grows to its contents. Pair with end_card().
+void begin_card(const char* id, unsigned int background, unsigned int border, float width = 0.0F) {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
+    ImGui::PushStyleColor(ImGuiCol_Border, border);
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0F, 12.0F));
+    ImGui::BeginChild(id,
+                      ImVec2(width, 0.0F),
+                      ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding |
+                          ImGuiChildFlags_Borders);
+}
+
+void end_card() {
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+}
+
+/// A results section's title: small, faint, upper case, with room above.
+void section(const char* text) {
+    ImGui::Dummy(ImVec2(0.0F, 10.0F));
+    std::string upper = text;
+    std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) {
+        return static_cast<char>(std::toupper(c));
+    });
+    ink(theme::colors().text_faint, upper);
+    ImGui::Dummy(ImVec2(0.0F, 2.0F));
+}
+
+/// A horizontal bar `fraction` full, drawn rather than a ProgressBar: a framed
+/// widget would set a table row's text baseline and push later columns down.
+void meter(float width, float height, double fraction, unsigned int color) {
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const unsigned int track = tint(theme::colors().accent, 30);
+    draw->AddRectFilled(at, ImVec2(at.x + width, at.y + height), track, height * 0.5F);
+    const float filled = width * static_cast<float>(std::clamp(fraction, 0.0, 1.0));
+    draw->AddRectFilled(at, ImVec2(at.x + filled, at.y + height), color, height * 0.5F);
+    ImGui::Dummy(ImVec2(width, height));
+}
+
 /// Puts the cursor where an item `height` tall sits in the middle of a row
 /// `row` tall starting at `top`: the letter boxes set the row, and every other
 /// column lines up with them from the same top.
@@ -822,69 +889,66 @@ void middle_of_row(float top, float row, float height) {
 }
 
 void draw_scorecard(const ScorecardView& card, const PlainWords& words) {
-    constexpr float kRow = 28.0F;
+    constexpr float kRow = 30.0F;
     constexpr float kBar = 6.0F;
     const Palette& palette = theme::colors();
-    ImGui::PushFont(theme::large_font());
-    letter_box(card.overall_letter, 64.0F);
-    ImGui::PopFont();
-    ImGui::SameLine(0.0F, 16.0F);
-    ImGui::BeginGroup();
-    ink(palette.text_faint, "Overall score");
-    ImGui::PushFont(theme::large_font());
-    ink(palette.text, format_metric(card.overall_score, 0) + " / 100");
-    ImGui::PopFont();
-    wrapped(palette.text_faint,
-            "A separate reading from the verdict: a rule can score well and still be fragile.");
-    ImGui::EndGroup();
-    ImGui::Spacing();
 
-    if (!ImGui::BeginTable("##subgrades", 5, ImGuiTableFlags_PadOuterX)) {
-        return;
+    begin_card("##score_hero", palette.surface_raised, tint(palette.border, 140));
+    ImGui::PushFont(theme::hero_font());
+    letter_box(card.overall_letter, 84.0F);
+    ImGui::PopFont();
+    ImGui::SameLine(0.0F, 20.0F);
+    ImGui::BeginGroup();
+    ink(palette.text_faint, "OVERALL SCORE");
+    ImGui::PushFont(theme::large_font());
+    ink(palette.text, format_metric(card.overall_score, 0));
+    ImGui::PopFont();
+    ImGui::SameLine(0.0F, 4.0F);
+    ImGui::AlignTextToFramePadding();
+    ink(palette.text_faint, "/ 100");
+    meter(300.0F, 7.0F, card.overall_score / 100.0, palette.accent);
+    ImGui::Dummy(ImVec2(0.0F, 2.0F));
+    ink(palette.text_faint,
+        "A separate reading from the verdict: a rule can score well and still be fragile.");
+    ImGui::EndGroup();
+
+    ImGui::Dummy(ImVec2(0.0F, 6.0F));
+    if (ImGui::BeginTable("##subgrades", 5, ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("letter", ImGuiTableColumnFlags_WidthFixed, 40.0F);
+        ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthFixed, 130.0F);
+        ImGui::TableSetupColumn("bar", ImGuiTableColumnFlags_WidthFixed, 136.0F);
+        ImGui::TableSetupColumn("score", ImGuiTableColumnFlags_WidthFixed, 36.0F);
+        ImGui::TableSetupColumn("read", ImGuiTableColumnFlags_WidthStretch);
+        for (const SubgradeView& sub : card.subgrades) {
+            ImGui::TableNextRow(0, kRow + 6.0F);
+            ImGui::TableNextColumn();
+            const float top = ImGui::GetCursorPosY() + 3.0F;
+            ImGui::SetCursorPosY(top);
+            letter_box(sub.letter, kRow);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", words.subgrade_reads(sub.id).c_str());
+            }
+            const float line = ImGui::GetTextLineHeight();
+            ImGui::TableNextColumn();
+            middle_of_row(top, kRow, line);
+            ink(palette.text, words.subgrade_name(sub.id));
+            ImGui::TableNextColumn();
+            if (!std::isnan(sub.score)) {
+                middle_of_row(top, kRow, kBar);
+                meter(128.0F, kBar, sub.score / 100.0, letter_color(sub.letter));
+            }
+            ImGui::TableNextColumn();
+            middle_of_row(top, kRow, line);
+            if (!std::isnan(sub.score)) {
+                ink(palette.text_faint, format_metric(sub.score, 0));
+            }
+            ImGui::TableNextColumn();
+            middle_of_row(top, kRow, line);
+            ink(palette.text_dim, measured_text(sub));
+        }
+        ImGui::EndTable();
     }
-    ImGui::TableSetupColumn("letter", ImGuiTableColumnFlags_WidthFixed, 36.0F);
-    ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthFixed, 130.0F);
-    ImGui::TableSetupColumn("bar", ImGuiTableColumnFlags_WidthFixed, 124.0F);
-    ImGui::TableSetupColumn("score", ImGuiTableColumnFlags_WidthFixed, 36.0F);
-    ImGui::TableSetupColumn("read");
-    for (const SubgradeView& sub : card.subgrades) {
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        const float top = ImGui::GetCursorPosY();
-        letter_box(sub.letter, kRow);
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("%s", words.subgrade_reads(sub.id).c_str());
-        }
-        const float line = ImGui::GetTextLineHeight();
-        ImGui::TableNextColumn();
-        middle_of_row(top, kRow, line);
-        ink(palette.text, words.subgrade_name(sub.id));
-        ImGui::TableNextColumn();
-        if (!std::isnan(sub.score)) {
-            // Drawn, not a ProgressBar: a framed widget would set the row's text
-            // baseline and push the columns after it down.
-            middle_of_row(top, kRow, kBar);
-            constexpr float kWidth = 120.0F;
-            const ImVec2 at = ImGui::GetCursorScreenPos();
-            ImDrawList* draw = ImGui::GetWindowDrawList();
-            draw->AddRectFilled(
-                at, ImVec2(at.x + kWidth, at.y + kBar), tint(palette.accent, 30), kBar * 0.5F);
-            const float filled =
-                kWidth * static_cast<float>(std::clamp(sub.score, 0.0, 100.0) / 100.0);
-            draw->AddRectFilled(
-                at, ImVec2(at.x + filled, at.y + kBar), letter_color(sub.letter), kBar * 0.5F);
-            ImGui::Dummy(ImVec2(kWidth, kBar));
-        }
-        ImGui::TableNextColumn();
-        middle_of_row(top, kRow, line);
-        if (!std::isnan(sub.score)) {
-            ink(palette.text_faint, format_metric(sub.score, 0));
-        }
-        ImGui::TableNextColumn();
-        middle_of_row(top, kRow, line);
-        ink(palette.text_dim, measured_text(sub));
-    }
-    ImGui::EndTable();
+    end_card();
 }
 
 [[nodiscard]] const char* status_word(const std::string& status) {
@@ -897,6 +961,32 @@ void draw_scorecard(const ScorecardView& card, const PlainWords& words) {
     return "Not checked";
 }
 
+/// One headline figure as a card: the rule's number large, holding's beside it.
+void figure_card(const char* id,
+                 const char* label,
+                 double rule,
+                 double other,
+                 const std::string& holding,
+                 float width) {
+    const Palette& palette = theme::colors();
+    begin_card(id, palette.surface, tint(palette.border, 140), width);
+    ink(palette.text_faint, label);
+    ImGui::BeginGroup();
+    ImGui::PushFont(theme::large_font());
+    ink(palette.text, format_points(rule));
+    ImGui::PopFont();
+    ink(palette.text_faint, "the rule");
+    ImGui::EndGroup();
+    ImGui::SameLine(0.0F, 30.0F);
+    ImGui::BeginGroup();
+    ImGui::PushFont(theme::large_font());
+    ink(palette.text_dim, format_points(other));
+    ImGui::PopFont();
+    ink(palette.text_faint, holding);
+    ImGui::EndGroup();
+    end_card();
+}
+
 void draw_results(ResearchSession& session,
                   const ResearchRun& run,
                   const PlainWords& words,
@@ -906,30 +996,41 @@ void draw_results(ResearchSession& session,
     const Palette& palette = theme::colors();
     const bool unverified = v.data_grade != "research";
 
-    // 1. Verdict.
-    ink(palette.text_faint, "Historical evidence");
-    ImGui::PushFont(theme::large_font());
-    ink(grade_color(v.grade), grade_words(v.grade));
-    ImGui::PopFont();
+    // 1. Verdict. Insufficient evidence keeps its muted ink, tint and all:
+    // "not enough data" is not bad news about the idea (SPEC_RESEARCH_VIEW 4.3).
+    section("Historical evidence");
+    chip(std::string("\xE2\x97\x86  ") + grade_words(v.grade),
+         grade_color(v.grade),
+         theme::large_font(),
+         ImVec2(16.0F, 6.0F));
     if (unverified) {
-        ImGui::SameLine(0.0F, 14.0F);
-        ImGui::AlignTextToFramePadding();
-        ink(palette.status_warning, "Unverified data");
+        ImGui::SameLine(0.0F, 10.0F);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0F);
+        chip("Unverified data", palette.status_warning);
         wrapped(palette.text_faint,
                 "The price data is test-grade: a trial run of the method, not a finding.");
     }
 
     if (v.has_surface && !v.selected_params.empty()) {
-        ImGui::Spacing();
+        ImGui::Dummy(ImVec2(0.0F, 6.0F));
+        begin_card("##chosen", tint(palette.accent, 22), tint(palette.accent, 70));
         ink(palette.text_faint, "Setting chosen");
+        ImGui::PushFont(theme::large_font());
+        bool first = true;
         for (const auto& [path, value] : v.selected_params) {
-            ink(palette.text, words.param_label(path) + ": ");
-            ImGui::SameLine(0.0F, 0.0F);
+            if (!first) {
+                ImGui::SameLine(0.0F, 24.0F);
+            }
+            first = false;
+            ink(palette.text, words.param_label(path) + ":");
+            ImGui::SameLine();
             ink(palette.accent, words.param_value(path, value));
         }
+        ImGui::PopFont();
         ink(palette.text_faint,
             "Picked from " + std::to_string(v.surface.points.size()) + " settings tried, for the " +
                 words.objective(v.surface.metric) + ".");
+        end_card();
     }
 
     // The headline figures are out of sample when there is a later period, and
@@ -942,56 +1043,71 @@ void draw_results(ResearchSession& session,
     }
     const std::string holding =
         v.benchmarks.empty() ? "the benchmark" : "holding " + v.benchmarks.front().first;
-    ImGui::Spacing();
+    ImGui::Dummy(ImVec2(0.0F, 6.0F));
     ink(palette.text_faint, "Measured over " + period);
-    if (ImGui::BeginTable("##headline", 3, ImGuiTableFlags_SizingFixedFit)) {
-        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 130.0F);
-        ImGui::TableSetupColumn("the rule", ImGuiTableColumnFlags_WidthFixed, 120.0F);
-        ImGui::TableSetupColumn(holding.c_str(), ImGuiTableColumnFlags_WidthFixed, 140.0F);
-        ImGui::TableHeadersRow();
-        const auto row = [&](const char* label, double rule, double other) {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ink(palette.text_dim, label);
-            ImGui::TableNextColumn();
-            ink(palette.text, format_points(rule));
-            ImGui::TableNextColumn();
-            ink(palette.text_dim, format_points(other));
-        };
-        row("Annual return", v.strategy_oos_cagr_pct, v.benchmark_oos_cagr_pct);
-        row("Worst drop", v.strategy_oos_max_drawdown_pct, v.benchmark_oos_max_drawdown_pct);
-        ImGui::EndTable();
-    }
+    const float half = std::max(
+        240.0F, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5F);
+    figure_card("##return",
+                "Annual return",
+                v.strategy_oos_cagr_pct,
+                v.benchmark_oos_cagr_pct,
+                holding,
+                half);
+    ImGui::SameLine();
+    figure_card("##drop",
+                "Worst drop",
+                v.strategy_oos_max_drawdown_pct,
+                v.benchmark_oos_max_drawdown_pct,
+                holding,
+                half);
     wrapped(palette.text_dim,
             "Across reshuffled versions of history, the rule's annual return ran from " +
                 format_points(v.range_p5) + " to " + format_points(v.range_p95) + " (middle " +
                 format_points(v.range_p50) + "). A spread, not a forecast.");
+    int note = 0;
     for (const auto& [code, message] : v.warnings) {
         // Said once already, beside the grade.
-        if (!(unverified && code == "EXERCISE_ONLY_DATA")) {
-            wrapped(palette.status_warning, "!  " + words.warning(code, message));
+        if (unverified && code == "EXERCISE_ONLY_DATA") {
+            continue;
         }
+        ImGui::PushID(note++);
+        begin_card("##note", tint(palette.status_warning, 30), tint(palette.status_warning, 0));
+        ink(palette.status_warning, "!");
+        ImGui::SameLine(0.0F, 10.0F);
+        ImGui::PushTextWrapPos(0.0F);
+        ink(palette.text_dim, words.warning(code, message));
+        ImGui::PopTextWrapPos();
+        end_card();
+        ImGui::PopID();
     }
 
     // The scorecard: a separate reading of the same numbers.
     if (v.has_scorecard) {
-        heading("Scorecard");
+        section("Scorecard");
         draw_scorecard(v.scorecard, words);
     }
 
     // 2. Why.
-    heading("Why");
-    if (ImGui::BeginTable("##gates", 2, ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, 96.0F);
-        ImGui::TableSetupColumn("check");
+    section("Why");
+    begin_card("##why", palette.surface, tint(palette.border, 140));
+    if (ImGui::BeginTable("##gates", 2, ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, 110.0F);
+        // Stretch: inside an auto-sizing card a table otherwise fits its columns
+        // to their contents, and the descriptions wrap at a third of the width.
+        ImGui::TableSetupColumn("check", ImGuiTableColumnFlags_WidthStretch);
         for (const GateView& g : v.gates) {
-            ImGui::TableNextRow();
+            ImGui::TableNextRow(0, 0.0F);
+            if (g.id == v.deciding_gate) {
+                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, tint(palette.accent, 20));
+            }
             ImGui::TableNextColumn();
+            ImGui::Dummy(ImVec2(0.0F, 4.0F));
             const unsigned int color = g.status == "pass"   ? palette.status_good
                                        : g.status == "fail" ? palette.status_serious
                                                             : palette.text_faint;
-            ink(color, status_word(g.status));
+            chip(status_word(g.status), color);
             ImGui::TableNextColumn();
+            ImGui::Dummy(ImVec2(0.0F, 4.0F));
             ink(palette.text, words.gate_name(g.id));
             if (g.id == v.deciding_gate) {
                 ImGui::SameLine();
@@ -1001,12 +1117,14 @@ void draw_results(ResearchSession& session,
                 wrapped(palette.text_dim, asks);
             }
             wrapped(palette.text_faint, g.summary);
+            ImGui::Dummy(ImVec2(0.0F, 4.0F));
         }
         ImGui::EndTable();
     }
+    end_card();
 
     // 3. Stats.
-    heading("Details");
+    section("Details");
     if (ImGui::BeginTabBar("##stats")) {
         if (ImGui::BeginTabItem("Equity")) {
             ImGui::Checkbox("Log scale", &ui.research_log_scale);
@@ -1049,7 +1167,7 @@ void draw_results(ResearchSession& session,
     }
 
     // 4. Analysis.
-    heading("Analysis - written by AI from the numbers above");
+    section("Analysis - written by AI from the numbers above");
     wrapped(palette.text_faint,
             "No analysis: the assistant is not connected yet (part R2). Everything above is the "
             "engine's, and stands without it.");
@@ -1081,10 +1199,20 @@ void draw_rail(ResearchSession& session, const ResearchSnapshot& snap) {
     ImGui::InputTextMultiline("##question", question, sizeof(question), ImVec2(-1.0F, 70.0F));
     ImGui::EndDisabled();
     wrapped(palette.text_dim, snap.assistant_reason);
+    // The way in while the assistant is not connected, so it looks like one.
+    // A tint, like the chips: the palette has no ink for text on solid accent.
+    ImGui::PushStyleColor(ImGuiCol_Button, tint(palette.accent, 48));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tint(palette.accent, 80));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, tint(palette.accent, 110));
+    ImGui::PushStyleColor(ImGuiCol_Text, palette.accent);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0F, 6.0F));
     if (ImGui::Button("Fill in a form by hand")) {
         session.set_form(session.starter_form());
         session.edit();
     }
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
 
     heading("RECENT RUNS");
     if (snap.recent.empty()) {
@@ -1102,7 +1230,7 @@ void draw_rail(ResearchSession& session, const ResearchSnapshot& snap) {
             session.open(recent.directory);
         }
         ImGui::Indent(12.0F);
-        ink(grade_color(recent.grade), grade_words(recent.grade));
+        chip(grade_words(recent.grade), grade_color(recent.grade), nullptr, ImVec2(7.0F, 1.0F));
         ImGui::SameLine();
         ink(palette.text_faint,
             (recent.data_grade == "research" ? "" : "unverified  ") + recent.started_at);
