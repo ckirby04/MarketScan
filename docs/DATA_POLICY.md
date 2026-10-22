@@ -103,6 +103,7 @@ If WRDS access materialises:
 |---|---|---|
 | [`fja05680/sp500`](https://github.com/fja05680/sp500) | S&P 500 membership history | Public repository, open licence, fetched through the GitHub API. Read via `scripts/fetch_sp500.py`. |
 | `research/panel.py` | Everything else | Synthetic. Generated here, owned here, committed as fixtures. Not market data and labelled as such everywhere it appears. |
+| [Sharadar](https://sharadar.com) | Daily prices for US stocks and funds, listed and delisted | API key and documented personal-use terms ([sharadar.com/terms](https://sharadar.com/terms)), meeting §3; delisted securities in the same tables, meeting §6's binding constraint. Fetched by `scripts/fetch_sharadar.py`, which takes the key from `SHARADAR_API_KEY` only, sends it as a header, slices requests by ticker and date, and refuses a cache path inside the repository. **Licensed:** the cache lives outside the repository (§4), nothing from it is committed or redistributed, and what is published from it is aggregate. The free key covers about five years of a sample of large US stocks and no funds; a paid Prices plan covers funds and, at the full-history tier, from 1997. |
 
 ### Excluded
 

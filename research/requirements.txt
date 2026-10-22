@@ -22,3 +22,6 @@ pytest>=7.4
 # The research contracts' validator, research/contracts.py. 4.18 is the first
 # with the `referencing` resolver its Draft202012Validator relies on.
 jsonschema>=4.18
+# Current CA certificates for HTTPS fetches (scripts/fetch_sharadar.py); the
+# Windows store can hold an expired cross-sign that fails verification.
+certifi>=2024.2

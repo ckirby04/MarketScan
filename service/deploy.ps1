@@ -29,7 +29,11 @@ param(
     [Parameter(Mandatory = $true)][string]$Project,
     [string]$Region = "us-central1",
     [string]$Service = "marketscan-research",
-    [string]$Bucket = ""
+    [string]$Bucket = "",
+    # A bucket holding the daily price cache, mounted read-only into the
+    # service at /data. Empty runs on the committed synthetic fixture only.
+    [string]$DataBucket = "",
+    [string]$DataPrefix = "sharadar"
 )
 $ErrorActionPreference = "Stop"
 if (-not $Bucket) { $Bucket = "$Project-marketscan-runs" }
@@ -90,6 +94,21 @@ try {
     Pop-Location
 }
 
+$dataArgs = @()
+if ($DataBucket) {
+    Invoke-Gcloud storage buckets add-iam-policy-binding "gs://$DataBucket" `
+        --member "serviceAccount:$account" --role roles/storage.objectViewer
+    # Cloud Storage volumes need the second-generation execution environment.
+    $dataArgs = @(
+        "--execution-environment", "gen2",
+        "--add-volume", "name=data,type=cloud-storage,bucket=$DataBucket,readonly=true",
+        "--add-volume-mount", "volume=data,mount-path=/data"
+    )
+    $dataEnv = ",MS_DAILY_DIR=/data/$DataPrefix"
+} else {
+    $dataEnv = ""
+}
+
 Invoke-Gcloud run deploy $Service `
     --image $image `
     --region $Region `
@@ -100,8 +119,9 @@ Invoke-Gcloud run deploy $Service `
     --cpu 2 `
     --memory 2Gi `
     --timeout 3600 `
-    --set-env-vars "MS_RUNS_BUCKET=$Bucket" `
-    --set-secrets "MS_API_KEY=ms-api-key:latest"
+    --set-env-vars "MS_RUNS_BUCKET=$Bucket$dataEnv" `
+    --set-secrets "MS_API_KEY=ms-api-key:latest" `
+    @dataArgs
 
 $url = (gcloud run services describe $Service --region $Region --format "value(status.url)").Trim()
 Write-Host ""

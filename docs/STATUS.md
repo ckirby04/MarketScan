@@ -12,9 +12,12 @@ link it (and a test reads the built `ms_research` to prove it); a `linux` preset
 under which the research path builds with GCC and reproduces the Windows fixtures
 exactly (the plugin loader's tests are not ported to Linux and fail there); a job
 service in `service/` for Cloud Run and a Next.js front end in `web/` for Vercel,
-neither deployed yet. Not built: the assistant (R2), the data catalog (R1), and
-Open in Operator. Green locally; not yet run in CI. 545 C++ tests (one skipped,
-allowlisted), 411 Python, 10 service.
+neither deployed yet. Sharadar is an approved price source
+([`DATA_POLICY.md`](DATA_POLICY.md) section 5), fetched by `scripts/fetch_sharadar.py`
+into a cache outside the repository; the free key covers about five years of a
+sample of large stocks and no funds. Not built: the assistant (R2), the data
+catalog (R1), and Open in Operator. Green locally; not yet run in CI. 545 C++ tests
+(one skipped, allowlisted), 418 Python, 10 service.
 
 The counts and version identifiers in this document are descriptive facts about
 the tree and are corrected whenever they are found wrong. Measured results are
@@ -142,7 +145,7 @@ Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
 **545 C++ tests** on `ci` and `ci-debug`, measured; **546** on `full`, for the
-reason in [`AUDIT.md`](AUDIT.md) check 9. **411 Python tests** in
+reason in [`AUDIT.md`](AUDIT.md) check 9. **418 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import
 that changes that turns the job red.

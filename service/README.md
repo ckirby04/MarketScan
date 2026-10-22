@@ -69,8 +69,18 @@ Two known limits, both acceptable for one user and both to revisit before more:
 
 - Job status is in the instance's memory while a job runs, and reaches the bucket when it ends.
   If Cloud Run stops the instance mid-job, that job is lost and its id returns 404.
-- Real data: `MS_DAILY_DIR` can point at a Cloud Storage bucket mounted as a volume. Which vendor
-  fills it is open; see the comparison in the session notes, and `docs/DATA_POLICY.md`.
+- Real data comes from a private bucket mounted read-only: fetch with
+  `scripts/fetch_sharadar.py` (into `../marketscan-data/sharadar`, outside the repository), copy
+  the `.msb` files up, and deploy with `-DataBucket`:
+
+  ```powershell
+  gcloud storage buckets create gs://<project>-marketscan-data --location us-central1
+  gcloud storage cp ..\marketscan-data\sharadar\*.msb gs://<project>-marketscan-data/sharadar/
+  service\deploy.ps1 -Project <project> -DataBucket <project>-marketscan-data
+  ```
+
+  The bucket is yours and private, and the data stays licensed to you: personal use, nothing
+  redistributed (`docs/DATA_POLICY.md` section 5).
 
 ## Tests
 
