@@ -176,3 +176,63 @@ def test_percentile_interpolates_and_drops_nulls():
     assert grading.percentile([1.0, 2.0], 0.25) == 1.25
     assert grading.percentile([5.0], 0.95) == 5.0
     assert math.isnan(grading.percentile([], 0.5))
+
+
+def test_the_scorecard_agrees():
+    engine, mine = RESULTS["scorecard"], GRADED["scorecard"]
+    assert engine["window"] == mine["window"]
+    # Return and versus-holding read cagr_pct, and the overall reads both.
+    assert same(engine["overall"]["score"], mine["overall"]["score"], True)
+    assert engine["overall"]["letter"] == mine["overall"]["letter"]
+    assert [s["id"] for s in engine["subgrades"]] == [s["id"] for s in mine["subgrades"]]
+    for a, b in zip(engine["subgrades"], mine["subgrades"]):
+        tainted = a["id"] in ("return", "versus_holding")
+        assert a["status"] == b["status"], a["id"]
+        assert same(a["score"], b["score"], tainted), a["id"]
+        assert a["letter"] == b["letter"], a["id"]
+        for k, v in a["measured"].items():
+            if isinstance(v, str):
+                assert v == b["measured"][k], (a["id"], k)
+            else:
+                assert same(v, nullable(b["measured"][k]), True), (a["id"], k)
+
+
+def test_the_fixture_s_scorecard_is_not_all_clamped():
+    # A sub-grade scored on a clamp (0 or 100) leaves the interpolation itself
+    # uncompared; at least one must land between anchors.
+    between = [s for s in RESULTS["scorecard"]["subgrades"] if 0.0 < s["score"] < 100.0
+               and s["id"] != "robustness"]
+    assert between
+
+
+@pytest.mark.parametrize(
+    "x, expected",
+    [(-20.0, 0.0), (-10.0, 0.0), (2.0, 40.0), (12.0, 76.0), (25.0, 100.0), (40.0, 100.0)],
+)
+def test_interpolation_follows_the_anchors_and_clamps(x, expected):
+    assert grading.interpolate(x, grading.RETURN_ANCHORS) == expected
+
+
+def test_interpolation_handles_falling_scores_and_nulls():
+    # Volatility: lower is better, so the scores fall as x rises.
+    assert grading.interpolate(12.5, grading.VOLATILITY_ANCHORS) == 77.5
+    assert grading.interpolate(float("nan"), grading.VOLATILITY_ANCHORS) == 0.0
+
+
+@pytest.mark.parametrize(
+    "score, expected",
+    [(100.0, "A"), (85.0, "A"), (84.99, "B"), (70.0, "B"), (55.0, "C"), (40.0, "D"), (39.9, "F")],
+)
+def test_letters_start_at_their_bounds(score, expected):
+    assert grading.letter(score) == expected
+
+
+def test_a_null_metric_scores_zero_and_still_counts():
+    mine = {"cagr_pct": 10.0, "max_drawdown_pct": -25.0, "volatility_pct": 15.0,
+            "sharpe": float("nan")}
+    bench = {"cagr_pct": 9.0, "max_drawdown_pct": -30.0}
+    card = grading.scorecard(mine, bench, "supported", True)
+    by_id = {s["id"]: s for s in card["subgrades"]}
+    assert by_id["risk_adjusted"]["score"] == 0.0
+    # 25*70 + 20*70 + 10*70 + 15*0 + 15*(70 + 70)/2 + 15*95, over 100.
+    assert card["overall"]["score"] == (1750.0 + 1400.0 + 700.0 + 0.0 + 1050.0 + 1425.0) / 100.0

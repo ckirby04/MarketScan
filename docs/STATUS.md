@@ -154,7 +154,7 @@ Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
 **550 C++ tests** on `ci` and `ci-debug`, measured; **551** on `full`, for the
-reason in [`AUDIT.md`](AUDIT.md) check 9. **439 Python tests** in
+reason in [`AUDIT.md`](AUDIT.md) check 9. **456 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import
 that changes that turns the job red.

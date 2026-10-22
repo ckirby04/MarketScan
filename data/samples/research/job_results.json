@@ -9,6 +9,71 @@
     "run_id": "3494dbe870b3a2ab",
     "started_at": "1970-01-01T00:00:00Z"
   },
+  "scorecard": {
+    "overall": {
+      "letter": "A",
+      "score": 88.66655030349128
+    },
+    "rubric_version": "0.1",
+    "subgrades": [
+      {
+        "id": "return",
+        "letter": "A",
+        "measured": {
+          "cagr_pct": 39.07655265296077
+        },
+        "score": 100.0,
+        "status": "scored"
+      },
+      {
+        "id": "risk",
+        "letter": "A",
+        "measured": {
+          "max_drawdown_pct": -10.114706905475279
+        },
+        "score": 92.32793964178708,
+        "status": "scored"
+      },
+      {
+        "id": "volatility",
+        "letter": "C",
+        "measured": {
+          "volatility_pct": 16.356579772786446
+        },
+        "score": 65.93026068164066,
+        "status": "scored"
+      },
+      {
+        "id": "risk_adjusted",
+        "letter": "A",
+        "measured": {
+          "sharpe": 2.0297953369360076
+        },
+        "score": 100.0,
+        "status": "scored"
+      },
+      {
+        "id": "versus_holding",
+        "letter": "A",
+        "measured": {
+          "cagr_difference_pct": 7.975116322426555,
+          "max_drawdown_difference_pct": 24.77248409293061
+        },
+        "score": 97.3862420464653,
+        "status": "scored"
+      },
+      {
+        "id": "robustness",
+        "letter": "C",
+        "measured": {
+          "grade": "fragile"
+        },
+        "score": 60.0,
+        "status": "scored"
+      }
+    ],
+    "window": "out_of_sample"
+  },
   "stats": {
     "benchmarks": [
       {
