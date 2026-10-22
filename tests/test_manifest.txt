@@ -344,6 +344,7 @@ micro-dollar resolution survives a decimal round trip
 moments of too-short series are undefined
 more submissions than the recording has is a divergence
 moving an instance does not destroy it twice
+ms_research carries no broker code, and the check can tell
 nanosecond timestamps survive the parse exactly
 no built binary contains a broker host outside the allowlist
 no categorical slot reuses a status colour

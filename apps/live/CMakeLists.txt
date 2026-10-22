@@ -19,7 +19,7 @@ add_executable(ms_live
     positions_cmd.cpp
     probe_cmd.cpp)
 
-target_link_libraries(ms_live PRIVATE marketscan::core marketscan::flags)
+target_link_libraries(ms_live PRIVATE marketscan::live marketscan::flags)
 
 set_target_properties(ms_live PROPERTIES
     OUTPUT_NAME "ms_live"

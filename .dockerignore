@@ -1,0 +1,15 @@
+# The service image builds from the repository root; only what it copies matters,
+# and this keeps the upload to Cloud Build small.
+.git
+out
+runs
+data/cache
+data/recordings
+**/__pycache__
+**/.pytest_cache
+web
+docs
+bindings
+theories
+tests
+scripts

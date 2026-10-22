@@ -11,8 +11,10 @@
 // the small pieces -- SHA-256, the generator, the eigenvalues -- are right.
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <string>
 #include <vector>
@@ -226,6 +228,43 @@ TEST_CASE("on a flat price every random-timing alternative ties with the rule") 
     const json& timing = outcome.results["stats"]["random_timing"];
     CHECK(timing["strategy_percentile"] == 50.0);
     CHECK(timing["p_value"] == 1.0);
+}
+
+// --- What ms_research can reach -------------------------------------------------
+
+namespace {
+
+std::string read_binary(const std::filesystem::path& path) {
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
+
+std::string lower(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return text;
+}
+
+/// Whether a built binary carries the broker: its hostname, or on Windows the
+/// HTTP stack the live seam talks to it through.
+bool reaches_broker(const std::filesystem::path& binary) {
+    const std::string bytes = lower(read_binary(binary));
+    return bytes.find("alpaca.markets") != std::string::npos ||
+           bytes.find("winhttp.dll") != std::string::npos;
+}
+
+}  // namespace
+
+// SPEC_RESEARCH_VIEW.md section 2: the research path must not be able to reach a
+// broker. Not a convention -- the live seam is its own library, ms_research does
+// not link it, and this reads the built binary to be sure.
+TEST_CASE("ms_research carries no broker code, and the check can tell") {
+    CHECK_FALSE(reaches_broker(MARKETSCAN_RESEARCH_EXE));
+    // The control: the same check on the one binary that should reach the
+    // broker. Without it, a scanner that matched nothing would pass above.
+    CHECK(reaches_broker(MARKETSCAN_LIVE_EXE));
 }
 
 // --- The pieces ---------------------------------------------------------------

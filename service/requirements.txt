@@ -1,0 +1,5 @@
+# The job service. Pinned loosely; the image pins what it installs.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+jsonschema>=4.18
+google-cloud-storage>=2.16

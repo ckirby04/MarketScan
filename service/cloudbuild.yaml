@@ -1,0 +1,16 @@
+# Builds the service image on Cloud Build, from the repository root.
+#
+#   gcloud builds submit --config service/cloudbuild.yaml \
+#       --substitutions _IMAGE=REGION-docker.pkg.dev/PROJECT/marketscan/research:TAG .
+#
+# service/deploy.ps1 does this and the rest.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "service/Dockerfile", "-t", "${_IMAGE}", "."]
+images:
+  - "${_IMAGE}"
+options:
+  # The engine and its dependencies compile from source; the default machine
+  # takes a long while about it.
+  machineType: E2_HIGHCPU_8
+timeout: 3600s

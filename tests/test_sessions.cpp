@@ -131,8 +131,8 @@ struct Replay {
     StrategyRuntimeConfig config;
     config.starting_cash = Money::from_dollars(100'000);
 
-    StrategyInstance theory(std::string(plugin_id),
-                            std::string(plugin_id),
+    StrategyInstance theory(std::string{plugin_id},
+                            std::string{plugin_id},
                             loader.create(plugin_id),
                             {},
                             config,
