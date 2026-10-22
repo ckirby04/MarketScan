@@ -1269,10 +1269,15 @@ void rich_line(const MdLine& line, unsigned int color) {
     float x = 0.0F;
     int row = 0;
     for (const Word& word : words_of(line)) {
-        ImFont* font = word.code ? theme::mono_font() : ImGui::GetFont();
+        // Bold in Inter SemiBold; drawn twice a pixel apart only if it is missing.
+        ImFont* const bold = theme::bold_font();
+        const bool fake_bold = word.bold && bold == nullptr;
+        ImFont* font = word.code                      ? theme::mono_font()
+                       : word.bold && bold != nullptr ? bold
+                                                      : ImGui::GetFont();
         const float size = ImGui::GetFontSize();
         const float width = font->CalcTextSizeA(size, FLT_MAX, 0.0F, word.text.c_str()).x +
-                            (word.bold ? 1.0F : 0.0F);
+                            (fake_bold ? 1.0F : 0.0F);
         float gap = x > 0.0F && word.space_before ? space : 0.0F;
         if (x > 0.0F && x + gap + width > wrap) {
             ++row;
@@ -1282,7 +1287,7 @@ void rich_line(const MdLine& line, unsigned int color) {
         const ImVec2 at(origin.x + x + gap, origin.y + static_cast<float>(row) * height);
         const unsigned int ink_color = word.code ? palette.text_dim : color;
         draw->AddText(font, size, at, ink_color, word.text.c_str());
-        if (word.bold) {
+        if (fake_bold) {
             draw->AddText(font, size, ImVec2(at.x + 1.0F, at.y), ink_color, word.text.c_str());
         }
         x += gap + width;

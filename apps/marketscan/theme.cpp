@@ -14,6 +14,7 @@ ImFont* g_ui_font = nullptr;
 ImFont* g_mono_font = nullptr;
 ImFont* g_large_font = nullptr;
 ImFont* g_hero_font = nullptr;
+ImFont* g_bold_font = nullptr;
 
 constexpr unsigned int rgba(unsigned int r, unsigned int g, unsigned int b, unsigned int a = 255) {
     return (a << 24) | (b << 16) | (g << 8) | r;  // IM_COL32 order
@@ -198,6 +199,12 @@ bool load_fonts(const std::filesystem::path& assets_dir, float size_pixels) {
     } else {
         log::warn("app", "UI font not found at " + ui_path.string() + "; using the built-in one");
     }
+    // Bold prose in the Research chat: the same family, SemiBold.
+    const std::filesystem::path bold_path = assets_dir / "fonts" / "Inter-SemiBold.ttf";
+    if (std::filesystem::exists(bold_path)) {
+        g_bold_font =
+            io.Fonts->AddFontFromFileTTF(bold_path.string().c_str(), size_pixels, &config);
+    }
 
     if (std::filesystem::exists(mono_path)) {
         const std::string path = mono_path.string();
@@ -236,6 +243,10 @@ ImFont* mono_font() noexcept {
 
 ImFont* hero_font() noexcept {
     return g_hero_font != nullptr ? g_hero_font : g_large_font;
+}
+
+ImFont* bold_font() noexcept {
+    return g_bold_font;
 }
 
 ImFont* large_font() noexcept {
