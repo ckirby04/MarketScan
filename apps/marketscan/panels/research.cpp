@@ -20,16 +20,22 @@
 // reach it.
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
 #include <imgui.h>
 #include <implot.h>
 
+#include "../chat.hpp"
+#include "../markdown.hpp"
 #include "../plain_words.hpp"
 #include "../research_view.hpp"
 #include "../schema_form.hpp"
@@ -820,6 +826,17 @@ void letter_box(const std::string& letter, float size) {
 // and statuses, cards for groups of figures, and large numbers. Every colour is
 // a palette colour or a tint of one, as in the web app.
 
+/// The right edge of the chat's reading column, in screen space, while the
+/// transcript is drawn; unbounded otherwise. ImGui's own width (the content
+/// region) is the window's, not the column's.
+float g_column_right = FLT_MAX;
+
+/// The width available from the cursor to the column's edge.
+[[nodiscard]] float column_avail() {
+    return std::min(ImGui::GetContentRegionAvail().x,
+                    g_column_right - ImGui::GetCursorScreenPos().x);
+}
+
 /// A label in `color` on a rounded tint of it, flowing like any other item.
 void chip(const std::string& text,
           unsigned int color,
@@ -847,7 +864,7 @@ void begin_card(const char* id, unsigned int background, unsigned int border, fl
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 12.0F);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0F, 12.0F));
     ImGui::BeginChild(id,
-                      ImVec2(width, 0.0F),
+                      ImVec2(width > 0.0F ? width : column_avail(), 0.0F),
                       ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AlwaysUseWindowPadding |
                           ImGuiChildFlags_Borders);
 }
@@ -987,10 +1004,13 @@ void figure_card(const char* id,
     end_card();
 }
 
+/// `in_conversation`: drawn inside a chat, where the analysis is the
+/// assistant's next message and the run lives on the service, not on disk.
 void draw_results(ResearchSession& session,
                   const ResearchRun& run,
                   const PlainWords& words,
-                  UiState& ui) {
+                  UiState& ui,
+                  bool in_conversation = false) {
     // Read once, when the run was made or opened -- never here, mid-frame.
     const ResearchView& v = run.view;
     const Palette& palette = theme::colors();
@@ -1045,8 +1065,7 @@ void draw_results(ResearchSession& session,
         v.benchmarks.empty() ? "the benchmark" : "holding " + v.benchmarks.front().first;
     ImGui::Dummy(ImVec2(0.0F, 6.0F));
     ink(palette.text_faint, "Measured over " + period);
-    const float half = std::max(
-        240.0F, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5F);
+    const float half = std::max(240.0F, (column_avail() - ImGui::GetStyle().ItemSpacing.x) * 0.5F);
     figure_card("##return",
                 "Annual return",
                 v.strategy_oos_cagr_pct,
@@ -1166,11 +1185,22 @@ void draw_results(ResearchSession& session,
         ImGui::EndTabBar();
     }
 
+    if (in_conversation) {
+        ImGui::Spacing();
+        // The run's form, to change by hand and run here.
+        if (ImGui::Button("Edit this form by hand")) {
+            session.set_form(run.form);
+            session.edit();
+            ui.research_chat = false;
+        }
+        return;
+    }
+
     // 4. Analysis.
     section("Analysis - written by AI from the numbers above");
     wrapped(palette.text_faint,
-            "No analysis: the assistant is not connected yet (part R2). Everything above is the "
-            "engine's, and stands without it.");
+            "No analysis for a run made here: the assistant analyses runs started from a "
+            "conversation. Everything above is the engine's, and stands without it.");
 
     ImGui::Spacing();
     if (ImGui::Button("Edit form")) {
@@ -1189,30 +1219,611 @@ void draw_results(ResearchSession& session,
     }
 }
 
-// --- The rail -------------------------------------------------------------------
+// --- The chat ---------------------------------------------------------------------
+//
+// docs/specs/SPEC_DESKTOP_CHAT.md section 2: the web app's conversation, drawn
+// from the session's ChatSnapshot. The service does the thinking and the
+// session the talking; this only draws, and posts what the reader does.
 
-void draw_rail(ResearchSession& session, const ResearchSnapshot& snap) {
-    const Palette& palette = theme::colors();
-    heading("ASK");
-    static char question[512] = "";
-    ImGui::BeginDisabled(!snap.chat.available);
-    ImGui::InputTextMultiline("##question", question, sizeof(question), ImVec2(-1.0F, 70.0F));
-    ImGui::EndDisabled();
-    wrapped(palette.text_dim, snap.chat.reason);
-    // The way in while the assistant is not connected, so it looks like one.
-    // A tint, like the chips: the palette has no ink for text on solid accent.
-    ImGui::PushStyleColor(ImGuiCol_Button, tint(palette.accent, 48));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tint(palette.accent, 80));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, tint(palette.accent, 110));
-    ImGui::PushStyleColor(ImGuiCol_Text, palette.accent);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14.0F);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0F, 6.0F));
-    if (ImGui::Button("Fill in a form by hand")) {
-        session.set_form(session.starter_form());
-        session.edit();
+/// One word of a Markdown line, ready to place.
+struct Word {
+    std::string text;
+    bool bold = false;
+    bool code = false;
+    bool space_before = false;
+};
+
+[[nodiscard]] std::vector<Word> words_of(const MdLine& line) {
+    std::vector<Word> out;
+    bool pending_space = false;
+    for (const MdSpan& span : line) {
+        std::size_t start = 0;
+        for (;;) {
+            const auto space = span.text.find(' ', start);
+            const std::string piece = span.text.substr(start, space - start);
+            if (piece.empty()) {
+                pending_space = true;
+            } else {
+                out.push_back(Word{piece, span.bold, span.code, pending_space});
+                pending_space = false;
+            }
+            if (space == std::string::npos) {
+                break;
+            }
+            pending_space = true;
+            start = space + 1;
+        }
     }
+    return out;
+}
+
+/// A line of spans, wrapped to the width available, word by word. Bold is drawn
+/// twice a pixel apart: the theme has only Inter Regular (assets/fonts).
+void rich_line(const MdLine& line, unsigned int color) {
+    const Palette& palette = theme::colors();
+    const float wrap = std::max(80.0F, column_avail());
+    const float height = ImGui::GetTextLineHeightWithSpacing();
+    const float space = ImGui::CalcTextSize(" ").x;
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    float x = 0.0F;
+    int row = 0;
+    for (const Word& word : words_of(line)) {
+        ImFont* font = word.code ? theme::mono_font() : ImGui::GetFont();
+        const float size = ImGui::GetFontSize();
+        const float width = font->CalcTextSizeA(size, FLT_MAX, 0.0F, word.text.c_str()).x +
+                            (word.bold ? 1.0F : 0.0F);
+        float gap = x > 0.0F && word.space_before ? space : 0.0F;
+        if (x > 0.0F && x + gap + width > wrap) {
+            ++row;
+            x = 0.0F;
+            gap = 0.0F;
+        }
+        const ImVec2 at(origin.x + x + gap, origin.y + static_cast<float>(row) * height);
+        const unsigned int ink_color = word.code ? palette.text_dim : color;
+        draw->AddText(font, size, at, ink_color, word.text.c_str());
+        if (word.bold) {
+            draw->AddText(font, size, ImVec2(at.x + 1.0F, at.y), ink_color, word.text.c_str());
+        }
+        x += gap + width;
+    }
+    ImGui::Dummy(ImVec2(wrap, static_cast<float>(row + 1) * height));
+}
+
+void draw_markdown(const std::string& text, unsigned int color) {
+    const std::vector<MdBlock> blocks = parse_markdown(text);
+    for (std::size_t b = 0; b < blocks.size(); ++b) {
+        const MdBlock& block = blocks[b];
+        if (b > 0) {
+            ImGui::Dummy(ImVec2(0.0F, 4.0F));
+        }
+        switch (block.kind) {
+            case MdBlock::Kind::Paragraph:
+                rich_line(block.lines.front(), color);
+                break;
+            case MdBlock::Kind::Bullets:
+            case MdBlock::Kind::Numbers:
+                for (std::size_t n = 0; n < block.lines.size(); ++n) {
+                    const std::string marker = block.kind == MdBlock::Kind::Bullets
+                                                   ? std::string("\xE2\x80\xA2")
+                                                   : std::to_string(n + 1) + ".";
+                    const float x = ImGui::GetCursorPosX();
+                    ink(theme::colors().text_faint, marker);
+                    ImGui::SameLine(0.0F, 0.0F);
+                    ImGui::SetCursorPosX(x + 22.0F);
+                    ImGui::BeginGroup();
+                    rich_line(block.lines[n], color);
+                    ImGui::EndGroup();
+                }
+                break;
+            case MdBlock::Kind::Table: {
+                std::size_t columns = 0;
+                for (const auto& row : block.rows) {
+                    columns = std::max(columns, row.size());
+                }
+                ImGui::PushID(static_cast<int>(b));
+                if (columns > 0 && ImGui::BeginTable("##md_table",
+                                                     static_cast<int>(columns),
+                                                     ImGuiTableFlags_BordersInnerH |
+                                                         ImGuiTableFlags_SizingStretchProp)) {
+                    for (std::size_t r = 0; r < block.rows.size(); ++r) {
+                        ImGui::TableNextRow();
+                        for (std::size_t c = 0; c < columns; ++c) {
+                            ImGui::TableNextColumn();
+                            if (c < block.rows[r].size()) {
+                                rich_line(block.rows[r][c],
+                                          r == 0 ? theme::colors().text_faint : color);
+                            }
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+                ImGui::PopID();
+                break;
+            }
+        }
+    }
+}
+
+/// The reader's message: a tinted bubble on the right, at most three quarters wide.
+void user_bubble(const std::string& text) {
+    const Palette& palette = theme::colors();
+    constexpr float kPad = 12.0F;
+    const float avail = column_avail();
+    const float wrap = avail * 0.75F - kPad * 2.0F;
+    const ImVec2 size = ImGui::CalcTextSize(text.c_str(), nullptr, false, wrap);
+    const ImVec2 box(size.x + kPad * 2.0F, size.y + kPad * 1.4F);
+    const ImVec2 start = ImGui::GetCursorScreenPos();
+    const ImVec2 at(start.x + avail - box.x, start.y);
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(at, ImVec2(at.x + box.x, at.y + box.y), tint(palette.accent, 40), 14.0F);
+    draw->AddText(ImGui::GetFont(),
+                  ImGui::GetFontSize(),
+                  ImVec2(at.x + kPad, at.y + kPad * 0.7F),
+                  palette.text,
+                  text.c_str(),
+                  nullptr,
+                  wrap);
+    ImGui::Dummy(ImVec2(avail, box.y));
+}
+
+/// The assistant at work: three pulsing dots and what it is doing.
+void thinking(const std::string& activity) {
+    const Palette& palette = theme::colors();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float y = at.y + ImGui::GetTextLineHeight() * 0.5F;
+    const double t = ImGui::GetTime();
+    for (int i = 0; i < 3; ++i) {
+        const double phase = std::fmod(t * 1.6 - i * 0.18, 1.0);
+        const auto alpha =
+            static_cast<unsigned int>(70.0 + 185.0 * std::max(0.0, std::sin(phase * 3.14159)));
+        ImGui::GetWindowDrawList()->AddCircleFilled(
+            ImVec2(at.x + 4.0F + static_cast<float>(i) * 11.0F, y),
+            3.5F,
+            tint(palette.accent, alpha));
+    }
+    ImGui::Dummy(ImVec2(40.0F, ImGui::GetTextLineHeight()));
+    ImGui::SameLine();
+    ink(palette.text_faint, activity.empty() ? std::string("Thinking") : activity);
+}
+
+/// A tinted, rounded button: the chips' look, for the chat's actions.
+[[nodiscard]] bool soft_button(const char* label, unsigned int color, bool large = false) {
+    ImGui::PushStyleColor(ImGuiCol_Button, tint(color, 48));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, tint(color, 80));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, tint(color, 110));
+    ImGui::PushStyleColor(ImGuiCol_Text, color);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 16.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+                        large ? ImVec2(18.0F, 9.0F) : ImVec2(14.0F, 6.0F));
+    const bool clicked = ImGui::Button(label);
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(4);
+    return clicked;
+}
+
+/// One answer to a question: its label, and its hint under it in faint ink.
+[[nodiscard]] bool option_button(
+    const char* id, const ChatOption& option, bool chosen, bool enabled, float max_width) {
+    const Palette& palette = theme::colors();
+    constexpr float kPadX = 12.0F;
+    constexpr float kPadY = 7.0F;
+    const float wrap = max_width - kPadX * 2.0F;
+    const ImVec2 label = ImGui::CalcTextSize(option.label.c_str(), nullptr, false, wrap);
+    const ImVec2 hint = option.hint.empty()
+                            ? ImVec2(0.0F, 0.0F)
+                            : ImGui::CalcTextSize(option.hint.c_str(), nullptr, false, wrap);
+    const ImVec2 box(std::max(label.x, hint.x) + kPadX * 2.0F,
+                     label.y + (option.hint.empty() ? 0.0F : hint.y + 2.0F) + kPadY * 2.0F);
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    ImGui::BeginDisabled(!enabled);
+    const bool clicked = ImGui::InvisibleButton(id, box);
+    const bool hovered = ImGui::IsItemHovered();
+    ImGui::EndDisabled();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    const unsigned int fill =
+        chosen ? tint(palette.accent, 60) : tint(palette.accent, hovered && enabled ? 34 : 16);
+    draw->AddRectFilled(at, ImVec2(at.x + box.x, at.y + box.y), fill, 12.0F);
+    if (chosen) {
+        draw->AddRect(at, ImVec2(at.x + box.x, at.y + box.y), palette.accent, 12.0F, 0, 1.5F);
+    }
+    const unsigned int label_ink =
+        enabled ? (chosen ? palette.accent : palette.text) : palette.text_faint;
+    draw->AddText(ImGui::GetFont(),
+                  ImGui::GetFontSize(),
+                  ImVec2(at.x + kPadX, at.y + kPadY),
+                  label_ink,
+                  option.label.c_str(),
+                  nullptr,
+                  wrap);
+    if (!option.hint.empty()) {
+        draw->AddText(ImGui::GetFont(),
+                      ImGui::GetFontSize(),
+                      ImVec2(at.x + kPadX, at.y + kPadY + label.y + 2.0F),
+                      palette.text_faint,
+                      option.hint.c_str(),
+                      nullptr,
+                      wrap);
+    }
+    return clicked && enabled;
+}
+
+/// What the reader has picked for a set of questions, until it is sent.
+struct Picks {
+    std::vector<int> chosen;
+    std::vector<std::array<char, 256>> other;
+};
+
+void draw_questions(ResearchSession& session,
+                    const std::string& key,
+                    const ChatItem& item,
+                    bool answerable) {
+    const Palette& palette = theme::colors();
+    static std::map<std::string, Picks> picks_by_key;
+    if (!item.message.empty()) {
+        draw_markdown(item.message, palette.text);
+    }
+    if (!answerable) {
+        return;  // answered: the reply below says what was chosen
+    }
+    Picks& picks = picks_by_key[key];
+    picks.chosen.resize(item.questions.size(), -1);
+    picks.other.resize(item.questions.size(), std::array<char, 256>{});
+    const bool single = item.questions.size() == 1;
+    const float avail = column_avail();
+    for (std::size_t q = 0; q < item.questions.size(); ++q) {
+        const ChatQuestion& question = item.questions[q];
+        ImGui::PushID(static_cast<int>(q));
+        ImGui::Dummy(ImVec2(0.0F, 6.0F));
+        ink(palette.text, question.question);
+        // Options flow along a row and wrap, as the web's do.
+        float x = 0.0F;
+        for (std::size_t o = 0; o < question.options.size(); ++o) {
+            const ChatOption& option = question.options[o];
+            const float width = std::min(avail,
+                                         std::max(ImGui::CalcTextSize(option.label.c_str()).x,
+                                                  ImGui::CalcTextSize(option.hint.c_str()).x) +
+                                             24.0F);
+            if (o > 0 && x + 8.0F + width <= avail) {
+                ImGui::SameLine(0.0F, 8.0F);
+                x += 8.0F;
+            } else {
+                x = 0.0F;
+            }
+            ImGui::PushID(static_cast<int>(o));
+            if (option_button("##option",
+                              option,
+                              picks.chosen[q] == static_cast<int>(o),
+                              true,
+                              std::min(avail, 420.0F))) {
+                picks.chosen[q] = static_cast<int>(o);
+                picks.other[q][0] = '\0';
+                if (single) {
+                    session.chat_send(option.label);
+                }
+            }
+            x += ImGui::GetItemRectSize().x;
+            ImGui::PopID();
+        }
+        if (!single && question.allow_free_text) {
+            ImGui::SetNextItemWidth(std::min(avail, 520.0F));
+            if (ImGui::InputTextWithHint(
+                    "##other", "Something else...", picks.other[q].data(), picks.other[q].size())) {
+                picks.chosen[q] = -1;
+            }
+        }
+        ImGui::PopID();
+    }
+    if (single) {
+        ink(palette.text_faint, "Or reply below in your own words.");
+        return;
+    }
+    bool complete = true;
+    for (std::size_t q = 0; q < item.questions.size(); ++q) {
+        complete = complete && (picks.chosen[q] >= 0 || picks.other[q][0] != '\0');
+    }
+    ImGui::Dummy(ImVec2(0.0F, 4.0F));
+    ImGui::BeginDisabled(!complete);
+    if (soft_button("Continue", palette.accent)) {
+        std::string answer;
+        for (std::size_t q = 0; q < item.questions.size(); ++q) {
+            const std::string pick =
+                picks.chosen[q] >= 0
+                    ? item.questions[q].options[static_cast<std::size_t>(picks.chosen[q])].label
+                    : std::string(picks.other[q].data());
+            answer += (q > 0 ? "\n" : "") + item.questions[q].question + " " + pick;
+        }
+        session.chat_send(answer);
+    }
+    ImGui::EndDisabled();
+}
+
+/// The order things are shown in: a ready item goes after the assistant text
+/// that follows it in the same turn, so Run comes after the explanation (as on
+/// the web, Chat.tsx displayOrder).
+[[nodiscard]] std::vector<std::size_t> display_order(const std::vector<ChatItem>& items) {
+    std::vector<std::size_t> order;
+    for (std::size_t n = 0; n < items.size(); ++n) {
+        if (items[n].kind != "ready") {
+            order.push_back(n);
+            continue;
+        }
+        std::size_t end = n + 1;
+        while (end < items.size() && items[end].kind == "assistant") {
+            order.push_back(end++);
+        }
+        order.push_back(n);
+        n = end - 1;
+    }
+    return order;
+}
+
+/// Scrolling state for the transcript, kept across frames.
+struct Follow {
+    std::string conversation;
+    int to_bottom = 0;  // frames left in which to land at the bottom
+    std::set<std::string> seen_running;
+    std::set<std::string> revealed;
+    bool jumped = false;  // this frame went to a run's verdict
+};
+
+[[nodiscard]] Follow& follow() {
+    static Follow state;
+    return state;
+}
+
+void draw_chat_run(ResearchSession& session,
+                   const ChatSnapshot& chat,
+                   const ChatItem& item,
+                   const PlainWords& words,
+                   UiState& ui) {
+    const Palette& palette = theme::colors();
+    const ChatRun* run = chat.run(item.job_id);
+    ImGui::PushID(item.job_id.c_str());
+    // Results that arrived while the reader watched: show them from the verdict
+    // down, once, as the web does. Here, before the card opens, so it is the
+    // transcript that scrolls and not the card.
+    if (run != nullptr && run->state == "done" && run->run &&
+        follow().seen_running.count(item.job_id) != 0 &&
+        follow().revealed.insert(item.job_id).second) {
+        ImGui::SetScrollHereY(0.0F);
+        follow().jumped = true;
+    }
+    begin_card("##run", palette.surface, tint(palette.border, 140));
+    if (run == nullptr || run->state.empty()) {
+        thinking("Starting the backtest");
+    } else if (!run->ended()) {
+        follow().seen_running.insert(item.job_id);
+        ink(palette.text, "Running the backtest");
+        ImGui::SameLine();
+        ink(palette.text_faint, run->state == "queued" ? "waiting to start" : run->stage);
+        meter(std::min(420.0F, ImGui::GetContentRegionAvail().x),
+              7.0F,
+              run->total > 0 ? static_cast<double>(run->done) / run->total : 0.0,
+              palette.accent);
+        ink(palette.text_faint, "The verdict appears once every check has finished.");
+    } else if (run->state != "done") {
+        wrapped(palette.status_serious,
+                "The backtest couldn't run. The assistant will explain what to change.");
+        if (!run->errors.empty() && ImGui::TreeNode("Technical details")) {
+            for (const research::JobError& e : run->errors) {
+                wrapped(palette.text_faint, e.message);
+            }
+            ImGui::TreePop();
+        }
+    } else if (run->run) {
+        draw_results(session, *run->run, words, ui, true);
+    } else {
+        thinking("Fetching the Results");
+    }
+    if (run != nullptr && !run->problem.empty()) {
+        wrapped(palette.status_serious, run->problem);
+    }
+    end_card();
+    ImGui::PopID();
+}
+
+void draw_composer(ResearchSession& session, const ChatView& open) {
+    const Palette& palette = theme::colors();
+    static std::array<char, 4096> draft{};
+    const float send_width = 72.0F;
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 14.0F);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0F, 10.0F));
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, palette.surface_raised);
+    const bool entered = ImGui::InputTextMultiline(
+        "##composer",
+        draft.data(),
+        draft.size(),
+        ImVec2(ImGui::GetContentRegionAvail().x - send_width - 8.0F, 58.0F),
+        ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CtrlEnterForNewLine);
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    if (ImGui::IsItemHovered() && draft[0] == '\0') {
+        ImGui::SetTooltip("Enter sends; Ctrl+Enter starts a new line.");
+    }
+    ImGui::SameLine(0.0F, 8.0F);
+    ImGui::BeginDisabled(open.busy || draft[0] == '\0');
+    const bool clicked = soft_button("Send", palette.accent, true);
+    ImGui::EndDisabled();
+    if ((entered || clicked) && !open.busy && draft[0] != '\0') {
+        session.chat_send(draft.data());
+        draft[0] = '\0';
+        follow().to_bottom = 3;
+    }
+}
+
+const char* const kExamples[] = {
+    "What's the best drawdown to buy TQQQ at, selling when it gets back to its old high?",
+    "Does buying SPY after a 20% drop beat holding it?",
+    "If I bought QQQ every time it fell 30% from its high and held, how would that have done?",
+};
+
+void draw_chat(ResearchSession& session, const ResearchSnapshot& snap, UiState& ui) {
+    const Palette& palette = theme::colors();
+    const ChatView& open = snap.chat.open;
+    Follow& f = follow();
+    if (f.conversation != open.id) {
+        f.conversation = open.id;
+        f.to_bottom = 3;  // a conversation opens at its end
+    }
+
+    const float composer = 74.0F;
+    ImGui::BeginChild("##transcript", ImVec2(0.0F, -composer));
+    // From last frame's layout: was the reader at the bottom? Only then does new
+    // content bring the view down with it.
+    const bool at_bottom = ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 60.0F;
+    const float column = std::min(ImGui::GetContentRegionAvail().x, 860.0F);
+    const float indent = std::max(0.0F, (ImGui::GetContentRegionAvail().x - column) * 0.5F);
+    ImGui::Indent(indent);
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + column);
+    g_column_right = ImGui::GetCursorScreenPos().x + column;
+    ImGui::BeginGroup();
+    ImGui::PushItemWidth(column);
+
+    if (open.id.empty() && open.items.empty() && !open.busy) {
+        // A new conversation: the question, and some to start from.
+        ImGui::Dummy(ImVec2(0.0F, 60.0F));
+        ImGui::PushFont(theme::hero_font());
+        ink(palette.accent, "What do you want to test?");
+        ImGui::PopFont();
+        wrapped(palette.text_dim,
+                "Describe a trading rule. It's tested on historical prices and graded on return, "
+                "risk and how well it holds up.");
+        ImGui::Dummy(ImVec2(0.0F, 10.0F));
+        for (const char* example : kExamples) {
+            if (soft_button(example, palette.accent)) {
+                session.chat_send(example);
+                f.to_bottom = 3;
+            }
+        }
+    } else if (!open.id.empty() && open.items.empty() && open.problem.empty() && !open.busy) {
+        ink(palette.text_faint, "Loading the conversation...");
+    }
+
+    std::size_t last_ready = SIZE_MAX;
+    std::size_t last_run = SIZE_MAX;
+    for (std::size_t n = 0; n < open.items.size(); ++n) {
+        if (open.items[n].kind == "ready") {
+            last_ready = n;
+        }
+        if (open.items[n].kind == "run") {
+            last_run = n;
+        }
+    }
+    for (const std::size_t n : display_order(open.items)) {
+        const ChatItem& item = open.items[n];
+        ImGui::PushID(static_cast<int>(n));
+        ImGui::Dummy(ImVec2(0.0F, 10.0F));
+        if (item.kind == "user") {
+            user_bubble(item.text);
+        } else if (item.kind == "assistant") {
+            draw_markdown(item.text, palette.text);
+        } else if (item.kind == "analysis") {
+            ink(palette.text_faint, "Analysis - written by AI from the results above");
+            draw_markdown(item.text, palette.text);
+        } else if (item.kind == "questions") {
+            const bool answerable = !item.answered && !open.busy && n + 1 == open.items.size();
+            draw_questions(session, open.id + "#" + std::to_string(n), item, answerable);
+        } else if (item.kind == "ready") {
+            // Only the one that can still be run.
+            const bool runnable = n == last_ready && (last_run == SIZE_MAX || last_run < n) &&
+                                  open.ready && !open.busy;
+            if (runnable) {
+                if (soft_button("Run the backtest", palette.accent, true)) {
+                    session.chat_run();
+                    f.to_bottom = 3;
+                }
+                ImGui::SameLine(0.0F, 12.0F);
+                ImGui::AlignTextToFramePadding();
+                ink(palette.text_faint, "or reply to change something first");
+            }
+        } else if (item.kind == "run") {
+            draw_chat_run(session, snap.chat, item, *snap.words, ui);
+        } else if (item.kind == "error") {
+            begin_card(
+                "##error", tint(palette.status_serious, 30), tint(palette.status_serious, 0));
+            wrapped(palette.status_serious, item.text);
+            end_card();
+        }
+        ImGui::PopID();
+    }
+    if (open.busy) {
+        ImGui::Dummy(ImVec2(0.0F, 10.0F));
+        thinking(open.activity);
+    }
+    if (!open.problem.empty()) {
+        ImGui::Dummy(ImVec2(0.0F, 8.0F));
+        begin_card("##problem", tint(palette.status_serious, 30), tint(palette.status_serious, 0));
+        wrapped(palette.status_serious, open.problem);
+        end_card();
+    }
+    ImGui::Dummy(ImVec2(0.0F, 16.0F));
+
+    ImGui::PopItemWidth();
+    ImGui::EndGroup();
+    g_column_right = FLT_MAX;
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent(indent);
+    if (f.to_bottom > 0) {
+        --f.to_bottom;
+        ImGui::SetScrollHereY(1.0F);
+    } else if (at_bottom && !f.jumped) {
+        ImGui::SetScrollHereY(1.0F);
+    }
+    f.jumped = false;
+    ImGui::EndChild();
+
+    // The message box, under the transcript, in the same column.
+    const float avail = ImGui::GetContentRegionAvail().x;
+    const float column_out = std::min(avail, 860.0F);
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0F, (avail - column_out) * 0.5F));
+    ImGui::BeginGroup();
+    ImGui::PushItemWidth(column_out);
+    ImGui::BeginChild("##composer_area", ImVec2(column_out, 0.0F));
+    draw_composer(session, open);
+    ImGui::EndChild();
+    ImGui::PopItemWidth();
+    ImGui::EndGroup();
+}
+
+// --- The rail -------------------------------------------------------------------
+
+void draw_rail(ResearchSession& session, const ResearchSnapshot& snap, UiState& ui) {
+    const Palette& palette = theme::colors();
+    if (snap.chat.available) {
+        ImGui::BeginDisabled(snap.chat.open.busy);
+        if (soft_button("+  New chat", palette.accent)) {
+            session.chat_new();
+            ui.research_chat = true;
+        }
+        ImGui::EndDisabled();
+        heading("CONVERSATIONS");
+        if (snap.chat.conversations.empty()) {
+            ink(palette.text_faint, "Your conversations will show here.");
+        }
+        // Not while a turn streams: it would land in the conversation left.
+        ImGui::BeginDisabled(snap.chat.open.busy);
+        for (const ConversationSummary& c : snap.chat.conversations) {
+            ImGui::PushID(c.id.c_str());
+            const bool current = ui.research_chat && c.id == snap.chat.open.id;
+            if (ImGui::Selectable(c.title.empty() ? "New conversation" : c.title.c_str(),
+                                  current)) {
+                session.chat_open(c.id);
+                ui.research_chat = true;
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndDisabled();
+        ImGui::Spacing();
+    } else {
+        heading("ASK");
+        wrapped(palette.text_dim, snap.chat.reason);
+    }
+    if (soft_button("Fill in a form by hand", palette.accent)) {
+        session.set_form(session.starter_form());
+        session.edit();
+        ui.research_chat = false;
+    }
 
     heading("RECENT RUNS");
     if (snap.recent.empty()) {
@@ -1226,8 +1837,9 @@ void draw_rail(ResearchSession& session, const ResearchSnapshot& snap) {
     for (const RecentRun& recent : snap.recent) {
         ImGui::PushID(recent.directory.string().c_str());
         const bool open = snap.run && snap.run->directory == recent.directory;
-        if (ImGui::Selectable(recent.title.c_str(), open)) {
+        if (ImGui::Selectable(recent.title.c_str(), open && !ui.research_chat)) {
             session.open(recent.directory);
+            ui.research_chat = false;
         }
         ImGui::Indent(12.0F);
         chip(grade_words(recent.grade), grade_color(recent.grade), nullptr, ImVec2(7.0F, 1.0F));
@@ -1257,11 +1869,22 @@ void research(Context& context) {
 
     const float rail = std::max(260.0F, ImGui::GetContentRegionAvail().x * 0.26F);
     ImGui::BeginChild("##research_rail", ImVec2(rail, 0.0F), ImGuiChildFlags_Borders);
-    draw_rail(session, *snap);
+    draw_rail(session, *snap, context.ui);
     ImGui::EndChild();
 
     ImGui::SameLine();
     ImGui::BeginChild("##research_main", ImVec2(0.0F, 0.0F));
+    if (snap->chat.available && context.ui.research_chat) {
+        // The list once, when the chat is first shown.
+        static bool listed = false;
+        if (!listed) {
+            listed = true;
+            session.chat_refresh();
+        }
+        draw_chat(session, *snap, context.ui);
+        ImGui::EndChild();
+        return;
+    }
     switch (snap->state) {
         case ResearchState::Running:
             draw_progress(session, *snap);

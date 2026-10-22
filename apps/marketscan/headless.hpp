@@ -81,6 +81,8 @@ struct HeadlessOptions {
 
     /// GUI only: a Strategy Form to load into the Research view and run.
     std::string research_form;
+    std::string research_conversation;
+    std::string research_ask;
 
     /// GUI only: capture the window to this path and quit.
     std::string screenshot;

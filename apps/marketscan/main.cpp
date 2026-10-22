@@ -90,6 +90,8 @@ int main(int argc, char** argv) {
             }
         }
         app_options.research_form = options.research_form;
+        app_options.research_conversation = options.research_conversation;
+        app_options.research_ask = options.research_ask;
         app_options.screenshot = options.screenshot;
         app_options.screenshot_after = options.screenshot_after;
         app_options.speed = options.speed;

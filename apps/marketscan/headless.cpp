@@ -51,6 +51,10 @@ replays market data through all of them at once, and prints what happened.
   --research-csv <s=f>  GUI only: a date,close CSV for symbol s. Repeatable.
   --research-form <f>   GUI only: load this Strategy Form into the Research
                         view and run it.
+  --research-conversation <id>  GUI only: open this conversation with the
+                        job service's assistant (needs MS_SERVICE_KEY).
+  --research-ask <text> GUI only: start a conversation with this question.
+                        For reproducible screenshots of the chat.
   --screenshot <file>   GUI only: write the window to a BMP and quit. See
                         scripts/capture_screenshot.ps1, which converts it.
   --screenshot-after <s> Seconds of replay before the capture. Default 8.
@@ -397,7 +401,8 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
                 return false;
             }
         } else if (argument == "--research-daily" || argument == "--research-csv" ||
-                   argument == "--research-form") {
+                   argument == "--research-form" || argument == "--research-conversation" ||
+                   argument == "--research-ask") {
             if (i + 1 >= argc) {
                 std::cerr << argument << " needs a value\n";
                 exit_code = 2;
@@ -408,6 +413,10 @@ bool parse_arguments(int argc, char** argv, HeadlessOptions& out, int& exit_code
                 out.research_daily = value;
             } else if (argument == "--research-csv") {
                 out.research_csv.push_back(value);
+            } else if (argument == "--research-conversation") {
+                out.research_conversation = value;
+            } else if (argument == "--research-ask") {
+                out.research_ask = value;
             } else {
                 out.research_form = value;
             }

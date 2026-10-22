@@ -198,10 +198,19 @@ bool Application::initialise() {
             std::ifstream in(options_.research_form, std::ios::binary);
             research_->set_form(nlohmann::json::parse(in));
             research_->run();
+            ui_.research_chat = false;  // a form given on the command line shows its run
         } catch (const std::exception& error) {
             log::error("research",
                        "could not load " + options_.research_form.string() + ": " + error.what());
         }
+    }
+    // The chat, for reproducible screenshots of it: a conversation to open, or a
+    // question to ask. Both need the chat to be connected (MS_SERVICE_KEY).
+    if (!options_.research_conversation.empty()) {
+        research_->chat_open(options_.research_conversation);
+    }
+    if (!options_.research_ask.empty()) {
+        research_->chat_send(options_.research_ask);
     }
     session_->set_speed(options_.speed);
     if (options_.autoplay) {

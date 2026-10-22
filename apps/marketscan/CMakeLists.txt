@@ -19,6 +19,7 @@ add_library(marketscan_app STATIC
     research_view.cpp
     plain_words.cpp
     chat.cpp
+    markdown.cpp
     schema_form.cpp)
 add_library(marketscan::app ALIAS marketscan_app)
 

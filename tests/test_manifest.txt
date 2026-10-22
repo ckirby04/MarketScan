@@ -19,6 +19,7 @@ CAGR against an exact case
 CAGR of a degenerate span is undefined
 Calmar ratio
 INT64_MIN formats without overflowing on negation
+Markdown blocks: paragraphs, headings, lists and tables
 Results from before the scorecard still read, without one
 SHA-256 against the FIPS 180 example vectors
 Sharpe of a riskless series is undefined, not infinite
@@ -334,6 +335,7 @@ fractional seconds scale to nanoseconds
 indices wrap without losing anything
 information ratio against a worked example
 information ratio against an identical series is undefined
+inline Markdown: bold and code, and what is left as text
 integer means a whole number however it is written, and never a boolean
 items come out in the order they went in
 jitter stays inside its bound
@@ -523,6 +525,7 @@ the optimistic model fills everything at the last print
 the original file stays writable while the plugin is loaded
 the prompt and provenance do not change the job
 the rails refuse a price or quantity that is not a number
+the recorded analysis parses into paragraphs, lists and bold
 the reference theories return exactly what they did at Spec 1
 the reference theory is discovered and loaded
 the registry keeps a stable order

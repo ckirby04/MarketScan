@@ -478,6 +478,7 @@ void ResearchSession::chat_send(const std::string& text) {
             }
             id = json::parse(made.body).at("id").get<std::string>();
             publish([&](ResearchSnapshot& s) { s.chat.open.id = id; });
+            chat_list();  // in the list now, not only once its first turn ends
         }
         chat_turn(id,
                   "/conversations/" + id + "/messages",

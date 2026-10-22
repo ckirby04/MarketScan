@@ -23,6 +23,7 @@
 #include <nlohmann/json.hpp>
 
 #include "chat.hpp"
+#include "markdown.hpp"
 #include "marketscan/research/job.hpp"
 #include "marketscan/research/service_client.hpp"
 #include "research_session.hpp"
@@ -491,4 +492,88 @@ TEST_CASE("the real service answers a question", "[.][network]") {
     CHECK(snap->chat.open.items.front().kind == "user");
     CHECK_FALSE(snap->chat.open.items.front().sent);  // the service's copy
     CHECK_FALSE(snap->chat.conversations.empty());
+}
+
+// --- The Markdown the assistant writes ---------------------------------------------
+
+namespace {
+
+std::string plain(const MdLine& line) {
+    std::string out;
+    for (const MdSpan& span : line) {
+        out += span.text;
+    }
+    return out;
+}
+
+}  // namespace
+
+TEST_CASE("inline Markdown: bold and code, and what is left as text") {
+    const MdLine line = parse_inline("Buy **at 20%** with `threshold_pct` set");
+    REQUIRE(line.size() == 5);
+    CHECK(line[1].text == "at 20%");
+    CHECK(line[1].bold);
+    CHECK(line[3].text == "threshold_pct");
+    CHECK(line[3].code);
+    CHECK(plain(line) == "Buy at 20% with threshold_pct set");
+
+    // As the web's pattern: no * inside bold, and an unmatched ** stays text.
+    CHECK(plain(parse_inline("a **b*c** d")) == "a **b*c** d");
+    CHECK(plain(parse_inline("a ** b")) == "a ** b");
+    CHECK(parse_inline("****").size() == 1);
+    CHECK_FALSE(parse_inline("****")[0].bold);
+}
+
+TEST_CASE("Markdown blocks: paragraphs, headings, lists and tables") {
+    const auto blocks = parse_markdown("## The short answer\n"
+                                       "History doesn't settle it.\n"
+                                       "Three trades are too few.\n"
+                                       "\n"
+                                       "- **One** thing\n"
+                                       "* another\n"
+                                       "\n"
+                                       "1. first\n"
+                                       "2) second\n"
+                                       "\n"
+                                       "| | rule | holding |\n"
+                                       "|---|:--:|---|\n"
+                                       "| CAGR | +3.5% | +10.0% |\n");
+    REQUIRE(blocks.size() == 4);
+    CHECK(blocks[0].kind == MdBlock::Kind::Paragraph);
+    // The heading's #s dropped, and its lines joined with the paragraph's.
+    CHECK(plain(blocks[0].lines[0]) ==
+          "The short answer History doesn't settle it. Three trades are too few.");
+    CHECK(blocks[1].kind == MdBlock::Kind::Bullets);
+    REQUIRE(blocks[1].lines.size() == 2);
+    CHECK(blocks[1].lines[0][0].bold);
+    CHECK(blocks[2].kind == MdBlock::Kind::Numbers);
+    CHECK(plain(blocks[2].lines[1]) == "second");
+    CHECK(blocks[3].kind == MdBlock::Kind::Table);
+    REQUIRE(blocks[3].rows.size() == 2);  // the separator row skipped
+    CHECK(plain(blocks[3].rows[0][1]) == "rule");
+    CHECK(plain(blocks[3].rows[1][2]) == "+10.0%");
+}
+
+TEST_CASE("the recorded analysis parses into paragraphs, lists and bold") {
+    std::string text;
+    for (const json& event : read_events(kChat / "turn_3_analysis.ndjson")) {
+        if (event["event"] == "text") {
+            text += event["delta"].get<std::string>();
+        }
+    }
+    const auto blocks = parse_markdown(text);
+    bool list = false;
+    bool bold = false;
+    for (const MdBlock& block : blocks) {
+        list = list || block.kind != MdBlock::Kind::Paragraph;
+        for (const MdLine& line : block.lines) {
+            for (const MdSpan& span : line) {
+                bold = bold || span.bold;
+                CHECK(span.text.find("**") == std::string::npos);  // no marker left showing
+            }
+        }
+    }
+    CHECK(blocks.size() > 3);
+    CHECK(list);
+    CHECK(bold);
 }
