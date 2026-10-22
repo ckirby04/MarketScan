@@ -95,3 +95,13 @@ export function objectiveLabel(metric: string): string {
 export function plainNumber(v: number): string {
   return String(Number(v.toFixed(4)));
 }
+
+/** The scorecard's sub-grades (JOB.md section 11): a name, and what each reads. */
+export const SUBGRADES: Record<string, { name: string; reads: string }> = {
+  return: { name: "Return", reads: "Annual return" },
+  risk: { name: "Risk", reads: "Worst drop" },
+  volatility: { name: "Volatility", reads: "How much it swings, a year" },
+  risk_adjusted: { name: "Risk-adjusted", reads: "Return for its swings (Sharpe)" },
+  versus_holding: { name: "Versus holding", reads: "Return and worst drop against holding" },
+  robustness: { name: "Robustness", reads: "The verdict" },
+};

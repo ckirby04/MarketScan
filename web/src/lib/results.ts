@@ -58,8 +58,27 @@ export interface SurfacePoint {
   excluded: boolean;
 }
 
+export type Letter = "A" | "B" | "C" | "D" | "F";
+
+export interface Subgrade {
+  id: "return" | "risk" | "volatility" | "risk_adjusted" | "versus_holding" | "robustness";
+  status: "scored" | "not_applicable";
+  score: number | null;
+  letter: Letter | null;
+  measured: Record<string, number | string | null>;
+}
+
+/** JOB.md section 11. Absent from Results written before it existed. */
+export interface Scorecard {
+  rubric_version: string;
+  window: "out_of_sample" | "full";
+  overall: { score: number; letter: Letter };
+  subgrades: Subgrade[];
+}
+
 export interface Results {
   run: { run_id: string; started_at: string; duration_ms: number };
+  scorecard?: Scorecard;
   verdict: {
     grade: "supported" | "fragile" | "not_supported" | "insufficient_evidence";
     data_grade: "research" | "exercise_only";
