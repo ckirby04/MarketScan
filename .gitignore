@@ -58,6 +58,8 @@ data/samples/*
 
 # --- Research runs: written by the Research view, one directory each ---
 runs/
+# ...but not the web app's results page, whose route is runs/[id]
+!web/src/app/runs/
 
 # --- Python ---
 __pycache__/
