@@ -153,6 +153,7 @@ try {
 }
 
 $dataArgs = @()
+$environment = [ordered]@{ MS_RUNS_BUCKET = $Bucket }
 if ($DataBucket) {
     Invoke-Gcloud storage buckets add-iam-policy-binding "gs://$DataBucket" `
         --member "serviceAccount:$account" --role roles/storage.objectViewer
@@ -162,13 +163,16 @@ if ($DataBucket) {
         "--add-volume", "name=data,type=cloud-storage,bucket=$DataBucket,readonly=true",
         "--add-volume-mount", "volume=data,mount-path=/data"
     )
-    # MS_DAILY_DIR holds commas, so the variables are separated by "|" instead:
-    # the "^|^" at the start of --set-env-vars is gcloud's syntax for that.
-    $daily = ($DataDirs | ForEach-Object { "/data/$_" }) -join ","
-    $dataEnv = "|MS_DAILY_DIR=$daily|MS_RECIPES=/data/recipes.json"
-} else {
-    $dataEnv = ""
+    $environment["MS_DAILY_DIR"] = ($DataDirs | ForEach-Object { "/data/$_" }) -join ","
+    $environment["MS_RECIPES"] = "/data/recipes.json"
 }
+
+# The variables go in a file rather than on the command line: MS_DAILY_DIR
+# holds commas, which --set-env-vars splits on, and gcloud.cmd passes its
+# arguments through cmd.exe, which reads | and ^ itself.
+$envFile = New-TemporaryFile
+$environment.GetEnumerator() | ForEach-Object { "$($_.Key): '$($_.Value)'" } |
+    Set-Content -Path $envFile -Encoding ascii
 
 Invoke-Gcloud run deploy $Service `
     --image $image `
@@ -180,9 +184,10 @@ Invoke-Gcloud run deploy $Service `
     --cpu 2 `
     --memory 2Gi `
     --timeout 3600 `
-    --set-env-vars "^|^MS_RUNS_BUCKET=$Bucket$dataEnv" `
+    --env-vars-file $envFile `
     --set-secrets $secrets `
     @dataArgs
+Remove-Item $envFile
 
 $url = (& $gcloud run services describe $Service --region $Region --format "value(status.url)").Trim()
 Write-Host ""
