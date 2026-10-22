@@ -24,7 +24,7 @@ export type Item =
   | { kind: "user"; text: string }
   | { kind: "assistant"; text: string }
   | { kind: "analysis"; text: string; job_id: string }
-  | { kind: "questions"; questions: Question[]; answered: boolean }
+  | { kind: "questions"; message?: string; questions: Question[]; answered: boolean }
   | { kind: "ready"; form: JsonObject }
   | { kind: "run"; job_id: string }
   | { kind: "error"; text: string };

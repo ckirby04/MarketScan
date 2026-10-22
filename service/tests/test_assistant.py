@@ -156,13 +156,14 @@ def test_a_question_becomes_a_run_and_its_results_an_analysis(client, model):
         {"content": [tool("search_securities", {"query": ""}, "t1"),
                      tool("resolve", {"ticker": "FIXTURE", "as_of": "2000-01-03"}, "t2")]},
         {"content": [tool("save_form", {"form": with_missing_exit(), "ready": False}, "t3"),
-                     tool("ask_user", {"questions": [QUESTION]}, "t4")]},
+                     tool("ask_user", {"message": "The data starts in 2000.", "questions": [QUESTION]}, "t4")]},
     )
     first = say(client, conversation_id, "what drawdown should I buy FIXTURE at?")
     kinds = [e["event"] for e in first]
     assert kinds[0] == "item" and first[0]["item"] == {"kind": "user", "text": "what drawdown should I buy FIXTURE at?"}
     assert "activity" in kinds and kinds[-1] == "end"
     assert first[-2]["item"]["kind"] == "questions"
+    assert first[-2]["item"]["message"] == "The data starts in 2000."
 
     # The tools answered from the data held.
     search = json.loads(model.requests[1]["messages"][2]["content"][0]["content"])

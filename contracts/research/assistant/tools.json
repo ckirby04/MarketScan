@@ -104,7 +104,7 @@
   },
   {
     "name": "ask_user",
-    "description": "Ask the user to choose values for form fields. Shown in the chat as buttons, with a box for a free-text answer. Ask at most three questions per call. Each question is tied to the field it fills. Your turn ends when you ask: the user's answers come back as this tool's result.",
+    "description": "Ask the user to choose values for form fields. Shown in the chat as buttons, with a box for a free-text answer, under `message`. Ask at most three questions per call. Each question is tied to the field it fills. Your turn ends when you ask: the user's answers come back as this tool's result.",
     "input_schema": {
       "type": "object",
       "additionalProperties": false,
@@ -112,6 +112,10 @@
         "questions"
       ],
       "properties": {
+        "message": {
+          "type": "string",
+          "description": "What the user should know before answering, shown above the questions: what you found in the data (a shortened range, a symbol not held) and anything else that bears on the choices. Plain English, a few sentences at most. Text you write before calling a tool does not reach the user; this does."
+        },
         "questions": {
           "type": "array",
           "minItems": 1,

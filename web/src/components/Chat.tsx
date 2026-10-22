@@ -197,6 +197,7 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
             return (
               <Questions
                 key={n}
+                message={item.message}
                 questions={item.questions}
                 answered={item.answered || busy || n !== items.length - 1}
                 onAnswer={send}
@@ -258,10 +259,12 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
 
 /** The assistant's questions, as buttons; one question answers on a click. */
 function Questions({
+  message,
   questions,
   answered,
   onAnswer,
 }: {
+  message?: string;
   questions: Question[];
   answered: boolean;
   onAnswer: (text: string) => void;
@@ -275,6 +278,7 @@ function Questions({
 
   return (
     <div className={`card questions ${answered ? "answered" : ""}`}>
+      {message && <Markdown text={message} />}
       {questions.map((q, n) => (
         <div key={n} className="question">
           <div>{q.question}</div>

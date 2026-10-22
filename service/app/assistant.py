@@ -297,7 +297,8 @@ class Assistant:
 
             if ask is not None:
                 conversation.pending = {"ask_id": ask.id, "results": results}
-                item = {"kind": "questions", "questions": ask.input["questions"], "answered": False}
+                item = {"kind": "questions", "message": ask.input.get("message", ""),
+                        "questions": ask.input["questions"], "answered": False}
                 conversation.display.append(item)
                 yield {"event": "item", "item": item}
                 return
