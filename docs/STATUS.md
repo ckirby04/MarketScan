@@ -25,7 +25,7 @@ before its first bar from its underlying, financed at FRED's 3-month T-bill
 `scripts/build_recipes.py` measured; the engine and `research/synthetic.py`
 agree on it exactly. One recipe, TQQQ from QQQ's total return, back to 1999.
 Not built: the data catalog (R1), a cash yield, and Open in Operator. Green
-locally; not yet run in CI. 553 C++ tests (one skipped, allowlisted), 439
+locally; not yet run in CI. 561 C++ tests (one skipped, allowlisted), 439
 Python, 22 service.
 
 The counts and version identifiers in this document are descriptive facts about
@@ -153,7 +153,7 @@ linked and launched at once will stall regardless.
 Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
-**553 C++ tests** on `ci` and `ci-debug`, measured; **554** on `full`, for the
+**561 C++ tests** on `ci` and `ci-debug`, measured; **562** on `full`, for the
 reason in [`AUDIT.md`](AUDIT.md) check 9. **456 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import

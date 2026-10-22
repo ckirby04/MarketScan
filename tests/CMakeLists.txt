@@ -132,6 +132,9 @@ marketscan_add_test(test_sizing      test_sizing.cpp)
 marketscan_add_test(test_paper_only  test_paper_only.cpp)
 target_link_libraries(test_paper_only PRIVATE marketscan::live)
 
+marketscan_add_test(test_service_client test_service_client.cpp)
+target_link_libraries(test_service_client PRIVATE marketscan::service)
+
 # The live seam's offline half. The parser, the monotonic gate, the recorder
 # round trip and the calendar, none of which touch a network: every message in
 # these is hand-written to the vendor's documented shape with invented prices.

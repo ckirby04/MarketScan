@@ -162,6 +162,7 @@ a series survives a round trip
 a series that spans the gap and the era before it is continuous
 a series with a hole through the gap is discontinuous
 a series with no downside has no downside deviation
+a service URL is a scheme, a host and a port
 a session close fires once per session
 a session close never arrives before the session is over
 a session destroyed while running shuts down cleanly
@@ -176,6 +177,8 @@ a strategy can cancel an order that has not filled
 a strategy never sees a security outside its membership
 a strategy sees each partial as its own fill
 a strategy's path allocates only to keep what outlives the event
+a stream can be cancelled, and a line that is not JSON ends it without its content
+a streamed turn arrives as one event per line
 a submission that does not correspond fails with a diff
 a summary against a benchmark
 a summary audit that checked nothing is a failure, not a pass
@@ -333,6 +336,7 @@ jitter stays inside its bound
 latency and partial fills replay exactly
 latency is deterministic, jitter included
 leap days are handled
+lines are delivered whole however the bytes were chunked
 loading a missing or malformed schema file is a compile error
 log returns compound to the total
 malformed input is refused, not skipped
@@ -458,6 +462,7 @@ the boundary belongs to the session it opens
 the canonical form drops prompt and provenance and sorts keys
 the churn fixture is a fixture with churn in it
 the classifier agrees with the cases we are sure of
+the client talks only to the service, and only over TLS beyond this machine
 the clock reads the current event's timestamp during dispatch
 the close is dated to the session that ended
 the committed daily sample loads and converts
@@ -479,6 +484,7 @@ the engine and the research pipeline agree, exactly
 the engine's dispatch path allocates nothing per event
 the engine's drawdown_entry reproduces the research layer's fills exactly
 the engine's validator reproduces every verdict in the schema corpus
+the environment gives a client, or one sentence on why not
 the epoch is day zero
 the equity curve samples on an interval
 the equity invariant holds after every operation
@@ -496,6 +502,7 @@ the guard's effect is a number, and the forced exits are the blotter's
 the harness can still fail
 the host context offers no way to ask about a non-member
 the invariant survives a long random sequence
+the key goes on the wire as a bearer token and nowhere else
 the last rolling value matches the whole-series value
 the later issuer's history alone cannot resolve the gap
 the ledger's average cost follows the pieces, not the first one
@@ -513,6 +520,7 @@ the reference theories return exactly what they did at Spec 1
 the reference theory is discovered and loaded
 the registry keeps a stable order
 the research chart and the session chart are one chart
+the research hosts and the broker hosts are two lists that share nothing
 the research job reproduces its committed Results and trace exactly
 the research job's Results satisfy results.schema.json
 the research session runs a form off the GUI thread and can reopen the run
