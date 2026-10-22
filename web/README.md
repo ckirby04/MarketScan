@@ -32,9 +32,10 @@ the service and this app alike.
 
 ## Deploying to Vercel
 
-1. Import the repository in Vercel, and set the project's **Root Directory** to `web`. Leave
-   *Include files outside the root directory in the Build Step* on: the build reads
-   `../contracts/`.
+1. Import the repository in Vercel with the **Root Directory left at the repository root**:
+   [`../vercel.json`](../vercel.json) declares this app as the project's one service, `web`, and
+   routes every public path to it. The build reads `../contracts/`, so it must be able to see the
+   rest of the repository.
 2. Set the environment variables:
 
 | variable | value |
