@@ -1,0 +1,23 @@
+# What `gcloud builds submit` uploads from the repository root for
+# service/Dockerfile. It does not read .dockerignore, so this mirrors it.
+#
+# Deliberately not `#!include:.gitignore`: gcloud matches .gitignore's `data/*`
+# against every directory called data, not only the root one git means, and
+# that silently dropped src/marketscan/data/ from the upload. Every pattern here
+# is anchored with a leading slash for the same reason.
+/.git/
+/.github/
+/out/
+/runs/
+/web/
+/docs/
+/bindings/
+/theories/
+/tests/
+/scripts/
+/research/tests/
+/data/cache/
+/data/recordings/
+**/__pycache__/
+*.pyc
+.env*

@@ -35,7 +35,16 @@ param(
     [string]$DataBucket = "",
     [string]$DataPrefix = "sharadar"
 )
-$ErrorActionPreference = "Stop"
+# Failures are caught by exit code (Invoke-Gcloud and Test-Gcloud), not by
+# $ErrorActionPreference: gcloud writes progress and notices to stderr, and
+# Windows PowerShell 5.1 turns a native command's stderr into error records,
+# which "Stop" would make fatal on the first informational line.
+$ErrorActionPreference = "Continue"
+
+# gcloud.cmd rather than gcloud, which resolves to gcloud.ps1 and wraps the
+# same stderr in error records of its own.
+$gcloud = (Get-Command gcloud.cmd -ErrorAction SilentlyContinue).Source
+if (-not $gcloud) { throw "gcloud.cmd is not on PATH. Install the Google Cloud SDK and open a new terminal." }
 if (-not $Bucket) { $Bucket = "$Project-marketscan-runs" }
 
 $root = Resolve-Path (Join-Path $PSScriptRoot "..")
@@ -44,8 +53,14 @@ $tag = (git -C $root rev-parse --short HEAD).Trim()
 $image = "$Region-docker.pkg.dev/$Project/$repo/research:$tag"
 
 function Invoke-Gcloud {
-    & gcloud @args
+    & $gcloud @args
     if ($LASTEXITCODE -ne 0) { throw "gcloud $($args -join ' ') failed" }
+}
+
+# Whether a describe succeeds, i.e. the thing exists.
+function Test-Gcloud {
+    & $gcloud @args *> $null
+    return $LASTEXITCODE -eq 0
 }
 
 Write-Host "project $Project, region $Region, image $image"
@@ -54,18 +69,15 @@ Invoke-Gcloud config set project $Project
 Invoke-Gcloud services enable run.googleapis.com cloudbuild.googleapis.com `
     artifactregistry.googleapis.com storage.googleapis.com secretmanager.googleapis.com
 
-& gcloud artifacts repositories describe $repo --location $Region *> $null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-Gcloud artifacts repositories describe $repo --location $Region)) {
     Invoke-Gcloud artifacts repositories create $repo --repository-format docker --location $Region
 }
 
-& gcloud storage buckets describe "gs://$Bucket" *> $null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-Gcloud storage buckets describe "gs://$Bucket")) {
     Invoke-Gcloud storage buckets create "gs://$Bucket" --location $Region --uniform-bucket-level-access
 }
 
-& gcloud secrets describe ms-api-key *> $null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-Gcloud secrets describe ms-api-key)) {
     $bytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $key = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
@@ -80,12 +92,18 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # The runtime service account reads the secret and writes the bucket.
-$number = (gcloud projects describe $Project --format "value(projectNumber)").Trim()
+$number = (& $gcloud projects describe $Project --format "value(projectNumber)").Trim()
 $account = "$number-compute@developer.gserviceaccount.com"
 Invoke-Gcloud secrets add-iam-policy-binding ms-api-key `
     --member "serviceAccount:$account" --role roles/secretmanager.secretAccessor
 Invoke-Gcloud storage buckets add-iam-policy-binding "gs://$Bucket" `
     --member "serviceAccount:$account" --role roles/storage.objectAdmin
+
+# Cloud Build runs as the same default account on projects created since
+# Google stopped granting it Editor automatically, and without this role it
+# cannot read the uploaded source, write logs, or push the image.
+Invoke-Gcloud projects add-iam-policy-binding $Project `
+    --member "serviceAccount:$account" --role roles/cloudbuild.builds.builder --condition None
 
 Push-Location $root
 try {
@@ -123,7 +141,7 @@ Invoke-Gcloud run deploy $Service `
     --set-secrets "MS_API_KEY=ms-api-key:latest" `
     @dataArgs
 
-$url = (gcloud run services describe $Service --region $Region --format "value(status.url)").Trim()
+$url = (& $gcloud run services describe $Service --region $Region --format "value(status.url)").Trim()
 Write-Host ""
 Write-Host "deployed: $url"
 Write-Host "check:    curl $url/health"
