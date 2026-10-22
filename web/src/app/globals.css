@@ -697,3 +697,203 @@ button.send:disabled {
     background: linear-gradient(var(--background) 75%, transparent);
   }
 }
+
+/* --- The Results ----------------------------------------------------------- */
+
+.results .heading {
+  margin: 24px 0 10px;
+  padding-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+
+.verdict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.results .grade {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.badge-warning {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--status-warning);
+  color: var(--status-warning);
+}
+
+.verdict-note {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.chosen {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+.chosen-label,
+.pair-label {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.chosen-value {
+  font-size: 17px;
+  margin: 2px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.period {
+  margin: 16px 0 8px;
+  font-size: 13px;
+}
+
+.pairs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.pair {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.pair-values {
+  display: flex;
+  gap: 24px;
+  margin-top: 4px;
+}
+
+.pair-number {
+  font-size: 20px;
+}
+
+.pair .faint {
+  font-size: 12px;
+}
+
+.range-line {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.notes {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.notes li {
+  position: relative;
+  padding-left: 18px;
+  margin-top: 4px;
+}
+
+.notes li::before {
+  content: "!";
+  position: absolute;
+  left: 4px;
+  font-weight: 700;
+  color: var(--status-warning);
+}
+
+/* The checks: a list, so a phone stacks each one instead of squeezing a column. */
+.checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checks li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.checks li:last-child {
+  border-bottom: none;
+}
+
+.checks .status {
+  flex: none;
+  width: 84px;
+  margin-top: 1px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  padding: 2px 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+.checks .status.pass {
+  color: var(--status-good);
+  border-color: var(--status-good);
+}
+
+.checks .status.fail {
+  color: var(--status-serious);
+  border-color: var(--status-serious);
+}
+
+.check-body {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.check-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.checks li.deciding .check-name {
+  color: var(--text);
+}
+
+.results .tabs button {
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  background: transparent;
+}
+
+.chart-title {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 760px) {
+  .checks li {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .checks .status {
+    width: auto;
+    padding: 2px 10px;
+  }
+
+  .pair-number {
+    font-size: 18px;
+  }
+}
