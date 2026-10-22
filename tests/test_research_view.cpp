@@ -379,8 +379,8 @@ TEST_CASE("the research session runs a form off the GUI thread and can reopen th
 
     const auto first = session.snapshot();
     CHECK(first->setup_error.empty());
-    CHECK_FALSE(first->assistant_available);
-    CHECK_FALSE(first->assistant_reason.empty());
+    CHECK_FALSE(first->chat.available);  // no connection given: the chat is off
+    CHECK_FALSE(first->chat.reason.empty());
     CHECK(first->form_errors.empty());  // the starter form is valid
 
     session.set_form(read_json(kFixtures / "job_form.json"));

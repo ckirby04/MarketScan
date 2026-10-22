@@ -189,6 +189,9 @@ void write_run(const std::filesystem::path& directory,
 /// Reads curves.json as write_run wrote it. Throws on anything malformed.
 [[nodiscard]] std::vector<JobCurve> read_curves(const std::filesystem::path& path);
 
+/// The same, from a curves document already parsed: the job service sends one.
+[[nodiscard]] std::vector<JobCurve> curves_from_json(const nlohmann::json& curves);
+
 /// JOB.md section 6: the form without `prompt` and `provenance`, keys sorted,
 /// no whitespace. Its SHA-256 names the form and seeds the job.
 [[nodiscard]] std::string canonical_form(const nlohmann::json& form);

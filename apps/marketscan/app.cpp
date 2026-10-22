@@ -16,6 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <implot.h>
 
+#include "marketscan/research/service_client.hpp"
 #include "marketscan/util/logging.hpp"
 #include "marketscan/util/version.hpp"
 #include "panels/panels.hpp"
@@ -182,6 +183,15 @@ bool Application::initialise() {
     layout_built_ = layout_file_covers_all_panels();
 
     session_ = std::make_unique<Session>(options_.session);
+    // The chat reaches the job service from the desktop app itself and nowhere
+    // else: the key and the URL come from the environment
+    // (docs/specs/SPEC_DESKTOP_CHAT.md section 3). Tests leave this unset.
+    if (!options_.research.connect_service) {
+        options_.research.connect_service = [] {
+            return research::connect_from_environment(std::string("MarketScan/") +
+                                                      std::string(version::kString));
+        };
+    }
     research_ = std::make_unique<ResearchSession>(options_.research);
     if (!options_.research_form.empty()) {
         try {

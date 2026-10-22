@@ -15,6 +15,7 @@
  */
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -22,6 +23,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <utility>
@@ -29,8 +31,10 @@
 
 #include <nlohmann/json.hpp>
 
+#include "chat.hpp"
 #include "marketscan/research/job.hpp"
 #include "marketscan/research/json_schema.hpp"
+#include "marketscan/research/service_client.hpp"
 #include "plain_words.hpp"
 #include "research_view.hpp"
 
@@ -55,6 +59,14 @@ struct ResearchConfig {
     /// The job's draw counts. JOB.md's 1,000 each unless a test says otherwise.
     int null_draws = 1000;
     int bootstrap_paths = 1000;
+
+    /// The chat's connection to the job service (docs/specs/SPEC_DESKTOP_CHAT.md).
+    /// Unset, the chat is off and says so: tests and headless runs reach no
+    /// network unless they ask to. The desktop app sets it to
+    /// research::connect_from_environment; tests hand in a fake transport.
+    std::function<research::ServiceSetup()> connect_service;
+    /// How often a chat run's status is read while it runs.
+    std::chrono::milliseconds poll_interval{1000};
 };
 
 enum class ResearchState : std::uint8_t {
@@ -87,6 +99,48 @@ struct RecentRun {
     std::string started_at;
 };
 
+/// A run the chat started, as the job service reports it.
+struct ChatRun {
+    std::string job_id;
+    /// queued | running | done | refused | failed; empty before the first poll.
+    std::string state;
+    std::string stage;
+    int done = 0;
+    int total = 0;
+    /// A refusal's reasons, by form path.
+    std::vector<research::JobError> errors;
+    /// The Results, once done and fetched, read exactly as a local run's are.
+    std::shared_ptr<const ResearchRun> run;
+    /// Why following it stopped, in one sentence.
+    std::string problem;
+
+    [[nodiscard]] bool ended() const noexcept {
+        return state == "done" || state == "refused" || state == "failed";
+    }
+};
+
+/// The conversation with the job service's assistant.
+struct ChatSnapshot {
+    /// Whether the chat can be used, and if not, why -- said in the view rather
+    /// than leaving a dead prompt box.
+    bool available = false;
+    std::string reason;
+
+    std::vector<ConversationSummary> conversations;
+    ChatView open;
+    /// Every chat run followed so far, by job id.
+    std::vector<ChatRun> runs;
+
+    [[nodiscard]] const ChatRun* run(const std::string& job_id) const noexcept {
+        for (const ChatRun& r : runs) {
+            if (r.job_id == job_id) {
+                return &r;
+            }
+        }
+        return nullptr;
+    }
+};
+
 struct ResearchSnapshot {
     ResearchState state = ResearchState::Editing;
 
@@ -109,10 +163,8 @@ struct ResearchSnapshot {
     /// Symbols the data source can supply, for the form's asset field.
     std::vector<std::string> symbols;
 
-    /// Whether the assistant can take a question, and if not, why -- said in
-    /// the view rather than leaving a dead prompt box.
-    bool assistant_available = false;
-    std::string assistant_reason;
+    /// The conversation, its runs, and whether the chat can be used at all.
+    ChatSnapshot chat;
 
     /// The Results' identifiers in plain words (contracts/research/plain_words.json).
     /// Never null; empty, so every lookup falls back, if the file could not be read.
@@ -172,6 +224,30 @@ public:
     /// Waits for the running job to finish. For tests and for shutdown.
     void wait_idle();
 
+    // --- The chat (docs/specs/SPEC_DESKTOP_CHAT.md section 4) -------------------
+    //
+    // Each returns at once. The chat worker does the work and publishes what
+    // happened; while a run it started is going, it follows it, fetches its
+    // Results, and has the assistant analyse them. All are ignored when the chat
+    // is not available.
+
+    /// Reads the conversations list again.
+    void chat_refresh();
+    /// Shows a conversation, from the service's record of it.
+    void chat_open(const std::string& id);
+    /// A new conversation, made on the service when its first message is sent.
+    /// Ignored while a turn is streaming.
+    void chat_new();
+    /// Sends a message, or an answer to the assistant's questions. Shown at once.
+    /// Ignored while a turn is streaming, and for an empty message.
+    void chat_send(const std::string& text);
+    /// The Run button: starts the backtest the assistant set up. Ignored unless
+    /// the open conversation is ready.
+    void chat_run();
+    /// Waits until the chat worker has nothing queued and no run to follow. For
+    /// tests.
+    void wait_chat_idle();
+
 private:
     void publish(const std::function<void(ResearchSnapshot&)>& change);
     void worker_main();
@@ -194,6 +270,32 @@ private:
     std::atomic<bool> cancel_{false};
     std::atomic<bool> quitting_{false};
     std::thread worker_;
+
+    // The chat. The worker is the only user of `service_` and `analysing_`.
+    void post_chat(std::function<void()> command);
+    void chat_main();
+    void chat_reload(const std::string& id);
+    void chat_list();
+    void chat_turn(const std::string& id,
+                   const std::string& path,
+                   const nlohmann::json& body,
+                   TurnKind kind,
+                   const std::string& job_id);
+    /// Polls the open conversation's runs. True while one is still going.
+    [[nodiscard]] bool chat_follow_runs();
+    void chat_fetch(ChatRun& run);
+    [[nodiscard]] std::string describe(const research::ServiceResponse& response) const;
+
+    std::unique_ptr<research::ServiceClient> service_;
+    std::set<std::string> analysing_;
+    std::mutex chat_mutex_;
+    std::condition_variable chat_signal_;
+    std::deque<std::function<void()>> chat_commands_;
+    bool chat_quitting_ = false;
+    bool chat_working_ = false;
+    std::atomic<bool> chat_following_{false};
+    std::atomic<bool> chat_stop_{false};
+    std::thread chat_worker_;
 };
 
 /// Looks for `relative` beside `start` and then in each parent of it.

@@ -18,12 +18,13 @@ add_library(marketscan_app STATIC
     research_session.cpp
     research_view.cpp
     plain_words.cpp
+    chat.cpp
     schema_form.cpp)
 add_library(marketscan::app ALIAS marketscan_app)
 
 target_include_directories(marketscan_app PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
 target_link_libraries(marketscan_app
-    PUBLIC marketscan::core
+    PUBLIC marketscan::core marketscan::service
     PRIVATE marketscan::flags)
 set_target_properties(marketscan_app PROPERTIES FOLDER "marketscan")
 

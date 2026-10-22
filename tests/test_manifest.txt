@@ -50,6 +50,8 @@ a closed market and an uncovered date are different answers
 a colour assignment from a plain entity list matches one from a snapshot
 a compiled schema survives being copied and the original going away
 a constructor that refuses is reported, not fatal
+a conversation reopened later shows its run without analysing it again
+a conversation, end to end: ask, answer, run, Results, analysis
 a corrupt file in the cache fails the run
 a corrupt file is refused, and says why
 a corrupt recording throws rather than replaying part of itself
@@ -140,6 +142,7 @@ a recording round trips to the same event sequence
 a redacted credential is not a credential
 a refusal for an unknown order changes nothing
 a refused authorization is fatal and says so
+a refused key and an unreachable service are said, and the message is not kept
 a regular session converts to the right UTC instants
 a rejection reaches the strategy as a terminal status
 a rename keeps one security
@@ -308,6 +311,7 @@ errors name the document path that failed
 even the optimistic model honours a limit price
 event count is stable across runs
 events from one source arrive in order
+events the chat does not know, and errors, are handled
 every allowed broker host is a paper or data host
 every booked delisting return matches the reference row for row
 every booked fill is a blotter row
@@ -450,6 +454,7 @@ the ABI is at version 2 and the vtable has ten slots
 the Research view mode is remembered like the other two
 the allocation counter sees an allocation
 the allocation counter sees nothing when nothing allocates
+the analysis turn: its text belongs to the run it analyses
 the assignment depends on the set of theories, not on their order
 the assistant's tool schemas compile inside the supported subset
 the assumed exit is worth what the difference between the models says
@@ -477,6 +482,7 @@ the day the clocks go back is 25 hours long
 the day the clocks go forward is 23 hours long
 the decision report records every call
 the delisting model refuses a name it does not recognise
+the desktop app carries no broker host
 the digest notices a one-bit price change
 the digest separates values a memcmp would confuse
 the drawdown_entry strategy is registered once the runner is linked
@@ -491,6 +497,7 @@ the equity invariant holds after every operation
 the exposure cap refuses rather than resizing
 the feed resolves each bar's identity by its own date
 the file size is exactly the format
+the first turn: the message shows at once, then the service's copy and its questions
 the fixture and the reference curve are the same length
 the form editor recognises every oneOf branch's default as that branch
 the form editor's defaults satisfy the schema where the schema can be satisfied
@@ -535,6 +542,7 @@ the same seed gives the same numbers
 the same seed replays exactly
 the sample replays identically
 the second pass over the same events allocates less than the first
+the second turn: streamed text reassembles into the service's record
 the share cap still fires inside the notional cap
 the simulator emits no status events when nothing goes wrong
 the status event carries what a strategy needs to act on it
@@ -573,5 +581,6 @@ whole dollars are exact
 winter is standard time and summer is not, every year
 with no latency configured nothing changes
 with no latency the guard costs nothing
+without a connection the chat is off, says why, and sends nothing
 without a master the feed interns once, as it always did
 without a universe nothing is filtered

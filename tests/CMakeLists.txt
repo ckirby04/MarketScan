@@ -193,10 +193,11 @@ marketscan_add_test(test_research_job test_research_job.cpp)
 target_compile_definitions(test_research_job PRIVATE
     MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
     MARKETSCAN_RESEARCH_EXE="$<TARGET_FILE:ms_research>"
-    MARKETSCAN_LIVE_EXE="$<TARGET_FILE:ms_live>")
+    MARKETSCAN_LIVE_EXE="$<TARGET_FILE:ms_live>"
+    MARKETSCAN_APP_EXE="$<TARGET_FILE:marketscan>")
 # It inspects the built ms_research, and ms_live as its control, which therefore
 # have to exist first.
-add_dependencies(test_research_job ms_research ms_live)
+add_dependencies(test_research_job ms_research ms_live marketscan)
 
 # Synthetic history (JOB.md section 1a), cross-tested against
 # research/synthetic.py through data/samples/research/synthetic_cases.json.
@@ -208,6 +209,10 @@ target_compile_definitions(test_research_synthetic PRIVATE
 # editor's schema decisions, and the session that runs jobs off the GUI thread.
 marketscan_add_test(test_research_view test_research_view.cpp)
 target_compile_definitions(test_research_view PRIVATE
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
+marketscan_add_test(test_research_chat test_research_chat.cpp)
+target_compile_definitions(test_research_chat PRIVATE
     MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 
 marketscan_add_test(test_parity      test_parity.cpp)

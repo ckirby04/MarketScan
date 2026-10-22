@@ -165,8 +165,12 @@ std::vector<JobCurve> read_curves(const std::filesystem::path& path) {
     if (!in) {
         throw std::runtime_error("cannot open '" + path.string() + "'");
     }
+    return curves_from_json(json::parse(in));
+}
+
+std::vector<JobCurve> curves_from_json(const json& curves) {
     std::vector<JobCurve> out;
-    for (const json& c : json::parse(in)) {
+    for (const json& c : curves) {
         JobCurve curve;
         curve.id = c.at("id").get<std::string>();
         curve.label = c.at("label").get<std::string>();

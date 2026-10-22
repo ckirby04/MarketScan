@@ -1195,10 +1195,10 @@ void draw_rail(ResearchSession& session, const ResearchSnapshot& snap) {
     const Palette& palette = theme::colors();
     heading("ASK");
     static char question[512] = "";
-    ImGui::BeginDisabled(!snap.assistant_available);
+    ImGui::BeginDisabled(!snap.chat.available);
     ImGui::InputTextMultiline("##question", question, sizeof(question), ImVec2(-1.0F, 70.0F));
     ImGui::EndDisabled();
-    wrapped(palette.text_dim, snap.assistant_reason);
+    wrapped(palette.text_dim, snap.chat.reason);
     // The way in while the assistant is not connected, so it looks like one.
     // A tint, like the chips: the palette has no ink for text on solid accent.
     ImGui::PushStyleColor(ImGuiCol_Button, tint(palette.accent, 48));
