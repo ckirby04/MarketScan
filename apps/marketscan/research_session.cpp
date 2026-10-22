@@ -85,6 +85,13 @@ ResearchSession::ResearchSession(ResearchConfig config) : config_(std::move(conf
         } catch (const std::exception& error) {
             initial->setup_error = error.what();
         }
+        // Not fatal: without it the view shows identifiers as they are.
+        try {
+            initial->words = std::make_shared<const PlainWords>(
+                PlainWords::load(config_.contracts_dir / "plain_words.json"));
+        } catch (const std::exception& error) {
+            log::warn("research", error.what());
+        }
     }
     const fs::path repo = config_.contracts_dir.empty()
                               ? fs::path{}

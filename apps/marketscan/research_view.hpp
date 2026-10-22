@@ -91,6 +91,24 @@ struct DataView {
     bool synthetic = false;
 };
 
+/// JOB.md section 11: one sub-grade of the scorecard.
+struct SubgradeView {
+    std::string id;
+    std::string status;  // scored | not_applicable
+    double score;        // NaN when not_applicable
+    std::string letter;  // empty when not_applicable
+    /// What it read, in the document's order: numbers (NaN for null) and words.
+    std::vector<std::pair<std::string, double>> numbers;
+    std::vector<std::pair<std::string, std::string>> words;
+};
+
+struct ScorecardView {
+    std::string window;  // out_of_sample | full
+    double overall_score;
+    std::string overall_letter;
+    std::vector<SubgradeView> subgrades;
+};
+
 struct ResearchView {
     // Verdict.
     std::string grade;
@@ -104,6 +122,10 @@ struct ResearchView {
     double range_p50;
     double range_p95;
     std::vector<std::pair<std::string, std::string>> warnings;  // code, message
+
+    // Scorecard. Absent from Results written before it existed.
+    bool has_scorecard = false;
+    ScorecardView scorecard{};
 
     // Why.
     std::vector<GateView> gates;

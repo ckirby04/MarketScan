@@ -71,6 +71,9 @@ struct UiState {
 
     // --- Equity curves ---
     bool equity_log_scale = false;
+    /// The Research view's equity chart. On by default: a backtest spans decades, and a
+    /// crash early on flattens everything after it on a linear axis.
+    bool research_log_scale = true;
     bool equity_normalised = true;
     bool equity_show_benchmark = true;
 

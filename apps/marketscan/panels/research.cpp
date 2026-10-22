@@ -20,6 +20,7 @@
 // reach it.
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -29,6 +30,7 @@
 #include <imgui.h>
 #include <implot.h>
 
+#include "../plain_words.hpp"
 #include "../research_view.hpp"
 #include "../schema_form.hpp"
 #include "../theme.hpp"
@@ -519,17 +521,19 @@ void draw_windows(const ResearchView& v) {
     }
 }
 
-void draw_sweep(const ResearchView& v) {
+void draw_sweep(const ResearchView& v, const PlainWords& words) {
     if (!v.has_surface) {
         wrapped(theme::colors().text_dim, "Nothing was swept: one parameter set was run.");
         return;
     }
     const SurfaceView& s = v.surface;
     const Palette& palette = theme::colors();
-    ink(palette.text_dim,
-        "objective " + s.metric + " -- selected point " + std::to_string(s.selected_index + 1) +
-            " of " + std::to_string(s.points.size()) + ", effective variants " +
-            format_metric(s.effective_n, 0) + ", plateau ratio " + format_metric(s.plateau_ratio));
+    wrapped(palette.text_dim,
+            "Ranked by " + words.objective(s.metric) + ". Setting " +
+                std::to_string(s.selected_index + 1) + " of " + std::to_string(s.points.size()) +
+                " was chosen; " + format_metric(s.effective_n, 0) +
+                " effectively different settings; neighbours keep " +
+                format_metric(s.plateau_ratio) + " of its edge.");
 
     if (s.swept.size() == 1) {
         std::vector<double> xs;
@@ -549,8 +553,8 @@ void draw_sweep(const ResearchView& v) {
         push_chart_style(ChartDensity::Operator);
         if (ImPlot::BeginPlot("##sweep", ImVec2(-1.0F, 320.0F), ImPlotFlags_NoTitle)) {
             const std::string& path = s.swept.front();
-            ImPlot::SetupAxes(sf::label_for(path.substr(path.rfind('/') + 1)).c_str(),
-                              s.metric.c_str(),
+            ImPlot::SetupAxes(words.param_label(path).c_str(),
+                              words.objective(s.metric).c_str(),
                               ImPlotAxisFlags_AutoFit,
                               ImPlotAxisFlags_AutoFit);
             ImPlotSpec in_spec;
@@ -558,12 +562,12 @@ void draw_sweep(const ResearchView& v) {
             in_spec.LineWeight = 2.0F;
             in_spec.Marker = ImPlotMarker_Circle;
             ImPlot::PlotLine(
-                "in sample", xs.data(), in_sample.data(), static_cast<int>(xs.size()), in_spec);
+                "earlier years", xs.data(), in_sample.data(), static_cast<int>(xs.size()), in_spec);
             ImPlotSpec out_spec;
             out_spec.LineColor = to_vec(palette.benchmark);
             out_spec.LineWeight = 1.4F;
             out_spec.Marker = ImPlotMarker_Square;
-            ImPlot::PlotLine("out of sample",
+            ImPlot::PlotLine("later years",
                              xs.data(),
                              out_of_sample.data(),
                              static_cast<int>(xs.size()),
@@ -574,7 +578,7 @@ void draw_sweep(const ResearchView& v) {
                 hollow.MarkerSize = 7.0F;
                 hollow.MarkerFillColor = ImVec4(0, 0, 0, 0);
                 hollow.MarkerLineColor = to_vec(palette.text_faint);
-                ImPlot::PlotScatter("too few entries",
+                ImPlot::PlotScatter("too few trades",
                                     excluded_x.data(),
                                     excluded_y.data(),
                                     static_cast<int>(excluded_x.size()),
@@ -587,7 +591,7 @@ void draw_sweep(const ResearchView& v) {
             chosen.MarkerSize = 9.0F;
             chosen.MarkerFillColor = to_vec(palette.accent);
             chosen.MarkerLineColor = to_vec(palette.text);
-            ImPlot::PlotScatter("selected", &sx, &sy, 1, chosen);
+            ImPlot::PlotScatter("chosen", &sx, &sy, 1, chosen);
             ImPlot::EndPlot();
         }
         pop_chart_style();
@@ -605,19 +609,19 @@ void draw_sweep(const ResearchView& v) {
         return;
     }
     for (const std::string& path : s.swept) {
-        ImGui::TableSetupColumn(sf::label_for(path.substr(path.rfind('/') + 1)).c_str());
+        ImGui::TableSetupColumn(words.param_label(path).c_str());
     }
-    ImGui::TableSetupColumn("in sample");
-    ImGui::TableSetupColumn("out of sample");
+    ImGui::TableSetupColumn("earlier years");
+    ImGui::TableSetupColumn("later years");
     ImGui::TableSetupColumn("entries");
     ImGui::TableSetupColumn("");
     ImGui::TableHeadersRow();
     for (std::size_t i = 0; i < s.points.size(); ++i) {
         const SurfacePointView& p = s.points[i];
         ImGui::TableNextRow();
-        for (const double value : p.params) {
+        for (std::size_t d = 0; d < p.params.size(); ++d) {
             ImGui::TableNextColumn();
-            right_text(format_metric(value, 4));
+            right_text(words.param_value(s.swept[d], p.params[d]));
         }
         ImGui::TableNextColumn();
         right_text(format_metric(p.in_sample_metric));
@@ -627,9 +631,9 @@ void draw_sweep(const ResearchView& v) {
         right_text(std::to_string(p.n_entries));
         ImGui::TableNextColumn();
         if (i == s.selected_index) {
-            ink(palette.accent, "selected");
+            ink(palette.accent, "chosen");
         } else if (p.excluded) {
-            ink(palette.text_faint, "too few entries");
+            ink(palette.text_faint, "too few trades");
         }
     }
     ImGui::EndTable();
@@ -733,68 +737,287 @@ void draw_data(const ResearchView& v) {
         "run " + v.run_id + ", " + v.started_at + ", " + std::to_string(v.duration_ms) + " ms");
 }
 
-void draw_results(ResearchSession& session, const ResearchRun& run) {
+// --- The scorecard and the plain verdict -----------------------------------------
+
+/// `color` with its alpha replaced: a tint of a palette colour, not a new one.
+[[nodiscard]] unsigned int tint(unsigned int color, unsigned int alpha) {
+    return (color & ~IM_COL32_A_MASK) | (alpha << IM_COL32_A_SHIFT);
+}
+
+/// Letters lean on the status palette as reinforcement only.
+[[nodiscard]] unsigned int letter_color(const std::string& letter) {
+    const Palette& p = theme::colors();
+    if (letter == "A" || letter == "B") {
+        return p.status_good;
+    }
+    if (letter == "C") {
+        return p.status_warning;
+    }
+    if (letter == "D" || letter == "F") {
+        return p.status_serious;
+    }
+    return p.text_faint;
+}
+
+/// A letter in a tinted rounded square, `size` pixels a side.
+void letter_box(const std::string& letter, float size) {
+    const unsigned int color = letter_color(letter);
+    const char* text = letter.empty() ? "-" : letter.c_str();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(at, ImVec2(at.x + size, at.y + size), tint(color, 46), size * 0.24F);
+    const ImVec2 extent = ImGui::CalcTextSize(text);
+    draw->AddText(
+        ImVec2(at.x + (size - extent.x) * 0.5F, at.y + (size - extent.y) * 0.5F), color, text);
+    ImGui::Dummy(ImVec2(size, size));
+}
+
+[[nodiscard]] double measured(const SubgradeView& sub, const char* key) {
+    for (const auto& [name, value] : sub.numbers) {
+        if (name == key) {
+            return value;
+        }
+    }
+    return std::nan("");
+}
+
+/// What a sub-grade read, in words. Formatting only.
+[[nodiscard]] std::string measured_text(const SubgradeView& sub) {
+    if (sub.status == "not_applicable") {
+        return "doesn't apply";
+    }
+    if (sub.id == "return") {
+        return format_points(measured(sub, "cagr_pct")) + " a year";
+    }
+    if (sub.id == "risk") {
+        return format_points(measured(sub, "max_drawdown_pct")) + " worst drop";
+    }
+    if (sub.id == "volatility") {
+        return format_metric(measured(sub, "volatility_pct"), 1) + "% a year";
+    }
+    if (sub.id == "risk_adjusted") {
+        return "Sharpe " + format_metric(measured(sub, "sharpe"));
+    }
+    if (sub.id == "versus_holding") {
+        return format_points(measured(sub, "cagr_difference_pct")) + " a year, drop " +
+               format_points(measured(sub, "max_drawdown_difference_pct"));
+    }
+    for (const auto& [name, words] : sub.words) {
+        if (name == "grade") {
+            std::string lower = grade_words(words);
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
+                return static_cast<char>(std::tolower(c));
+            });
+            return lower;
+        }
+    }
+    return {};
+}
+
+/// Puts the cursor where an item `height` tall sits in the middle of a row
+/// `row` tall starting at `top`: the letter boxes set the row, and every other
+/// column lines up with them from the same top.
+void middle_of_row(float top, float row, float height) {
+    ImGui::SetCursorPosY(top + (row - height) * 0.5F);
+}
+
+void draw_scorecard(const ScorecardView& card, const PlainWords& words) {
+    constexpr float kRow = 28.0F;
+    constexpr float kBar = 6.0F;
+    const Palette& palette = theme::colors();
+    ImGui::PushFont(theme::large_font());
+    letter_box(card.overall_letter, 64.0F);
+    ImGui::PopFont();
+    ImGui::SameLine(0.0F, 16.0F);
+    ImGui::BeginGroup();
+    ink(palette.text_faint, "Overall score");
+    ImGui::PushFont(theme::large_font());
+    ink(palette.text, format_metric(card.overall_score, 0) + " / 100");
+    ImGui::PopFont();
+    wrapped(palette.text_faint,
+            "A separate reading from the verdict: a rule can score well and still be fragile.");
+    ImGui::EndGroup();
+    ImGui::Spacing();
+
+    if (!ImGui::BeginTable("##subgrades", 5, ImGuiTableFlags_PadOuterX)) {
+        return;
+    }
+    ImGui::TableSetupColumn("letter", ImGuiTableColumnFlags_WidthFixed, 36.0F);
+    ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthFixed, 130.0F);
+    ImGui::TableSetupColumn("bar", ImGuiTableColumnFlags_WidthFixed, 124.0F);
+    ImGui::TableSetupColumn("score", ImGuiTableColumnFlags_WidthFixed, 36.0F);
+    ImGui::TableSetupColumn("read");
+    for (const SubgradeView& sub : card.subgrades) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        const float top = ImGui::GetCursorPosY();
+        letter_box(sub.letter, kRow);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", words.subgrade_reads(sub.id).c_str());
+        }
+        const float line = ImGui::GetTextLineHeight();
+        ImGui::TableNextColumn();
+        middle_of_row(top, kRow, line);
+        ink(palette.text, words.subgrade_name(sub.id));
+        ImGui::TableNextColumn();
+        if (!std::isnan(sub.score)) {
+            // Drawn, not a ProgressBar: a framed widget would set the row's text
+            // baseline and push the columns after it down.
+            middle_of_row(top, kRow, kBar);
+            constexpr float kWidth = 120.0F;
+            const ImVec2 at = ImGui::GetCursorScreenPos();
+            ImDrawList* draw = ImGui::GetWindowDrawList();
+            draw->AddRectFilled(
+                at, ImVec2(at.x + kWidth, at.y + kBar), tint(palette.accent, 30), kBar * 0.5F);
+            const float filled =
+                kWidth * static_cast<float>(std::clamp(sub.score, 0.0, 100.0) / 100.0);
+            draw->AddRectFilled(
+                at, ImVec2(at.x + filled, at.y + kBar), letter_color(sub.letter), kBar * 0.5F);
+            ImGui::Dummy(ImVec2(kWidth, kBar));
+        }
+        ImGui::TableNextColumn();
+        middle_of_row(top, kRow, line);
+        if (!std::isnan(sub.score)) {
+            ink(palette.text_faint, format_metric(sub.score, 0));
+        }
+        ImGui::TableNextColumn();
+        middle_of_row(top, kRow, line);
+        ink(palette.text_dim, measured_text(sub));
+    }
+    ImGui::EndTable();
+}
+
+[[nodiscard]] const char* status_word(const std::string& status) {
+    if (status == "pass") {
+        return "Pass";
+    }
+    if (status == "fail") {
+        return "Fail";
+    }
+    return "Not checked";
+}
+
+void draw_results(ResearchSession& session,
+                  const ResearchRun& run,
+                  const PlainWords& words,
+                  UiState& ui) {
     // Read once, when the run was made or opened -- never here, mid-frame.
     const ResearchView& v = run.view;
     const Palette& palette = theme::colors();
+    const bool unverified = v.data_grade != "research";
 
     // 1. Verdict.
-    heading("HISTORICAL EVIDENCE");
+    ink(palette.text_faint, "Historical evidence");
     ImGui::PushFont(theme::large_font());
     ink(grade_color(v.grade), grade_words(v.grade));
     ImGui::PopFont();
-    if (v.data_grade != "research") {
-        ImGui::SameLine();
-        ink(palette.status_warning, "   ! unverified data");
+    if (unverified) {
+        ImGui::SameLine(0.0F, 14.0F);
+        ImGui::AlignTextToFramePadding();
+        ink(palette.status_warning, "Unverified data");
+        wrapped(palette.text_faint,
+                "The price data is test-grade: a trial run of the method, not a finding.");
     }
-    ink(palette.text,
-        "out of sample  " + format_points(v.strategy_oos_cagr_pct) + " CAGR, against " +
-            format_points(v.benchmark_oos_cagr_pct) + " for the benchmark");
-    ink(palette.text,
-        "max drawdown   " + format_points(v.strategy_oos_max_drawdown_pct) + ", against " +
-            format_points(v.benchmark_oos_max_drawdown_pct));
-    ink(palette.text_dim,
-        "resampled histories  5th " + format_points(v.range_p5) + "   median " +
-            format_points(v.range_p50) + "   95th " + format_points(v.range_p95) +
-            "   (a spread, not a forecast)");
+
+    if (v.has_surface && !v.selected_params.empty()) {
+        ImGui::Spacing();
+        ink(palette.text_faint, "Setting chosen");
+        for (const auto& [path, value] : v.selected_params) {
+            ink(palette.text, words.param_label(path) + ": ");
+            ImGui::SameLine(0.0F, 0.0F);
+            ink(palette.accent, words.param_value(path, value));
+        }
+        ink(palette.text_faint,
+            "Picked from " + std::to_string(v.surface.points.size()) + " settings tried, for the " +
+                words.objective(v.surface.metric) + ".");
+    }
+
+    // The headline figures are out of sample when there is a later period, and
+    // over the whole run when there is not (NO_OUT_OF_SAMPLE).
+    std::string period = "the whole period";
+    for (const WindowView& w : v.windows) {
+        if (w.name == "out_of_sample") {
+            period = w.from + " to " + w.to + ", the years not used to choose";
+        }
+    }
+    const std::string holding =
+        v.benchmarks.empty() ? "the benchmark" : "holding " + v.benchmarks.front().first;
+    ImGui::Spacing();
+    ink(palette.text_faint, "Measured over " + period);
+    if (ImGui::BeginTable("##headline", 3, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 130.0F);
+        ImGui::TableSetupColumn("the rule", ImGuiTableColumnFlags_WidthFixed, 120.0F);
+        ImGui::TableSetupColumn(holding.c_str(), ImGuiTableColumnFlags_WidthFixed, 140.0F);
+        ImGui::TableHeadersRow();
+        const auto row = [&](const char* label, double rule, double other) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ink(palette.text_dim, label);
+            ImGui::TableNextColumn();
+            ink(palette.text, format_points(rule));
+            ImGui::TableNextColumn();
+            ink(palette.text_dim, format_points(other));
+        };
+        row("Annual return", v.strategy_oos_cagr_pct, v.benchmark_oos_cagr_pct);
+        row("Worst drop", v.strategy_oos_max_drawdown_pct, v.benchmark_oos_max_drawdown_pct);
+        ImGui::EndTable();
+    }
+    wrapped(palette.text_dim,
+            "Across reshuffled versions of history, the rule's annual return ran from " +
+                format_points(v.range_p5) + " to " + format_points(v.range_p95) + " (middle " +
+                format_points(v.range_p50) + "). A spread, not a forecast.");
     for (const auto& [code, message] : v.warnings) {
-        wrapped(palette.status_warning, "! " + code + "  " + message);
+        // Said once already, beside the grade.
+        if (!(unverified && code == "EXERCISE_ONLY_DATA")) {
+            wrapped(palette.status_warning, "!  " + words.warning(code, message));
+        }
+    }
+
+    // The scorecard: a separate reading of the same numbers.
+    if (v.has_scorecard) {
+        heading("Scorecard");
+        draw_scorecard(v.scorecard, words);
     }
 
     // 2. Why.
-    heading("WHY");
-    if (ImGui::BeginTable("##gates", 3, ImGuiTableFlags_RowBg)) {
-        ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, 56.0F);
-        ImGui::TableSetupColumn("gate", ImGuiTableColumnFlags_WidthFixed, 150.0F);
-        ImGui::TableSetupColumn("measured");
+    heading("Why");
+    if (ImGui::BeginTable("##gates", 2, ImGuiTableFlags_RowBg)) {
+        ImGui::TableSetupColumn("status", ImGuiTableColumnFlags_WidthFixed, 96.0F);
+        ImGui::TableSetupColumn("check");
         for (const GateView& g : v.gates) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             const unsigned int color = g.status == "pass"   ? palette.status_good
                                        : g.status == "fail" ? palette.status_serious
                                                             : palette.text_faint;
-            ImGui::PushFont(theme::mono_font());
-            ink(color, status_mark(g.status));
-            ImGui::PopFont();
+            ink(color, status_word(g.status));
             ImGui::TableNextColumn();
-            ink(g.id == v.deciding_gate ? palette.text : palette.text_dim, g.id);
-            ImGui::TableNextColumn();
-            ImGui::TextWrapped("%s", g.summary.c_str());
+            ink(palette.text, words.gate_name(g.id));
+            if (g.id == v.deciding_gate) {
+                ImGui::SameLine();
+                ink(palette.text_faint, "- decided the grade");
+            }
+            if (const std::string asks = words.gate_asks(g.id); !asks.empty()) {
+                wrapped(palette.text_dim, asks);
+            }
+            wrapped(palette.text_faint, g.summary);
         }
         ImGui::EndTable();
     }
 
     // 3. Stats.
-    heading("STATS");
+    heading("Details");
     if (ImGui::BeginTabBar("##stats")) {
         if (ImGui::BeginTabItem("Equity")) {
+            ImGui::Checkbox("Log scale", &ui.research_log_scale);
             const SeriesColors colors = colors_for(run.curves);
             ChartRequest request;
             request.density = ChartDensity::Operator;
             request.normalised = true;
+            request.log_scale = ui.research_log_scale;
             const ChartModel model = build_chart_model(run.curves, colors, request);
             draw_equity_chart(model, "##research_equity", ImVec2(-1.0F, 300.0F));
-            ink(palette.text_faint, "drawdown");
+            ink(palette.text_faint, "Fall from the previous high");
             draw_drawdown_strip(model, "##research_drawdown", ImVec2(-1.0F, 110.0F));
             ImGui::EndTabItem();
         }
@@ -803,7 +1026,7 @@ void draw_results(ResearchSession& session, const ResearchRun& run) {
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Sweep")) {
-            draw_sweep(v);
+            draw_sweep(v, words);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Timing")) {
@@ -826,7 +1049,7 @@ void draw_results(ResearchSession& session, const ResearchRun& run) {
     }
 
     // 4. Analysis.
-    heading("ANALYSIS  -  written by AI from the numbers above");
+    heading("Analysis - written by AI from the numbers above");
     wrapped(palette.text_faint,
             "No analysis: the assistant is not connected yet (part R2). Everything above is the "
             "engine's, and stands without it.");
@@ -917,7 +1140,7 @@ void research(Context& context) {
             break;
         case ResearchState::Done:
             if (snap->run) {
-                draw_results(session, *snap->run);
+                draw_results(session, *snap->run, *snap->words, context.ui);
                 break;
             }
             [[fallthrough]];

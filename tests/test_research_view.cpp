@@ -28,6 +28,7 @@
 #include "chart_model.hpp"
 #include "marketscan/research/job.hpp"
 #include "marketscan/research/json_schema.hpp"
+#include "plain_words.hpp"
 #include "research_session.hpp"
 #include "research_view.hpp"
 #include "schema_form.hpp"
@@ -147,6 +148,86 @@ TEST_CASE("every field of the research view is read straight off the Results") {
     CHECK(same(v.bootstrap_benchmark[2], boot["benchmark"]["cagr_p95_pct"]));
     CHECK(same(v.bootstrap_prob_beats, boot["prob_beats_benchmark"]));
     CHECK(same(v.bootstrap_share_ruined, boot["share_paths_below_minus_90_pct"]));
+
+    REQUIRE(v.has_scorecard);
+    const json& card = r["scorecard"];
+    CHECK(v.scorecard.window == card["window"].get<std::string>());
+    CHECK(same(v.scorecard.overall_score, card["overall"]["score"]));
+    CHECK(v.scorecard.overall_letter == card["overall"]["letter"].get<std::string>());
+    REQUIRE(v.scorecard.subgrades.size() == card["subgrades"].size());
+    for (std::size_t i = 0; i < v.scorecard.subgrades.size(); ++i) {
+        const SubgradeView& sub = v.scorecard.subgrades[i];
+        const json& doc = card["subgrades"][i];
+        INFO(sub.id);
+        CHECK(sub.id == doc["id"].get<std::string>());
+        CHECK(sub.status == doc["status"].get<std::string>());
+        CHECK(same(sub.score, doc["score"]));
+        CHECK(sub.letter == doc["letter"].get<std::string>());
+        CHECK(sub.numbers.size() + sub.words.size() == doc["measured"].size());
+        for (const auto& [key, value] : sub.numbers) {
+            CHECK(same(value, doc["measured"][key]));
+        }
+        for (const auto& [key, value] : sub.words) {
+            CHECK(value == doc["measured"][key].get<std::string>());
+        }
+    }
+}
+
+TEST_CASE("Results from before the scorecard still read, without one") {
+    json r = read_json(kFixtures / "job_results.json");
+    r.erase("scorecard");
+    CHECK_FALSE(read_results(r).has_scorecard);
+}
+
+TEST_CASE("plain words cover every identifier the Results can carry") {
+    // A gate, warning or sub-grade added to the contract without words would
+    // reach the screen as a schema name, in both apps. This keeps them in step.
+    const json schema = read_json(kRepo / "contracts" / "research" / "results.schema.json");
+    const json words = read_json(kRepo / "contracts" / "research" / "plain_words.json");
+    const PlainWords plain(words);  // and the file has the shape the reader expects
+
+    for (const json& id : schema["$defs"]["gate_id"]["enum"]) {
+        INFO(id);
+        CHECK(words["gates"].contains(id.get<std::string>()));
+    }
+    const json& codes = schema["properties"]["warnings"]["items"]["properties"]["code"]["enum"];
+    REQUIRE_FALSE(codes.empty());
+    for (const json& code : codes) {
+        INFO(code);
+        CHECK(words["warnings"].contains(code.get<std::string>()));
+    }
+    const json& subgrades = schema["properties"]["scorecard"]["properties"]["subgrades"]["items"]
+                                  ["properties"]["id"]["enum"];
+    REQUIRE_FALSE(subgrades.empty());
+    for (const json& id : subgrades) {
+        INFO(id);
+        CHECK(words["subgrades"].contains(id.get<std::string>()));
+    }
+}
+
+TEST_CASE("plain words: lookups, fallbacks, and values with their units") {
+    const PlainWords plain =
+        PlainWords::load(kRepo / "contracts" / "research" / "plain_words.json");
+    CHECK(plain.gate_name("oos_benchmark") == "Held up against holding");
+    CHECK_FALSE(plain.gate_asks("evidence").empty());
+    CHECK(plain.param_label("/strategy/entry/threshold_pct") == "Drop from the high");
+    CHECK(plain.param_value("/strategy/entry/threshold_pct", 20.0) == "20%");
+    CHECK(plain.param_value("/strategy/entry/threshold_pct", 2.5) == "2.5%");
+    CHECK(plain.param_value("/strategy/reference/window_days", 252.0) == "252 days");
+    CHECK(plain.objective("calmar") == "best annual return for its worst drop");
+    CHECK(plain.subgrade_name("risk_adjusted") == "Risk-adjusted");
+
+    // Unknown identifiers fall back exactly as the web app's do.
+    CHECK(plain.gate_name("new_gate") == "new gate");
+    CHECK(plain.warning("NEW_CODE", "the engine's words") == "the engine's words");
+    CHECK(plain.param_value("/x/size_pct", 10.0) == "10%");
+    CHECK(plain.param_value("/x/count", 3.0) == "3");
+    const PlainWords empty;
+    CHECK(empty.subgrade_name("versus_holding") == "versus holding");
+
+    CHECK(plain_number(20.0) == "20");
+    CHECK(plain_number(0.12345) == "0.1235");
+    CHECK(plain_number(-0.00001) == "0");
 }
 
 TEST_CASE("the view never calls a grade a good idea") {

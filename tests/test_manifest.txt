@@ -19,6 +19,7 @@ CAGR against an exact case
 CAGR of a degenerate span is undefined
 Calmar ratio
 INT64_MIN formats without overflowing on negation
+Results from before the scorecard still read, without one
 SHA-256 against the FIPS 180 example vectors
 Sharpe of a riskless series is undefined, not infinite
 Sharpe of a zero-mean series is zero, which is a real answer
@@ -378,6 +379,8 @@ pausing stops the replay where it is
 per_unit refuses to produce a NaN
 percentile interpolates and drops nulls
 periods per year respect the session length
+plain words cover every identifier the Results can carry
+plain words: lookups, fallbacks, and values with their units
 playing runs the replay to the end
 positions are reported in ascending symbol order
 pre-epoch timestamps land on the right day

@@ -89,6 +89,29 @@ ResearchView read_results(const json& r) {
                                 w.at("message").get<std::string>());
     }
 
+    v.has_scorecard = r.contains("scorecard");
+    if (v.has_scorecard) {
+        const json& card = r.at("scorecard");
+        v.scorecard.window = card.at("window").get<std::string>();
+        v.scorecard.overall_score = num(card.at("overall").at("score"));
+        v.scorecard.overall_letter = card.at("overall").at("letter").get<std::string>();
+        for (const json& sub : card.at("subgrades")) {
+            SubgradeView view{};
+            view.id = sub.at("id").get<std::string>();
+            view.status = sub.at("status").get<std::string>();
+            view.score = num(sub.at("score"));
+            view.letter = sub.at("letter").is_null() ? "" : sub.at("letter").get<std::string>();
+            for (const auto& [key, value] : sub.at("measured").items()) {
+                if (value.is_string()) {
+                    view.words.emplace_back(key, value.get<std::string>());
+                } else {
+                    view.numbers.emplace_back(key, num(value));
+                }
+            }
+            v.scorecard.subgrades.push_back(std::move(view));
+        }
+    }
+
     const json& stats = r.at("stats");
     for (const auto& [path, value] : stats.at("selected").at("params").items()) {
         v.selected_params.emplace_back(path, value.get<double>());

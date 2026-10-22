@@ -31,6 +31,7 @@
 
 #include "marketscan/research/job.hpp"
 #include "marketscan/research/json_schema.hpp"
+#include "plain_words.hpp"
 #include "research_view.hpp"
 
 namespace marketscan::app {
@@ -112,6 +113,10 @@ struct ResearchSnapshot {
     /// the view rather than leaving a dead prompt box.
     bool assistant_available = false;
     std::string assistant_reason;
+
+    /// The Results' identifiers in plain words (contracts/research/plain_words.json).
+    /// Never null; empty, so every lookup falls back, if the file could not be read.
+    std::shared_ptr<const PlainWords> words = std::make_shared<const PlainWords>();
 
     /// Set when the view cannot work at all: the contracts were not found.
     std::string setup_error;
