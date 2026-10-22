@@ -532,7 +532,8 @@ private:
             refuse(at + "/recipe_id", id + " is not a daily_leverage recipe");
         }
         if (!recipe->contains("validation")) {
-            refuse(at + "/recipe_id", id + " has no validation, and a recipe without one cannot be used");
+            refuse(at + "/recipe_id",
+                   id + " has no validation, and a recipe without one cannot be used");
         }
         if (recipe->value("target_security_id", "") != bound.security_id) {
             refuse(at + "/recipe_id",
@@ -542,8 +543,8 @@ private:
         const std::string underlying = ext.at("underlying").get<std::string>();
         if (lower(underlying) != recipe->value("underlying_security_id", "")) {
             refuse(at + "/underlying",
-                   "recipe " + id + " is built from " + recipe->value("underlying_security_id", "") +
-                       ", not " + underlying);
+                   "recipe " + id + " is built from " +
+                       recipe->value("underlying_security_id", "") + ", not " + underlying);
         }
         // The engine checks the form still matches the recipe it was copied
         // from (the schema's promise): a changed fee is a different recipe,
@@ -559,10 +560,12 @@ private:
             return std::nullopt;
         }
 
-        const bool total_return = params.value("underlying_adjustment", "split_only") == "total_return";
+        const bool total_return =
+            params.value("underlying_adjustment", "split_only") == "total_return";
         const auto underlying_bars =
             fetch(upper(underlying) + (total_return ? ".TR" : ""), at + "/underlying");
-        const auto rate = fetch(upper(params.at("cash_rate_series_id").get<std::string>()), at + "/recipe_id");
+        const auto rate =
+            fetch(upper(params.at("cash_rate_series_id").get<std::string>()), at + "/recipe_id");
         if (!underlying_bars || !rate) {
             return std::nullopt;
         }
@@ -691,7 +694,8 @@ private:
         }
         std::optional<Series> series;
         if (asset_bars) {
-            series = cut(*asset_bars, symbol, "/universe/assets/0/symbol", bound.start_day, end_day, warmup);
+            series = cut(
+                *asset_bars, symbol, "/universe/assets/0/symbol", bound.start_day, end_day, warmup);
         }
         if (series && real_from) {
             series->real_from_day = *real_from;
@@ -1449,10 +1453,12 @@ SyntheticBars extend_history(const BarSeries& underlying,
         if (after == rate_days.begin()) {
             break;
         }
-        const double rate_pct = rate.bars[static_cast<std::size_t>(after - rate_days.begin()) - 1].close;
+        const double rate_pct =
+            rate.bars[static_cast<std::size_t>(after - rate_days.begin()) - 1].close;
         // One operation at a time, in research/synthetic.py's order.
         const double cost =
-            (p.annual_fee_pct + (p.leverage - 1.0) * (rate_pct + p.borrow_spread_pct)) / 100.0 / 252.0;
+            (p.annual_fee_pct + (p.leverage - 1.0) * (rate_pct + p.borrow_spread_pct)) / 100.0 /
+            252.0;
         const double r = p.leverage * (u[k].close / u[k - 1].close - 1.0) - cost;
         if (!(1.0 + r > 0.0)) {
             throw std::runtime_error("the recipe takes the price to zero on " +
@@ -1878,27 +1884,28 @@ JobOutcome run_job(const json& form, const BarSource& data, const JobOptions& op
             ++last;
         }
         const json& validation = bound.synthetic.at("validation");
-        synthetic_used = json{
-            {"recipe_id", bound.synthetic.at("recipe_id")},
-            {"from", iso_date(asset.days.front())},
-            {"to", iso_date(asset.days[last])},
-            {"daily_return_correlation", validation.at("daily_return_correlation")},
-            {"annualized_tracking_difference_pct", validation.at("annualized_tracking_difference_pct")}};
+        synthetic_used =
+            json{{"recipe_id", bound.synthetic.at("recipe_id")},
+                 {"from", iso_date(asset.days.front())},
+                 {"to", iso_date(asset.days[last])},
+                 {"daily_return_correlation", validation.at("daily_return_correlation")},
+                 {"annualized_tracking_difference_pct",
+                  validation.at("annualized_tracking_difference_pct")}};
         for (std::size_t t = asset.s; t <= asset.e; ++t) {
             synthetic_decisions += asset.synthetic_at(t) ? 1 : 0;
         }
     }
     json data_list = json::array();
-    data_list.push_back(json{{"security_id", bound.security_id},
-                             {"series_id",
-                              synthetic_used.is_null()
-                                  ? asset.symbol
-                                  : asset.symbol + "+synthetic:" +
-                                        bound.synthetic.at("recipe_id").get<std::string>()},
-                             {"quality_tier", asset.quality},
-                             {"used_from", iso_date(asset.days.front())},
-                             {"used_to", iso_date(asset.days.back())},
-                             {"synthetic", synthetic_used}});
+    data_list.push_back(json{
+        {"security_id", bound.security_id},
+        {"series_id",
+         synthetic_used.is_null()
+             ? asset.symbol
+             : asset.symbol + "+synthetic:" + bound.synthetic.at("recipe_id").get<std::string>()},
+        {"quality_tier", asset.quality},
+        {"used_from", iso_date(asset.days.front())},
+        {"used_to", iso_date(asset.days.back())},
+        {"synthetic", synthetic_used}});
     for (const Series& series : bound.benchmarks) {
         if (series.symbol == asset.symbol) {
             continue;

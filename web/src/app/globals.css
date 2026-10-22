@@ -66,25 +66,122 @@ a {
 
 .shell {
   display: grid;
-  grid-template-columns: minmax(240px, 300px) 1fr;
+  grid-template-columns: 260px 1fr;
   min-height: 100vh;
+}
+
+/* The sidebar stays put while the conversation scrolls. */
+.rail {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  padding: 12px 10px;
+}
+
+.rail .new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.rail .new:hover,
+.recent:hover {
+  background: var(--surface-raised);
+}
+
+.rail-label {
+  margin: 20px 10px 6px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.rail-note {
+  margin: 4px 10px;
+  font-size: 13px;
+}
+
+.recent {
+  display: block;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recent.current {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+button.menu,
+.scrim {
+  display: none;
+}
+
+.main {
+  padding: 16px 24px 48px;
+  min-width: 0;
+}
+
+/* The conversation lays itself out. */
+.main.conversation {
+  padding: 0;
 }
 
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: 1fr;
   }
-}
 
-.rail {
-  border-right: 1px solid var(--border);
-  background: var(--surface);
-  padding: 16px;
-}
+  button.menu {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 20;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 10px;
+    background: var(--background);
+  }
 
-.main {
-  padding: 16px 24px 48px;
-  min-width: 0;
+  .rail {
+    position: fixed;
+    z-index: 30;
+    left: 0;
+    width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .rail.open {
+    transform: none;
+  }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  .main {
+    padding-top: 56px;
+  }
 }
 
 .heading {
@@ -244,70 +341,108 @@ th {
   background: var(--accent);
 }
 
-.recent {
-  display: block;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-  color: var(--text);
-  text-decoration: none;
-}
-
 /* --- The conversation ------------------------------------------------------ */
 
 .chat {
-  max-width: 920px;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: calc(100vh - 64px);
+  min-height: 100vh;
+}
+
+.thread {
+  flex: 1;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 32px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* An empty conversation: the question box in the middle of the page. */
+.chat.empty {
+  justify-content: center;
 }
 
 .welcome {
-  margin: 8vh 0 16px;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 24px 12vh;
 }
 
 .welcome h1 {
-  font-size: 24px;
-  font-weight: 600;
-  margin: 0 0 8px;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-align: center;
+  margin: 0 0 24px;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 16px;
 }
 
 button.example {
-  display: block;
-  width: 100%;
-  margin: 8px 0;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: transparent;
   text-align: left;
-  white-space: normal;
 }
 
-.bubble {
-  max-width: 100%;
+button.example:hover {
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.message {
+  min-width: 0;
   overflow-wrap: anywhere;
+  line-height: 1.6;
 }
 
-.bubble.user {
+.message.user {
   align-self: flex-end;
   max-width: 80%;
   background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 12px;
+  border-radius: 18px;
+  padding: 10px 16px;
   white-space: pre-wrap;
 }
 
-.bubble.assistant .heading {
-  margin-top: 4px;
+.message.assistant {
+  font-size: 15px;
+}
+
+.caption {
+  font-size: 12px;
+  color: var(--text-faint);
+  margin-bottom: 6px;
 }
 
 .md p {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
+}
+
+.md p:last-child {
+  margin-bottom: 0;
 }
 
 .md ul,
 .md ol {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   padding-left: 22px;
+}
+
+.md li + li {
+  margin-top: 4px;
 }
 
 .md code {
@@ -317,7 +452,7 @@ button.example {
 
 .md-table {
   width: auto;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
 }
 
 .md-table td,
@@ -326,37 +461,106 @@ button.example {
   white-space: normal;
 }
 
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 14px;
-  min-width: 0;
+.notice {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--status-serious);
+  color: var(--status-serious);
+  font-size: 14px;
 }
 
-.card.answered {
-  opacity: 0.6;
+.activity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--text-faint);
 }
 
-.question + .question {
+.dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  animation: blink 1.2s infinite ease-in-out;
+}
+
+.dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dots span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* The assistant's questions. */
+
+.questions {
   margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.question {
+  width: 100%;
+}
+
+.question-text {
+  font-weight: 500;
+  margin-bottom: 8px;
 }
 
 .options {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 6px 0;
+  gap: 8px;
 }
 
 .options button {
   text-align: left;
   white-space: normal;
+  border-radius: 12px;
+  padding: 8px 14px;
+  background: transparent;
+}
+
+.options button:hover {
+  background: var(--surface-raised);
 }
 
 .options button[aria-pressed="true"] {
   border-color: var(--accent);
-  color: var(--accent);
+  background: var(--surface-raised);
+}
+
+.option-label {
+  display: block;
 }
 
 .options .hint {
@@ -367,54 +571,329 @@ button.example {
 
 .question input {
   width: 100%;
+  margin-top: 8px;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: transparent;
 }
 
-.ready-row {
+/* Run, once the backtest is set up. */
+
+.run-offer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
-.form-json {
-  font-family: var(--mono);
-  font-size: 12px;
-  max-height: 360px;
-  overflow: auto;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 8px;
+.run-offer button {
+  border-radius: 999px;
+  padding: 8px 18px;
 }
 
-.activity {
-  color: var(--text-faint);
-  font-style: italic;
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  min-width: 0;
+}
+
+/* Where "show the Results" scrolls to: clear of the phone's header strip. */
+.card.run {
+  scroll-margin-top: 64px;
+}
+
+.run-stage {
+  margin-bottom: 8px;
+}
+
+.card.run > .heading:first-child {
+  margin-top: 0;
+}
+
+/* The message box. */
+
+.dock {
+  position: sticky;
+  bottom: 0;
+  width: 100%;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 0 24px 20px;
+  background: linear-gradient(to bottom, transparent, var(--background) 24px);
 }
 
 .composer {
-  position: sticky;
-  bottom: 0;
-  margin-top: auto;
   display: flex;
-  gap: 8px;
   align-items: flex-end;
-  padding: 12px 0;
-  background: var(--background);
+  gap: 8px;
+  padding: 10px 10px 10px 18px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+
+.composer:focus-within {
+  border-color: var(--text-faint);
 }
 
 .composer textarea {
   flex: 1;
-  resize: vertical;
-  min-height: 44px;
+  border: none;
+  background: transparent;
+  padding: 7px 0;
+  resize: none;
+  outline: none;
+  font-size: 15px;
+  line-height: 1.5;
+  max-height: 220px;
 }
 
-.rail .new {
-  display: block;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+button.send {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: none;
+  background: var(--text);
+  color: var(--background);
+}
+
+button.send:disabled {
+  opacity: 0.25;
+}
+
+@media (max-width: 760px) {
+  .thread {
+    padding: 56px 16px 16px;
+  }
+
+  .welcome,
+  .dock {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .welcome h1 {
+    font-size: 24px;
+  }
+}
+
+/* On a phone, a strip under the menu button so text scrolls beneath it. */
+@media (max-width: 760px) {
+  .main.conversation::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    z-index: 10;
+    background: linear-gradient(var(--background) 75%, transparent);
+  }
+}
+
+/* --- The Results ----------------------------------------------------------- */
+
+.results .heading {
+  margin: 24px 0 10px;
+  padding-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-dim);
+}
+
+.verdict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.results .grade {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.badge-warning {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--status-warning);
+  color: var(--status-warning);
+}
+
+.verdict-note {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.chosen {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
   background: var(--surface-raised);
+}
+
+.chosen-label,
+.pair-label {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.chosen-value {
+  font-size: 17px;
+  margin: 2px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.period {
+  margin: 16px 0 8px;
+  font-size: 13px;
+}
+
+.pairs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.pair {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.pair-values {
+  display: flex;
+  gap: 24px;
+  margin-top: 4px;
+}
+
+.pair-number {
+  font-size: 20px;
+}
+
+.pair .faint {
+  font-size: 12px;
+}
+
+.range-line {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.notes {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.notes li {
+  position: relative;
+  padding-left: 18px;
+  margin-top: 4px;
+}
+
+.notes li::before {
+  content: "!";
+  position: absolute;
+  left: 4px;
+  font-weight: 700;
+  color: var(--status-warning);
+}
+
+/* The checks: a list, so a phone stacks each one instead of squeezing a column. */
+.checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checks li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.checks li:last-child {
+  border-bottom: none;
+}
+
+.checks .status {
+  flex: none;
+  width: 84px;
+  margin-top: 1px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  padding: 2px 0;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+.checks .status.pass {
+  color: var(--status-good);
+  border-color: var(--status-good);
+}
+
+.checks .status.fail {
+  color: var(--status-serious);
+  border-color: var(--status-serious);
+}
+
+.check-body {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.check-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.checks li.deciding .check-name {
   color: var(--text);
-  text-decoration: none;
+}
+
+.results .tabs button {
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 13px;
+  background: transparent;
+}
+
+.chart-title {
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 760px) {
+  .checks li {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .checks .status {
+    width: auto;
+    padding: 2px 10px;
+  }
+
+  .pair-number {
+    font-size: 18px;
+  }
 }
