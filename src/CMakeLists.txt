@@ -38,19 +38,6 @@ add_library(marketscan_core STATIC
     marketscan/exec/delisting.cpp
     marketscan/exec/fill_model.cpp
     marketscan/exec/ledger.cpp
-    marketscan/live/calendar.cpp
-    marketscan/live/credentials.cpp
-    marketscan/live/http.cpp
-    marketscan/live/live_broker.cpp
-    marketscan/live/live_feed.cpp
-    marketscan/live/order_map.cpp
-    marketscan/live/order_tracker.cpp
-    marketscan/live/recorded_broker.cpp
-    marketscan/live/recorded_feed.cpp
-    marketscan/live/recorder.cpp
-    marketscan/live/stream_parser.cpp
-    marketscan/live/trade_updates.cpp
-    marketscan/live/websocket.cpp
     marketscan/metrics/correlation.cpp
     marketscan/metrics/performance.cpp
     marketscan/metrics/rolling.cpp
@@ -79,14 +66,48 @@ target_link_libraries(marketscan_core
     PRIVATE marketscan::flags
     PUBLIC  spdlog::spdlog nlohmann_json::nlohmann_json)
 
+target_compile_definitions(marketscan_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+
+set_target_properties(marketscan_core PROPERTIES FOLDER "marketscan")
+
+# ---------------------------------------------------------------------------
+# marketscan_live
+#
+# The paper-only live execution seam: HTTPS, WebSocket, the stream parser, the
+# live broker and feed, recording and replay. Its own library rather than part
+# of the core, so that what a binary can reach is decided by what it links:
+# ms_live links this; the desktop app, the research job and the Python
+# bindings do not, and so cannot reach a broker however they are driven.
+# SPEC_RESEARCH_VIEW.md section 2 asks that of the research path, and
+# tests/test_research_job.cpp checks the built ms_research for it.
+# ---------------------------------------------------------------------------
+add_library(marketscan_live STATIC
+    marketscan/live/calendar.cpp
+    marketscan/live/credentials.cpp
+    marketscan/live/http.cpp
+    marketscan/live/live_broker.cpp
+    marketscan/live/live_feed.cpp
+    marketscan/live/order_map.cpp
+    marketscan/live/order_tracker.cpp
+    marketscan/live/recorded_broker.cpp
+    marketscan/live/recorded_feed.cpp
+    marketscan/live/recorder.cpp
+    marketscan/live/stream_parser.cpp
+    marketscan/live/trade_updates.cpp
+    marketscan/live/websocket.cpp
+)
+add_library(marketscan::live ALIAS marketscan_live)
+
+target_link_libraries(marketscan_live
+    PRIVATE marketscan::flags
+    PUBLIC  marketscan::core)
+
 # WinHTTP, for the live execution layer's HTTPS and WebSocket. In the operating
 # system rather than vendored: adding a dependency to a frozen-ABI project has a
 # long tail -- a port to pin, a baseline to bump, a transitive TLS stack, a CI
 # cache to grow -- and one OS API covers both halves.
 if(WIN32)
-    target_link_libraries(marketscan_core PRIVATE winhttp)
+    target_link_libraries(marketscan_live PRIVATE winhttp)
 endif()
 
-target_compile_definitions(marketscan_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
-
-set_target_properties(marketscan_core PROPERTIES FOLDER "marketscan")
+set_target_properties(marketscan_live PROPERTIES FOLDER "marketscan")

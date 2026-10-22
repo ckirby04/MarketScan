@@ -130,6 +130,7 @@ marketscan_add_test(test_sizing      test_sizing.cpp)
 # Paper only, structurally. Scans the built binaries, which is the half a
 # source grep cannot do; scripts/check_no_live_endpoints.py does the tree.
 marketscan_add_test(test_paper_only  test_paper_only.cpp)
+target_link_libraries(test_paper_only PRIVATE marketscan::live)
 
 # The live seam's offline half. The parser, the monotonic gate, the recorder
 # round trip and the calendar, none of which touch a network: every message in
@@ -139,19 +140,24 @@ marketscan_add_test(test_paper_only  test_paper_only.cpp)
 marketscan_add_test(test_submit_outcome test_submit_outcome.cpp)
 
 marketscan_add_test(test_stream_parser test_stream_parser.cpp)
+target_link_libraries(test_stream_parser PRIVATE marketscan::live)
 marketscan_add_test(test_calendar      test_calendar.cpp)
+target_link_libraries(test_calendar PRIVATE marketscan::live)
 
 # The live broker's order lifecycle, driven through the same apply_update the
 # socket pump calls. No socket is opened.
 marketscan_add_test(test_live_broker   test_live_broker.cpp)
+target_link_libraries(test_live_broker PRIVATE marketscan::live)
 
 # Part 1 of Session F2: a recording carries the venue side, and a replay hands a
 # strategy exactly what the venue handed it. No socket is opened.
 marketscan_add_test(test_recorded_broker test_recorded_broker.cpp)
+target_link_libraries(test_recorded_broker PRIVATE marketscan::live)
 
 # The tallies against the orders they claim to count. Reproduces the 128/124/0
 # bug rather than asserting that a healthy tracker is healthy.
 marketscan_add_test(test_order_tracker test_order_tracker.cpp)
+target_link_libraries(test_order_tracker PRIVATE marketscan::live)
 
 # ABI v2, and the promise the version-tolerant loader was built to keep.
 marketscan_add_test(test_abi_v2      test_abi_v2.cpp)
@@ -182,7 +188,12 @@ target_compile_definitions(test_research_rule PRIVATE
 # research/tests/test_grading.py regrades independently.
 marketscan_add_test(test_research_job test_research_job.cpp)
 target_compile_definitions(test_research_job PRIVATE
-    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+    MARKETSCAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+    MARKETSCAN_RESEARCH_EXE="$<TARGET_FILE:ms_research>"
+    MARKETSCAN_LIVE_EXE="$<TARGET_FILE:ms_live>")
+# It inspects the built ms_research, and ms_live as its control, which therefore
+# have to exist first.
+add_dependencies(test_research_job ms_research ms_live)
 
 # The Research view's testable half: the view model, the one chart, the form
 # editor's schema decisions, and the session that runs jobs off the GUI thread.

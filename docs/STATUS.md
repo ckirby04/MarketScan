@@ -7,8 +7,14 @@ approximated and where, what is unresolved, and what the next phase needs.
 their two validators; the `drawdown_entry` rule cross-tested fill for fill; the
 graded research job and `ms_research`, regraded independently by the research
 layer; the Research view on F3; [`SPEC_RESEARCH_VIEW.md`](specs/SPEC_RESEARCH_VIEW.md)).
-Not built: the assistant (R2), the data catalog (R1), and Open in Operator. Green
-locally; not yet run in CI. 544 C++ tests (one skipped, allowlisted), 411 Python.
+Then the web: the live seam split into its own library so the research path cannot
+link it (and a test reads the built `ms_research` to prove it); a `linux` preset,
+under which the research path builds with GCC and reproduces the Windows fixtures
+exactly (the plugin loader's tests are not ported to Linux and fail there); a job
+service in `service/` for Cloud Run and a Next.js front end in `web/` for Vercel,
+neither deployed yet. Not built: the assistant (R2), the data catalog (R1), and
+Open in Operator. Green locally; not yet run in CI. 545 C++ tests (one skipped,
+allowlisted), 411 Python, 10 service.
 
 The counts and version identifiers in this document are descriptive facts about
 the tree and are corrected whenever they are found wrong. Measured results are
@@ -135,7 +141,7 @@ linked and launched at once will stall regardless.
 Milestones M0–M9 of Spec 1, and M0–M8b of Spec 2, are done. Specs are in
 [`specs/`](specs/).
 
-**544 C++ tests** on `ci` and `ci-debug`, measured; **545** on `full`, for the
+**545 C++ tests** on `ci` and `ci-debug`, measured; **546** on `full`, for the
 reason in [`AUDIT.md`](AUDIT.md) check 9. **411 Python tests** in
 `research/tests`, run by the `research` CI job on Linux -- deliberately, because
 the research layer depends on nothing in the C++ toolchain and the first import

@@ -84,7 +84,9 @@ The verdict is a grade — supported, fragile, not supported, insufficient evide
 published rules, never written by a language model, and never phrased as advice. The job's
 specification is [`contracts/research/JOB.md`](contracts/research/JOB.md); the research layer
 regrades every committed run from the engine's trace and must agree. Headless, the same job is
-`ms_research --form form.json --daily <dir> --out <dir>`. See
+`ms_research --form form.json --daily <dir> --out <dir>`; on the web it is a Next.js front end
+([`web/`](web/README.md), for Vercel) over a job service ([`service/`](service/README.md), for Cloud
+Run) that runs that same binary, built for Linux. See
 [`SPEC_RESEARCH_VIEW.md`](docs/specs/SPEC_RESEARCH_VIEW.md) and
 [`contracts/`](contracts/README.md).
 
@@ -495,6 +497,8 @@ apps/live/            ms_live: the paper-only command line to the live seam
 apps/research/        ms_research: a Strategy Form in, a graded Results document out
 contracts/            machine-readable contracts the engine and research layer
                       both load: the Strategy Form, Results, catalog, assistant
+service/              the research job behind HTTP, for Cloud Run
+web/                  the Research view as a web app, for Vercel
 theories/             the USB port: strategy plugins, discovered at runtime
 bindings/python/      pybind11 module
 research/             the dynamometer: synthetic panels, and what the pipeline

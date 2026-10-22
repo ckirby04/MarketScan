@@ -22,6 +22,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -53,7 +54,23 @@ void usage() {
            "  --null-draws N         random-timing alternatives (default 1000)\n"
            "  --paths N              bootstrap paths (default 1000)\n"
            "  --data-snapshot TEXT   recorded in the Results\n"
-           "  --fixed-time           record 1970-01-01T00:00:00Z and 0 ms, for fixtures\n";
+           "  --fixed-time           record 1970-01-01T00:00:00Z and 0 ms, for fixtures\n"
+           "  --machine              one JSON object per line on stdout -- progress, then\n"
+           "                         done or refused -- for the job service to read\n";
+}
+
+/// --machine output: one JSON object per line, flushed, so a reader on the other
+/// end of a pipe sees each event as it happens.
+void emit(const json& event) {
+    std::cout << event.dump() << "\n" << std::flush;
+}
+
+[[nodiscard]] json error_list(const std::vector<marketscan::research::SchemaError>& errors) {
+    json out = json::array();
+    for (const auto& e : errors) {
+        out.push_back(json{{"path", e.instance_path}, {"message", e.message}});
+    }
+    return out;
 }
 
 [[nodiscard]] json read_json(const fs::path& path) {
@@ -81,6 +98,7 @@ int main(int argc, char** argv) {
     std::vector<std::pair<std::string, fs::path>> csvs;
     bool trace = false;
     bool fixed_time = false;
+    bool machine = false;
     JobOptions options;
 
     for (int i = 1; i < argc; ++i) {
@@ -121,6 +139,8 @@ int main(int argc, char** argv) {
             options.data_snapshot = value();
         } else if (arg == "--fixed-time") {
             fixed_time = true;
+        } else if (arg == "--machine") {
+            machine = true;
         } else {
             std::cerr << "unknown argument " << arg << "\n";
             usage();
@@ -138,6 +158,11 @@ int main(int argc, char** argv) {
 
         const json form = read_json(form_path);
         if (const auto errors = form_schema.validate(form); !errors.empty()) {
+            if (machine) {
+                emit({{"event", "refused"},
+                      {"kind", "invalid_form"},
+                      {"errors", error_list(errors)}});
+            }
             std::cerr << "the form is not valid:\n";
             print_errors(errors);
             return kInvalidForm;
@@ -157,8 +182,21 @@ int main(int argc, char** argv) {
         const auto began = std::chrono::steady_clock::now();
         options.started_at =
             fixed_time ? "1970-01-01T00:00:00Z" : marketscan::research::utc_timestamp();
+        if (machine) {
+            options.progress = [](std::string_view stage, int done, int total) {
+                emit({{"event", "progress"}, {"stage", stage}, {"done", done}, {"total", total}});
+                return true;
+            };
+        }
         auto outcome = marketscan::research::run_job(form, *data, options);
         if (!outcome.ok()) {
+            if (machine) {
+                json errors = json::array();
+                for (const auto& e : outcome.errors) {
+                    errors.push_back(json{{"path", e.path}, {"message", e.message}});
+                }
+                emit({{"event", "refused"}, {"kind", "refused"}, {"errors", errors}});
+            }
             std::cerr << "the job refused this form:\n";
             for (const auto& e : outcome.errors) {
                 std::cerr << "  " << (e.path.empty() ? "(data)" : e.path) << ": " << e.message
@@ -173,6 +211,10 @@ int main(int argc, char** argv) {
                     .count();
         }
         if (const auto errors = results_schema.validate(outcome.results); !errors.empty()) {
+            if (machine) {
+                emit(
+                    {{"event", "refused"}, {"kind", "engine_bug"}, {"errors", error_list(errors)}});
+            }
             std::cerr << "ENGINE BUG: the Results document fails results.schema.json:\n";
             print_errors(errors);
             return kEngineBug;
@@ -181,6 +223,12 @@ int main(int argc, char** argv) {
         marketscan::research::write_run(out_dir, form, outcome, trace);
 
         const json& verdict = outcome.results["verdict"];
+        if (machine) {
+            emit({{"event", "done"},
+                  {"grade", verdict["grade"]},
+                  {"run_id", outcome.results["run"]["run_id"]}});
+            return 0;
+        }
         std::cout << "grade      " << verdict["grade"].get<std::string>() << " ("
                   << verdict["data_grade"].get<std::string>() << " data)\n";
         for (const json& gate : verdict["gates"]) {
