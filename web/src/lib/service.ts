@@ -25,9 +25,15 @@ export async function callService(path: string, init: RequestInit = {}): Promise
     },
     cache: "no-store",
   });
+  const contentType = upstream.headers.get("Content-Type") ?? "application/json";
+  // An assistant turn is a stream of NDJSON events, passed on as they arrive
+  // rather than read whole: the browser shows the reply while it is written.
+  if (contentType.startsWith("application/x-ndjson") && upstream.body) {
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: { "Content-Type": contentType, "Cache-Control": "no-store", "X-Accel-Buffering": "no" },
+    });
+  }
   const body = await upstream.text();
-  return new Response(body, {
-    status: upstream.status,
-    headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
-  });
+  return new Response(body, { status: upstream.status, headers: { "Content-Type": contentType } });
 }

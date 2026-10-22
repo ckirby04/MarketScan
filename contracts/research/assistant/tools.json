@@ -1,14 +1,24 @@
 [
   {
     "name": "search_securities",
-    "description": "Find securities by ticker or name. Returns every match across time, including delisted and renamed securities, each with security_id, name, asset_class, status and full ticker_history. Use this when a name is given instead of a ticker, or when resolve returns nothing.",
+    "description": "Find securities by ticker or name. Returns every match across time, including delisted and renamed securities, each with security_id, name, asset_class, status and full ticker_history. Use this when a name is given instead of a ticker, or when resolve returns nothing. An empty query lists every security the app holds.",
     "input_schema": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["query"],
+      "required": [
+        "query"
+      ],
       "properties": {
-        "query": { "type": "string", "description": "A ticker or part of a name." },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 25, "default": 10 }
+        "query": {
+          "type": "string",
+          "description": "A ticker or part of a name."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25,
+          "default": 10
+        }
       }
     }
   },
@@ -18,10 +28,18 @@
     "input_schema": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["ticker", "as_of"],
+      "required": [
+        "ticker",
+        "as_of"
+      ],
       "properties": {
-        "ticker": { "type": "string" },
-        "as_of": { "type": "string", "format": "date" }
+        "ticker": {
+          "type": "string"
+        },
+        "as_of": {
+          "type": "string",
+          "format": "date"
+        }
       }
     }
   },
@@ -31,9 +49,13 @@
     "input_schema": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["security_id"],
+      "required": [
+        "security_id"
+      ],
       "properties": {
-        "security_id": { "type": "string" }
+        "security_id": {
+          "type": "string"
+        }
       }
     }
   },
@@ -43,33 +65,52 @@
     "input_schema": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["from", "to"],
+      "required": [
+        "from",
+        "to"
+      ],
       "properties": {
-        "from": { "type": "string", "format": "date" },
-        "to": { "type": "string", "format": "date" }
+        "from": {
+          "type": "string",
+          "format": "date"
+        },
+        "to": {
+          "type": "string",
+          "format": "date"
+        }
       }
     }
   },
   {
     "name": "save_form",
-    "description": "Write the current Strategy Form to the user's screen. Call it as soon as you have a draft and again after every change, so the form on screen always matches the conversation. With ready=false the form may contain nulls for fields whose provenance source is 'missing'. With ready=true it is validated strictly against the schema: on success the user sees a Run button, on failure you get the validation errors back and must fix them before saying anything to the user.",
+    "description": "Save the current Strategy Form. The app keeps it for the run; the user does not see it unless they open it. Call it as soon as you have a draft and again after every change, so the saved form always matches the conversation. With ready=false the form may contain nulls for fields whose provenance source is 'missing'. With ready=true it is validated strictly against the schema: on success the user sees a Run button, on failure you get the validation errors back and must fix them before saying anything to the user.",
     "input_schema": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["form", "ready"],
+      "required": [
+        "form",
+        "ready"
+      ],
       "properties": {
-        "form": { "type": "object", "description": "A Strategy Form, as defined by strategy_form.schema.json." },
-        "ready": { "type": "boolean" }
+        "form": {
+          "type": "object",
+          "description": "A Strategy Form, as defined by strategy_form.schema.json."
+        },
+        "ready": {
+          "type": "boolean"
+        }
       }
     }
   },
   {
     "name": "ask_user",
-    "description": "Ask the user to choose values for form fields. Shown as buttons next to the form. Ask at most three questions per call. Each question is tied to the field it fills.",
+    "description": "Ask the user to choose values for form fields. Shown in the chat as buttons, with a box for a free-text answer. Ask at most three questions per call. Each question is tied to the field it fills. Your turn ends when you ask: the user's answers come back as this tool's result.",
     "input_schema": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["questions"],
+      "required": [
+        "questions"
+      ],
       "properties": {
         "questions": {
           "type": "array",
@@ -78,10 +119,20 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["path", "question", "options"],
+            "required": [
+              "path",
+              "question",
+              "options"
+            ],
             "properties": {
-              "path": { "type": "string", "description": "JSON Pointer of the form field this answers, e.g. /strategy/exit/rules." },
-              "question": { "type": "string", "description": "One short question in plain English." },
+              "path": {
+                "type": "string",
+                "description": "JSON Pointer of the form field this answers, e.g. /strategy/exit/rules."
+              },
+              "question": {
+                "type": "string",
+                "description": "One short question in plain English."
+              },
               "options": {
                 "type": "array",
                 "minItems": 2,
@@ -89,19 +140,42 @@
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["label", "value"],
+                  "required": [
+                    "label",
+                    "value"
+                  ],
                   "properties": {
-                    "label": { "type": "string", "description": "Plain English, e.g. 'Sell when it gets back to the old high'." },
-                    "value": { "description": "The exact value written into the form at path if chosen." },
-                    "hint": { "type": "string", "description": "Optional one-line consequence, e.g. 'Fewer trades, longer time in cash'." }
+                    "label": {
+                      "type": "string",
+                      "description": "Plain English, e.g. 'Sell when it gets back to the old high'."
+                    },
+                    "value": {
+                      "description": "The exact value written into the form at path if chosen."
+                    },
+                    "hint": {
+                      "type": "string",
+                      "description": "Optional one-line consequence, e.g. 'Fewer trades, longer time in cash'."
+                    }
                   }
                 }
               },
-              "allow_free_text": { "type": "boolean", "default": true }
+              "allow_free_text": {
+                "type": "boolean",
+                "default": true
+              }
             }
           }
         }
       }
+    }
+  },
+  {
+    "name": "start_run",
+    "description": "Run the saved form, which must have been accepted by save_form with ready=true and not changed since. Call it only when the user has asked for the run. The run takes from seconds to a few minutes; its results come back to you in a later message beginning with <results>, or <refused> if the job could not honour the form.",
+    "input_schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
     }
   }
 ]

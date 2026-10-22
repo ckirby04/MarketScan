@@ -264,7 +264,19 @@ function Data({ results }: { results: Results }) {
 
 const TABS = ["Equity", "Windows", "Sweep", "Timing", "Range", "Trades", "Data"] as const;
 
-export default function ResultsView({ results, curves }: { results: Results; curves: Curve[] }) {
+/**
+ * In a conversation the analysis is the assistant's next message, under its own
+ * label; `inConversation` leaves the section out here so it is not shown twice.
+ */
+export default function ResultsView({
+  results,
+  curves,
+  inConversation = false,
+}: {
+  results: Results;
+  curves: Curve[];
+  inConversation?: boolean;
+}) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Equity");
   const v = results.verdict;
   const h = v.headline;
@@ -330,11 +342,15 @@ export default function ResultsView({ results, curves }: { results: Results; cur
       {tab === "Trades" && <Trades results={results} />}
       {tab === "Data" && <Data results={results} />}
 
-      <div className="heading">ANALYSIS - written by AI from the numbers above</div>
-      <p className="faint">
-        No analysis: the assistant is not connected yet (part R2). Everything above is the engine&apos;s, and
-        stands without it.
-      </p>
+      {!inConversation && (
+        <>
+          <div className="heading">ANALYSIS - written by AI from the numbers above</div>
+          <p className="faint">
+            The analysis is written in the conversation that started this run, if one did. Everything above is the
+            engine&apos;s, and stands without it.
+          </p>
+        </>
+      )}
     </>
   );
 }

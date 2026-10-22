@@ -34,6 +34,12 @@ class Settings:
     # threaded and a second job would only slow the first.
     max_running: int = 1
 
+    # The assistant. No key means no assistant: its routes answer 503 and the
+    # job routes work as before.
+    anthropic_api_key: str = ""
+    assistant_model: str = "claude-opus-5-5"
+    assistant_effort: str = "medium"
+
     extra: dict = field(default_factory=dict)
 
 
@@ -64,4 +70,8 @@ def from_env() -> Settings:
         runs_bucket=env.get("MS_RUNS_BUCKET", ""),
         null_draws=int(env.get("MS_NULL_DRAWS", "1000")),
         bootstrap_paths=int(env.get("MS_BOOTSTRAP_PATHS", "1000")),
+        # Stripped: a key read from a file or a secret often ends in a newline.
+        anthropic_api_key=env.get("ANTHROPIC_API_KEY", "").strip(),
+        assistant_model=env.get("MS_ASSISTANT_MODEL", "claude-opus-5-5"),
+        assistant_effort=env.get("MS_ASSISTANT_EFFORT", "medium"),
     )
