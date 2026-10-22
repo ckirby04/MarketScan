@@ -43,6 +43,9 @@ from research.parity import (
     simulate,
 )
 
+# pd.read_csv's arguments for reading doubles back bit for bit.
+EXACT_FLOATS = {"float_precision": "round_trip"} if int(pd.__version__.split(".")[0]) < 3 else {}
+
 
 def test_the_encoding_round_trips():
     values = np.array([-8.5, -1.0, 0.0, 1e-6, 0.25, 3.75, 8.5])
@@ -456,12 +459,14 @@ def test_the_committed_churn_curves_match_a_fresh_run(churn_bars, churn_panel):
 
 
 def test_the_committed_applied_log_matches_a_fresh_run(churn_bars, churn_panel):
-    # `float_precision="round_trip"` is load-bearing. pandas' default C converter
-    # is fast and inexact: it parses the committed `287.08291392594157` to a
-    # different double than the one that wrote it, and this test failed on the last
-    # bit because of the reader rather than because of anything it was checking.
-    # The C++ side reads these with `strtod`, which is exact.
-    committed = pd.read_csv(CHURN_APPLIED, float_precision="round_trip")
+    # An exact float reader is load-bearing. pandas 2's default C converter is fast
+    # and inexact: it parses the committed `287.08291392594157` to a different
+    # double than the one that wrote it, and this test failed on the last bit
+    # because of the reader rather than because of anything it was checking.
+    # The C++ side reads these with `strtod`, which is exact. pandas 3 reads
+    # exactly by default and deprecates `float_precision`, which the warning
+    # filter turns into a failure, so the argument goes only to pandas 2.
+    committed = pd.read_csv(CHURN_APPLIED, **EXACT_FLOATS)
     fresh = simulate(churn_bars,
                      delisting_returns=applied_returns(churn_panel.delistings,
                                                        APPLY_TRUE_RETURN))
