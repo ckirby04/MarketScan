@@ -381,7 +381,7 @@ export default function ResultsView({
       {results.scorecard && (
         <>
           <div className="heading">Scorecard</div>
-          <ScoreCard card={results.scorecard} />
+          <ScoreCard card={results.scorecard} curves={curves} />
         </>
       )}
 
