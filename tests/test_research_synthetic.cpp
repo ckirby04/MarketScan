@@ -111,25 +111,24 @@ std::unique_ptr<SyntheticWorld> synthetic_world(double real_share) {
     world->data.add(base);
     world->data.add(rate);
     world->data.add(lev);
-    world->recipes = json::array({json{
-        {"record", "synthetic_recipe"},
-        {"recipe_id", "lev_from_base_2x"},
-        {"target_security_id", "lev"},
-        {"underlying_security_id", "base"},
-        {"method", "daily_leverage"},
-        {"params",
-         {{"leverage", 2},
-          {"annual_fee_pct", 0.9},
-          {"borrow_spread_pct", 0.5},
-          {"cash_rate_series_id", "rate"}}},
-        {"available_from", "2000-01-03"},
-        {"validation",
-         {{"overlap_from", world->first_real},
-          {"overlap_to", "2003-08-29"},
-          {"daily_return_correlation", 0.99},
-          {"annualized_tracking_difference_pct", 0.25},
-          {"max_cumulative_gap_pct", 3.0},
-          {"computed_by", "the test"}}}}});
+    world->recipes = json::array({json{{"record", "synthetic_recipe"},
+                                       {"recipe_id", "lev_from_base_2x"},
+                                       {"target_security_id", "lev"},
+                                       {"underlying_security_id", "base"},
+                                       {"method", "daily_leverage"},
+                                       {"params",
+                                        {{"leverage", 2},
+                                         {"annual_fee_pct", 0.9},
+                                         {"borrow_spread_pct", 0.5},
+                                         {"cash_rate_series_id", "rate"}}},
+                                       {"available_from", "2000-01-03"},
+                                       {"validation",
+                                        {{"overlap_from", world->first_real},
+                                         {"overlap_to", "2003-08-29"},
+                                         {"daily_return_correlation", 0.99},
+                                         {"annualized_tracking_difference_pct", 0.25},
+                                         {"max_cumulative_gap_pct", 3.0},
+                                         {"computed_by", "the test"}}}}});
     return world;
 }
 
@@ -158,7 +157,8 @@ JobOptions synthetic_options(const json& recipes) {
 
 bool has_warning(const json& results, const std::string& code) {
     const json& warnings = results.at("warnings");
-    return std::any_of(warnings.begin(), warnings.end(), [&](const json& w) { return w.at("code") == code; });
+    return std::any_of(
+        warnings.begin(), warnings.end(), [&](const json& w) { return w.at("code") == code; });
 }
 
 }  // namespace
@@ -171,7 +171,8 @@ TEST_CASE("synthetic history matches research/synthetic.py exactly") {
     for (const json& c : cases) {
         INFO(c.at("name").get<std::string>());
         const json& in = c.at("inputs");
-        const BarSeries underlying = daily_series("U", in.at("underlying_days"), in.at("underlying"));
+        const BarSeries underlying =
+            daily_series("U", in.at("underlying_days"), in.at("underlying"));
         const BarSeries rate = daily_series("R", in.at("rate_days"), in.at("rates"));
         const json& p = in.at("params");
         const SyntheticParams params{p.at("leverage").get<double>(),
@@ -179,11 +180,12 @@ TEST_CASE("synthetic history matches research/synthetic.py exactly") {
                                      p.at("borrow_spread_pct").get<double>()};
         const json& expected = c.at("expected");
         try {
-            const SyntheticBars out = extend_history(underlying,
-                                                     rate,
-                                                     day_number(in.at("first_real_day").get<std::string>()),
-                                                     in.at("first_real_close").get<double>(),
-                                                     params);
+            const SyntheticBars out =
+                extend_history(underlying,
+                               rate,
+                               day_number(in.at("first_real_day").get<std::string>()),
+                               in.at("first_real_close").get<double>(),
+                               params);
             REQUIRE_FALSE(expected.contains("error"));
             json days = json::array();
             for (const std::int64_t day : out.days) {
@@ -210,8 +212,8 @@ TEST_CASE("a run on synthetic history marks every part of it that used the simul
         run_job(synthetic_form(), world->data, synthetic_options(world->recipes));
     REQUIRE(outcome.ok());
     const json& results = outcome.results;
-    const auto errors =
-        JsonSchema::load(kRepo / "contracts" / "research" / "results.schema.json").validate(results);
+    const auto errors = JsonSchema::load(kRepo / "contracts" / "research" / "results.schema.json")
+                            .validate(results);
     for (const auto& e : errors) {
         UNSCOPED_INFO(e.instance_path << ": " << e.message);
     }
@@ -234,7 +236,8 @@ TEST_CASE("a run on synthetic history marks every part of it that used the simul
     REQUIRE_FALSE(trades.empty());
     for (const json& trade : trades) {
         CHECK(trade.at("synthetic").get<bool>() ==
-              (day_number(trade.at("entry_date").get<std::string>()) < day_number(world->first_real)));
+              (day_number(trade.at("entry_date").get<std::string>()) <
+               day_number(world->first_real)));
     }
     // Seventy per cent simulated: more than half.
     CHECK(has_warning(results, "MOSTLY_SYNTHETIC"));
@@ -261,7 +264,8 @@ TEST_CASE("a synthetic extension is honoured only for the recipe it was copied f
 
     json fee = synthetic_form();
     fee["universe"]["assets"][0]["synthetic_extension"]["annual_fee_pct"] = 0.5;
-    CHECK(error_paths(run_job(fee, world->data, options)) == std::set<std::string>{at + "/annual_fee_pct"});
+    CHECK(error_paths(run_job(fee, world->data, options)) ==
+          std::set<std::string>{at + "/annual_fee_pct"});
 
     json underlying = synthetic_form();
     underlying["universe"]["assets"][0]["synthetic_extension"]["underlying"] = "QQQ";
@@ -270,7 +274,8 @@ TEST_CASE("a synthetic extension is honoured only for the recipe it was copied f
 
     json target = synthetic_form();
     target["universe"]["assets"][0]["security_id"] = "other";
-    CHECK(error_paths(run_job(target, world->data, options)) == std::set<std::string>{at + "/recipe_id"});
+    CHECK(error_paths(run_job(target, world->data, options)) ==
+          std::set<std::string>{at + "/recipe_id"});
 
     // A recipe with no validation cannot be used (CATALOG.md).
     json unvalidated = world->recipes;
