@@ -64,10 +64,16 @@ fs::path find_upwards(const fs::path& start, const fs::path& relative) {
 
 ResearchSession::ResearchSession(ResearchConfig config) : config_(std::move(config)) {
     auto initial = std::make_shared<ResearchSnapshot>();
-    initial->assistant_available = false;
-    initial->assistant_reason =
-        "The assistant is not connected yet (SPEC_RESEARCH_VIEW.md part R2). Fill in a form "
-        "by hand; everything after the form works without it.";
+    if (config_.connect_service) {
+        research::ServiceSetup setup = config_.connect_service();
+        service_ = std::move(setup.client);
+        initial->chat.reason = std::move(setup.reason);
+    } else {
+        initial->chat.reason =
+            "The assistant is not connected in this build. Fill in a form by hand; everything "
+            "after the form works without it.";
+    }
+    initial->chat.available = service_ != nullptr;
 
     if (config_.contracts_dir.empty()) {
         config_.contracts_dir = find_upwards(executable_directory(), "contracts/research");
@@ -84,6 +90,13 @@ ResearchSession::ResearchSession(ResearchConfig config) : config_(std::move(conf
                 research::JsonSchema::load(config_.contracts_dir / "results.schema.json"));
         } catch (const std::exception& error) {
             initial->setup_error = error.what();
+        }
+        // Not fatal: without it the view shows identifiers as they are.
+        try {
+            initial->words = std::make_shared<const PlainWords>(
+                PlainWords::load(config_.contracts_dir / "plain_words.json"));
+        } catch (const std::exception& error) {
+            log::warn("research", error.what());
         }
     }
     const fs::path repo = config_.contracts_dir.empty()
@@ -129,6 +142,9 @@ ResearchSession::ResearchSession(ResearchConfig config) : config_(std::move(conf
     set_form(starter_form());
 
     worker_ = std::thread([this] { worker_main(); });
+    if (service_) {
+        chat_worker_ = std::thread([this] { chat_main(); });
+    }
 }
 
 ResearchSession::~ResearchSession() {
@@ -142,6 +158,16 @@ ResearchSession::~ResearchSession() {
     job_signal_.notify_all();
     if (worker_.joinable()) {
         worker_.join();
+    }
+    // A turn may be streaming: the stop flag ends it at its next event.
+    chat_stop_ = true;
+    {
+        const std::lock_guard lock(chat_mutex_);
+        chat_quitting_ = true;
+    }
+    chat_signal_.notify_all();
+    if (chat_worker_.joinable()) {
+        chat_worker_.join();
     }
 }
 
@@ -382,6 +408,341 @@ void ResearchSession::execute(const json& form) {
         s.state = ResearchState::Done;
         s.recent = std::move(recent);
     });
+}
+
+// --- The chat -------------------------------------------------------------------
+
+void ResearchSession::post_chat(std::function<void()> command) {
+    if (!service_) {
+        return;
+    }
+    {
+        const std::lock_guard lock(chat_mutex_);
+        chat_commands_.push_back(std::move(command));
+    }
+    chat_signal_.notify_one();
+}
+
+void ResearchSession::chat_refresh() {
+    post_chat([this] { chat_list(); });
+}
+
+void ResearchSession::chat_open(const std::string& id) {
+    if (!service_ || snapshot()->chat.open.busy) {
+        return;
+    }
+    publish([&](ResearchSnapshot& s) {
+        s.chat.open = ChatView{};
+        s.chat.open.id = id;  // shown as loading until the record arrives
+    });
+    post_chat([this, id] { chat_reload(id); });
+}
+
+void ResearchSession::chat_new() {
+    if (!service_ || snapshot()->chat.open.busy) {
+        return;
+    }
+    publish([](ResearchSnapshot& s) { s.chat.open = ChatView{}; });
+}
+
+void ResearchSession::chat_send(const std::string& text) {
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (!service_ || first == std::string::npos || snapshot()->chat.open.busy) {
+        return;
+    }
+    const std::string words = text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1);
+    // On screen at once, and busy from now: making the conversation and the first
+    // event of the turn can each take a few seconds.
+    publish([&](ResearchSnapshot& s) {
+        add_sent(s.chat.open, words);
+        s.chat.open.busy = true;
+        s.chat.open.problem.clear();
+        s.chat.open.activity.clear();
+    });
+    post_chat([this, words] {
+        std::string id = snapshot()->chat.open.id;
+        if (id.empty()) {
+            const research::ServiceResponse made = service_->post("/conversations", json::object());
+            if (!made.ok()) {
+                const std::string problem = describe(made);
+                publish([&](ResearchSnapshot& s) {
+                    auto& items = s.chat.open.items;
+                    items.erase(std::remove_if(items.begin(),
+                                               items.end(),
+                                               [](const ChatItem& item) { return item.sent; }),
+                                items.end());
+                    s.chat.open.busy = false;
+                    s.chat.open.problem = problem;
+                });
+                return;
+            }
+            id = json::parse(made.body).at("id").get<std::string>();
+            publish([&](ResearchSnapshot& s) { s.chat.open.id = id; });
+            chat_list();  // in the list now, not only once its first turn ends
+        }
+        chat_turn(id,
+                  "/conversations/" + id + "/messages",
+                  json{{"text", words}},
+                  TurnKind::Assistant,
+                  "");
+        chat_list();
+    });
+}
+
+void ResearchSession::chat_run() {
+    const auto snap = snapshot();
+    if (!service_ || snap->chat.open.id.empty() || !snap->chat.open.ready || snap->chat.open.busy) {
+        return;
+    }
+    const std::string id = snap->chat.open.id;
+    publish([](ResearchSnapshot& s) { s.chat.open.problem.clear(); });
+    post_chat([this, id] {
+        const research::ServiceResponse started =
+            service_->post("/conversations/" + id + "/run", json::object());
+        if (started.status != 202) {
+            const std::string problem = describe(started);
+            publish([&](ResearchSnapshot& s) { s.chat.open.problem = problem; });
+            return;
+        }
+        chat_reload(id);
+    });
+}
+
+void ResearchSession::wait_chat_idle() {
+    for (;;) {
+        {
+            const std::lock_guard lock(chat_mutex_);
+            if (!service_ ||
+                (chat_commands_.empty() && !chat_working_ && !chat_following_.load())) {
+                return;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+}
+
+void ResearchSession::chat_main() {
+    for (;;) {
+        std::function<void()> command;
+        {
+            std::unique_lock lock(chat_mutex_);
+            const auto ready = [this] { return chat_quitting_ || !chat_commands_.empty(); };
+            if (chat_following_.load()) {
+                // A run is going: wake to poll it even with nothing to do.
+                chat_signal_.wait_for(lock, config_.poll_interval, ready);
+            } else {
+                chat_signal_.wait(lock, ready);
+            }
+            if (chat_quitting_) {
+                return;
+            }
+            if (!chat_commands_.empty()) {
+                command = std::move(chat_commands_.front());
+                chat_commands_.pop_front();
+            }
+            chat_working_ = true;
+        }
+        try {
+            if (command) {
+                command();
+            }
+            chat_following_ = chat_follow_runs();
+        } catch (const std::exception& error) {
+            // Nothing may leave this thread: an exception here ends the program.
+            chat_following_ = false;
+            const std::string problem = std::string("The chat stopped: ") + error.what();
+            publish([&](ResearchSnapshot& s) {
+                close_live(s.chat.open);
+                s.chat.open.busy = false;
+                s.chat.open.problem = problem;
+            });
+        }
+        const std::lock_guard lock(chat_mutex_);
+        chat_working_ = false;
+    }
+}
+
+void ResearchSession::chat_list() {
+    const research::ServiceResponse listed = service_->get("/conversations");
+    if (!listed.ok()) {
+        const std::string problem = describe(listed);
+        publish([&](ResearchSnapshot& s) { s.chat.open.problem = problem; });
+        return;
+    }
+    auto conversations = conversations_from_json(json::parse(listed.body));
+    publish([&](ResearchSnapshot& s) { s.chat.conversations = std::move(conversations); });
+}
+
+void ResearchSession::chat_reload(const std::string& id) {
+    const research::ServiceResponse loaded = service_->get("/conversations/" + id);
+    if (!loaded.ok()) {
+        const std::string problem = describe(loaded);
+        publish([&](ResearchSnapshot& s) {
+            if (s.chat.open.id == id) {
+                s.chat.open.problem = problem;
+            }
+        });
+        return;
+    }
+    const json record = json::parse(loaded.body);
+    publish([&](ResearchSnapshot& s) {
+        // Only into the conversation it is the record of: the reader may have
+        // opened another meanwhile.
+        if (s.chat.open.id == id) {
+            load_conversation(s.chat.open, record);
+        }
+    });
+}
+
+void ResearchSession::chat_turn(const std::string& id,
+                                const std::string& path,
+                                const json& body,
+                                TurnKind kind,
+                                const std::string& job_id) {
+    publish([&](ResearchSnapshot& s) {
+        if (s.chat.open.id == id) {
+            s.chat.open.busy = true;
+            s.chat.open.problem.clear();
+        }
+    });
+    const research::ServiceResponse streamed = service_->stream(path, body, [&](const json& event) {
+        publish([&](ResearchSnapshot& s) {
+            if (s.chat.open.id == id) {
+                apply_event(s.chat.open, event, kind, job_id);
+            }
+        });
+        return !chat_stop_.load();
+    });
+    const std::string problem =
+        streamed.ok() || streamed.cancelled ? std::string() : describe(streamed);
+    publish([&](ResearchSnapshot& s) {
+        if (s.chat.open.id == id) {
+            close_live(s.chat.open);
+            s.chat.open.busy = false;
+            s.chat.open.activity.clear();
+            s.chat.open.problem = problem;
+        }
+    });
+    if (!chat_stop_.load()) {
+        // The service's record replaces what was pieced together from events.
+        chat_reload(id);
+    }
+}
+
+bool ResearchSession::chat_follow_runs() {
+    bool going = false;
+    const auto snap = snapshot();
+    const ChatView& open = snap->chat.open;
+    for (const std::string& job_id : run_ids(open)) {
+        if (chat_stop_.load()) {
+            return false;
+        }
+        ChatRun run;
+        if (const ChatRun* known = snap->chat.run(job_id)) {
+            run = *known;
+        }
+        run.job_id = job_id;
+        const bool settled =
+            run.ended() && (run.run || run.state != "done" || !run.problem.empty());
+        if (!settled) {
+            const research::ServiceResponse polled = service_->get("/jobs/" + job_id);
+            if (!polled.ok()) {
+                run.problem = describe(polled);
+            } else {
+                run.problem.clear();
+                const json status = json::parse(polled.body);
+                run.state = status.value("state", "");
+                run.stage = status.value("stage", "");
+                run.done = status.value("done", 0);
+                run.total = status.value("total", 0);
+                run.errors.clear();
+                for (const json& e : status.value("errors", json::array())) {
+                    run.errors.push_back(
+                        {e.value("path", std::string()), e.value("message", std::string())});
+                }
+                if (run.state == "done") {
+                    chat_fetch(run);
+                }
+            }
+            publish([&](ResearchSnapshot& s) {
+                for (ChatRun& existing : s.chat.runs) {
+                    if (existing.job_id == job_id) {
+                        existing = run;
+                        return;
+                    }
+                }
+                s.chat.runs.push_back(run);
+            });
+        }
+        if (!run.ended() && run.problem.empty()) {
+            going = true;
+            continue;
+        }
+        // A run of this conversation has ended: the assistant reads its Results,
+        // once, and not while a turn is still streaming (it would start this one).
+        if (run.ended() && !analysed(open, job_id) && !open.busy &&
+            analysing_.insert(job_id).second) {
+            chat_turn(open.id,
+                      "/conversations/" + open.id + "/results",
+                      json{{"job_id", job_id}},
+                      TurnKind::Analysis,
+                      job_id);
+        }
+    }
+    return going;
+}
+
+void ResearchSession::chat_fetch(ChatRun& run) {
+    const std::string base = "/jobs/" + run.job_id;
+    const research::ServiceResponse results = service_->get(base + "/results");
+    const research::ServiceResponse curves = service_->get(base + "/curves");
+    const research::ServiceResponse form = service_->get(base + "/form");
+    for (const research::ServiceResponse* r : {&results, &curves, &form}) {
+        if (!r->ok()) {
+            run.problem = describe(*r);
+            return;
+        }
+    }
+    auto fetched = std::make_shared<ResearchRun>();
+    try {
+        fetched->results = json::parse(results.body);
+        if (results_schema_) {
+            if (const auto errors = results_schema_->validate(fetched->results); !errors.empty()) {
+                run.problem = "The service's Results fail results.schema.json at '" +
+                              errors.front().instance_path + "'.";
+                return;
+            }
+        }
+        fetched->form = json::parse(form.body);
+        fetched->view = read_results(fetched->results);
+        fetched->curves = research::curves_from_json(json::parse(curves.body));
+    } catch (const std::exception& error) {
+        run.problem = std::string("The service's run could not be read: ") + error.what();
+        return;
+    }
+    run.run = std::move(fetched);
+}
+
+std::string ResearchSession::describe(const research::ServiceResponse& response) const {
+    if (!response.error.empty()) {
+        return "Couldn't reach the job service (" + response.error + ").";
+    }
+    if (response.unauthorised()) {
+        return "The job service refused the key in MS_SERVICE_KEY.";
+    }
+    if (response.rate_limited()) {
+        return "The job service asked to slow down; try again in " +
+               std::to_string(response.retry_after_seconds) + " seconds.";
+    }
+    const json body = json::parse(response.body, nullptr, false);
+    if (body.is_object()) {
+        for (const char* key : {"detail", "error"}) {
+            if (body.contains(key) && body.at(key).is_string()) {
+                return body.at(key).get<std::string>();
+            }
+        }
+    }
+    return "The job service answered " + std::to_string(response.status) + ".";
 }
 
 std::vector<RecentRun> ResearchSession::scan_recent() const {

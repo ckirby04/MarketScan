@@ -268,6 +268,21 @@ TEST_CASE("ms_research carries no broker code, and the check can tell") {
     CHECK(reaches_broker(MARKETSCAN_LIVE_EXE));
 }
 
+// The desktop app now reaches the job service, so it carries WinHTTP, and the
+// check above cannot tell it from the broker by that. What it must not carry is
+// the broker: it links marketscan_service, never marketscan_live
+// (docs/specs/SPEC_DESKTOP_CHAT.md section 3).
+TEST_CASE("the desktop app carries no broker host") {
+    const std::string bytes = lower(read_binary(MARKETSCAN_APP_EXE));
+    CHECK(bytes.find("alpaca.markets") == std::string::npos);
+    // When it carries WinHTTP at all, that is for the service it may reach. A
+    // build without the GUI never calls the chat, so the linker drops the client
+    // and there is nothing to find; the scanner itself is proven by ms_live above.
+    if (bytes.find("winhttp.dll") != std::string::npos) {
+        CHECK(bytes.find("run.app") != std::string::npos);
+    }
+}
+
 // --- The pieces ---------------------------------------------------------------
 
 TEST_CASE("SHA-256 against the FIPS 180 example vectors") {

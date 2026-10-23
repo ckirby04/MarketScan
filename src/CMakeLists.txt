@@ -111,3 +111,26 @@ if(WIN32)
 endif()
 
 set_target_properties(marketscan_live PROPERTIES FOLDER "marketscan")
+
+# ---------------------------------------------------------------------------
+# marketscan_service
+#
+# The research path's one way onto the network: the job service, for the
+# desktop Research view's conversation (docs/specs/SPEC_DESKTOP_CHAT.md). Its
+# own library, like marketscan_live and for the same reason: what a binary can
+# reach is decided by what it links. It does not link marketscan_live, so it
+# cannot reach a broker, and ms_research links neither.
+# ---------------------------------------------------------------------------
+add_library(marketscan_service STATIC
+    marketscan/research/service_client.cpp)
+add_library(marketscan::service ALIAS marketscan_service)
+
+target_link_libraries(marketscan_service
+    PRIVATE marketscan::flags
+    PUBLIC  marketscan::core)
+
+if(WIN32)
+    target_link_libraries(marketscan_service PRIVATE winhttp)
+endif()
+
+set_target_properties(marketscan_service PROPERTIES FOLDER "marketscan")

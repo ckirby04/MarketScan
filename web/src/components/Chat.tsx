@@ -229,7 +229,12 @@ export default function Chat({ id, onChange }: { id?: string; onChange?: () => v
     return (
       <div className="chat empty">
         <div className="welcome">
+          <div className="eyebrow">✦ Backtests in plain English</div>
           <h1>What do you want to test?</h1>
+          <p className="lede">
+            Describe a trading rule. It&apos;s tested on historical prices and graded on return, risk and how well
+            it holds up.
+          </p>
           {composer}
           {problem && <p className="notice">{problem}</p>}
           <div className="examples">

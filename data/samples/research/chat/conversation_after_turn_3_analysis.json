@@ -1,0 +1,339 @@
+{
+ "id": "6ad6308712424fb1",
+ "title": "Does buying QQQ after a 25% drop from its all-time high, and selling when it get",
+ "created_at": 1792709886.695905,
+ "updated_at": 1792709954.7380824,
+ "display": [
+  {
+   "kind": "user",
+   "text": "Does buying QQQ after a 25% drop from its all-time high, and selling when it gets back to that high, beat holding it?"
+  },
+  {
+   "kind": "questions",
+   "message": "The app holds QQQ from March 10, 1999 up to yesterday. It's all real data, nothing simulated, but it's split-adjusted only (dividends aren't counted), and its quality tier is \"exercise only\", so any result is a test of the method rather than a firm finding. Your rule is all set: buy after a 25% drop from the all-time high, sell when it gets back to that high, and repeat. Your cash earns no interest while it waits. Two choices left.",
+   "questions": [
+    {
+     "path": "/date_range/start",
+     "question": "What period should the test cover?",
+     "options": [
+      {
+       "label": "All the data, from March 1999",
+       "value": "1999-03-10",
+       "hint": "Includes the dot-com crash, which took about 15 years to get back to its old high, so it's a long wait in cash or a long hold"
+      },
+      {
+       "label": "The past 20 years (from Oct 2006)",
+       "value": "2006-10-23",
+       "hint": "Covers 2008, 2020 and 2022"
+      },
+      {
+       "label": "The past 10 years (from Oct 2016)",
+       "value": "2016-10-21",
+       "hint": "Short, and probably only one or two entries"
+      }
+     ]
+    },
+    {
+     "path": "/objective/metric",
+     "question": "What should 'beat holding it' mean?",
+     "options": [
+      {
+       "label": "Higher annual return",
+       "value": "cagr",
+       "hint": "Hardest test for a strategy that spends time in cash"
+      },
+      {
+       "label": "Better risk-adjusted return (Sharpe)",
+       "value": "sharpe",
+       "hint": "Gives credit for less volatility"
+      },
+      {
+       "label": "Smaller worst loss",
+       "value": "max_drawdown",
+       "hint": "Focuses on how deep it fell"
+      },
+      {
+       "label": "Return relative to worst loss (Calmar)",
+       "value": "calmar",
+       "hint": "Balances growth against the deepest drop"
+      }
+     ]
+    }
+   ],
+   "answered": true
+  },
+  {
+   "kind": "user",
+   "text": "What period should the test cover? All the data, from March 1999\nWhat should 'beat holding it' mean? Higher annual return"
+  },
+  {
+   "kind": "ready",
+   "form": {
+    "schema_version": "0.1",
+    "prompt": "Does buying QQQ after a 25% drop from its all-time high, and selling when it gets back to that high, beat holding it?",
+    "template": "drawdown_entry",
+    "universe": {
+     "assets": [
+      {
+       "symbol": "QQQ",
+       "security_id": "qqq"
+      }
+     ],
+     "price_adjustment": "split_only"
+    },
+    "date_range": {
+     "start": "1999-03-10",
+     "end": "2026-10-21",
+     "warmup_days": 0
+    },
+    "capital": {
+     "initial": 10000,
+     "currency": "USD"
+    },
+    "costs": {
+     "commission_per_trade": 0,
+     "slippage_bps": 5
+    },
+    "cash": {
+     "yield": "none"
+    },
+    "execution": {
+     "fill": "next_close"
+    },
+    "strategy": {
+     "template": "drawdown_entry",
+     "reference": {
+      "type": "all_time_high"
+     },
+     "entry": {
+      "style": "single",
+      "threshold_pct": 25,
+      "position_pct": 100
+     },
+     "exit": {
+      "rules": [
+       {
+        "type": "recover_to_high"
+       }
+      ]
+     },
+     "reentry": true
+    },
+    "objective": {
+     "metric": "cagr",
+     "min_trades": 3
+    },
+    "benchmarks": [
+     "QQQ",
+     "SPY"
+    ],
+    "robustness": {
+     "oos_split": null,
+     "regime_breakdown": true,
+     "parameter_surface": true
+    },
+    "provenance": {
+     "/template": {
+      "source": "inferred",
+      "quote": "buying QQQ after a 25% drop",
+      "note": "Drawdown-triggered entry."
+     },
+     "/universe/assets/0/symbol": {
+      "source": "stated",
+      "quote": "QQQ"
+     },
+     "/universe/assets/0/security_id": {
+      "source": "inferred",
+      "note": "QQQ resolves to the same security at both ends of the range. Data quality tier is exercise_only: results test the pipeline rather than make a finding."
+     },
+     "/date_range/start": {
+      "source": "stated",
+      "quote": "All the data, from March 1999",
+      "note": "Answered in follow-up. First bar held. Includes the dot-com crash."
+     },
+     "/date_range/end": {
+      "source": "inferred",
+      "note": "Latest bar held."
+     },
+     "/strategy/reference": {
+      "source": "stated",
+      "quote": "from its all-time high"
+     },
+     "/strategy/entry/threshold_pct": {
+      "source": "stated",
+      "quote": "after a 25% drop"
+     },
+     "/strategy/exit/rules": {
+      "source": "stated",
+      "quote": "selling when it gets back to that high"
+     },
+     "/strategy/reentry": {
+      "source": "inferred",
+      "note": "Repeats on every qualifying drop."
+     },
+     "/objective/metric": {
+      "source": "stated",
+      "quote": "Higher annual return",
+      "note": "Answered in follow-up."
+     },
+     "/benchmarks": {
+      "source": "inferred",
+      "quote": "beat holding it",
+      "note": "QQQ buy-and-hold is the comparison asked for; SPY added by default."
+     },
+     "/robustness/oos_split": {
+      "source": "inferred",
+      "note": "No parameter is swept, so there is nothing to optimize in-sample."
+     },
+     "/cash/yield": {
+      "source": "default",
+      "note": "No interest on cash while waiting; understates a strategy that sits in cash for long stretches."
+     }
+    }
+   }
+  },
+  {
+   "kind": "assistant",
+   "text": "The test is set up and ready. Here's what it will do.\n\n**The rule:** Start with $10,000 in cash in March 1999. Put all of it into QQQ once QQQ closes 25% below its highest close so far. Sell everything when QQQ gets back to the high that was in place when you bought. Then wait for the next 25% drop and do it again. Each trade goes through at the closing price the day after the signal, with a small trading cost (0.05%) and no commission.\n\n**Compared with:** Buying QQQ in March 1999 and holding it through yesterday, with buying and holding the S&P 500 (SPY) shown too. \"Beats\" means a higher annual return.\n\n**Assumptions that could matter most:**\n- **No interest on cash.** The strategy spends long stretches out of the market, and the app can't pay interest on cash yet, so it gets nothing while it waits. That's a real handicap against holding.\n- **The dot-com crash is included.** The first purchase will probably come during the 2000 crash, and QQQ then took about 15 years to get back to that peak. So one trade may be held for most of the test, and that one trade could decide the result.\n- **Dividends aren't counted.** Prices are adjusted for splits only, for both the strategy and buy-and-hold. This hurts buy-and-hold slightly more because it's always invested.\n- **The data is only good enough for a trial run.** The app rates its QQQ data \"exercise only,\" so treat the result as a check of the method, not a firm answer.\n- **One rule, few trades.** You named a single drop size, so only that one is tested. It will probably trigger just a few times in 27 years, which limits how much the result can tell you.\n\nPress Run when you're ready, or tell me to start it."
+  },
+  {
+   "kind": "run",
+   "job_id": "b08ae5789b3b4a54"
+  },
+  {
+   "kind": "analysis",
+   "text": "**The short answer:** history doesn't settle this. Your rule bought QQQ only 3 times in 27 years, and the app needs at least 5 trades before it treats a result as evidence either way. Over this one stretch of history it did badly against holding: about 3.5% a year versus 10.0% for buy-and-hold. But three trades can't show whether that comes from the rule or from the particular crashes that happened.\n\n**What happened:**\n- **The first trade decided almost everything.** The rule bought in April 2000, early in the dot-com crash. QQQ then fell about 75% more before it got back to the old high in September 2016, so the money was tied up for over 16 years for a 47% gain. That one trade also caused the strategy's worst loss, about 74%, which is not much better than buy-and-hold's 82%. The 25% \"discount\" barely cushioned it.\n- **The exit cut off the gains.** Every trade made money: the 2000 trade, the 2020 COVID crash and the 2022 sell-off (about 35% each for the last two). But each one sold at the old high, just as QQQ started making new highs. From September 2016 to March 2020 the strategy sat in cash while QQQ kept climbing. In all, it was out of the market about a third of the time.\n- **The timing wasn't better than chance.** Against 1,000 random entry dates with the same holding periods, your rule ranked around the 19th percentile. In other words, most random entries did better.\n- **Resampled histories point the same way.** The app reshuffled the past into 1,000 alternative histories. The strategy beat holding in only about 11% of them, and its annual returns ranged from about 0% to 8.9%, all below buy-and-hold's middle result of 10.5%. That's a spread of past-based scenarios, not a forecast.\n\n**About the data:** all of it is real QQQ history, nothing simulated. But the app rates the data \"exercise only,\" so this is a check of the method, not a firm finding.\n\n**Assumptions that hurt the strategy:**\n- **No interest on cash.** The strategy earned nothing during its years out of the market.\n- **No dividends.** Prices exclude them, which slightly lowers both the strategy's and buy-and-hold's returns.\n\nNeither looks big enough to close a gap of more than 6 points a year, but cash interest would narrow it.\n\n**Possible next runs:**\n1. **Hold after buying:** buy at a 25% drop and never sell. This tests whether the problem is the entry or the sell-at-the-old-high exit.\n2. **Try a range of drop sizes:** from 10% to 80% in steps of 5. Smaller drops trigger more often, so some settings might reach enough trades to count as evidence.\n3. **Measure from the 52-week high:** the highest close of the past year instead of the all-time high. The rule would then reset sooner after a crash rather than waiting 16 years.\n\nLet me know if you'd like any of these set up.",
+   "job_id": "b08ae5789b3b4a54"
+  }
+ ],
+ "form": {
+  "schema_version": "0.1",
+  "prompt": "Does buying QQQ after a 25% drop from its all-time high, and selling when it gets back to that high, beat holding it?",
+  "template": "drawdown_entry",
+  "universe": {
+   "assets": [
+    {
+     "symbol": "QQQ",
+     "security_id": "qqq"
+    }
+   ],
+   "price_adjustment": "split_only"
+  },
+  "date_range": {
+   "start": "1999-03-10",
+   "end": "2026-10-21",
+   "warmup_days": 0
+  },
+  "capital": {
+   "initial": 10000,
+   "currency": "USD"
+  },
+  "costs": {
+   "commission_per_trade": 0,
+   "slippage_bps": 5
+  },
+  "cash": {
+   "yield": "none"
+  },
+  "execution": {
+   "fill": "next_close"
+  },
+  "strategy": {
+   "template": "drawdown_entry",
+   "reference": {
+    "type": "all_time_high"
+   },
+   "entry": {
+    "style": "single",
+    "threshold_pct": 25,
+    "position_pct": 100
+   },
+   "exit": {
+    "rules": [
+     {
+      "type": "recover_to_high"
+     }
+    ]
+   },
+   "reentry": true
+  },
+  "objective": {
+   "metric": "cagr",
+   "min_trades": 3
+  },
+  "benchmarks": [
+   "QQQ",
+   "SPY"
+  ],
+  "robustness": {
+   "oos_split": null,
+   "regime_breakdown": true,
+   "parameter_surface": true
+  },
+  "provenance": {
+   "/template": {
+    "source": "inferred",
+    "quote": "buying QQQ after a 25% drop",
+    "note": "Drawdown-triggered entry."
+   },
+   "/universe/assets/0/symbol": {
+    "source": "stated",
+    "quote": "QQQ"
+   },
+   "/universe/assets/0/security_id": {
+    "source": "inferred",
+    "note": "QQQ resolves to the same security at both ends of the range. Data quality tier is exercise_only: results test the pipeline rather than make a finding."
+   },
+   "/date_range/start": {
+    "source": "stated",
+    "quote": "All the data, from March 1999",
+    "note": "Answered in follow-up. First bar held. Includes the dot-com crash."
+   },
+   "/date_range/end": {
+    "source": "inferred",
+    "note": "Latest bar held."
+   },
+   "/strategy/reference": {
+    "source": "stated",
+    "quote": "from its all-time high"
+   },
+   "/strategy/entry/threshold_pct": {
+    "source": "stated",
+    "quote": "after a 25% drop"
+   },
+   "/strategy/exit/rules": {
+    "source": "stated",
+    "quote": "selling when it gets back to that high"
+   },
+   "/strategy/reentry": {
+    "source": "inferred",
+    "note": "Repeats on every qualifying drop."
+   },
+   "/objective/metric": {
+    "source": "stated",
+    "quote": "Higher annual return",
+    "note": "Answered in follow-up."
+   },
+   "/benchmarks": {
+    "source": "inferred",
+    "quote": "beat holding it",
+    "note": "QQQ buy-and-hold is the comparison asked for; SPY added by default."
+   },
+   "/robustness/oos_split": {
+    "source": "inferred",
+    "note": "No parameter is swept, so there is nothing to optimize in-sample."
+   },
+   "/cash/yield": {
+    "source": "default",
+    "note": "No interest on cash while waiting; understates a strategy that sits in cash for long stretches."
+   }
+  }
+ },
+ "ready": true,
+ "runs": [
+  "b08ae5789b3b4a54"
+ ],
+ "analysed": [
+  "b08ae5789b3b4a54"
+ ]
+}

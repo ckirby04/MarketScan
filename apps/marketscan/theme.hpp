@@ -32,6 +32,9 @@ bool load_fonts(const std::filesystem::path& assets_dir, float size_pixels = 16.
 /// the same length.
 [[nodiscard]] ImFont* mono_font() noexcept;
 
+/// Inter SemiBold at the UI size, for bold prose. Null when the file is missing.
+[[nodiscard]] ImFont* bold_font() noexcept;
+
 /// Larger proportional face, for headline figures.
 [[nodiscard]] ImFont* large_font() noexcept;
 

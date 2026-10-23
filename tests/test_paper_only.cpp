@@ -35,6 +35,7 @@
 
 #include "marketscan/live/credentials.hpp"
 #include "marketscan/live/endpoints.hpp"
+#include "marketscan/research/endpoints.hpp"
 
 using namespace marketscan;
 
@@ -118,6 +119,26 @@ TEST_CASE("an unknown broker host is refused", "[live][paper-only]") {
     CHECK_FALSE(live::is_allowed_host(std::string(live::kBrokerDomain)));
     // A near miss: the right suffix, the wrong host.
     CHECK_FALSE(live::is_allowed_host(std::string("paper.") + std::string(live::kBrokerDomain)));
+}
+
+TEST_CASE("the research hosts and the broker hosts are two lists that share nothing",
+          "[live][paper-only][research]") {
+    // SPEC_RESEARCH_VIEW.md 5.3: the research path's allowlist is its own list,
+    // enforced by its own client, and disjoint from the broker's. So neither
+    // client can be pointed at the other's hosts, and a research host can never
+    // be a way to a broker.
+    for (const std::string_view host : research::kServiceHosts) {
+        INFO(host);
+        CHECK_FALSE(live::is_allowed_host(host));
+        CHECK(host.find(live::kBrokerDomain) == std::string_view::npos);
+    }
+    for (const std::string_view host : live::kAllowedHosts) {
+        INFO(host);
+        CHECK_FALSE(research::is_service_host(host));
+    }
+    // The control: each list does accept its own.
+    CHECK(research::is_service_host(research::kServiceHost));
+    CHECK(live::is_allowed_host(live::kPaperTradingHost));
 }
 
 TEST_CASE("no built binary contains a broker host outside the allowlist", "[live][paper-only]") {

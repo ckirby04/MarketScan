@@ -1,12 +1,13 @@
 # Fonts
 
-Both are redistributed here under the SIL Open Font License 1.1, whose full
+All are redistributed here under the SIL Open Font License 1.1, whose full
 text is in this directory. They are committed rather than downloaded at build
 time so that a fresh clone builds and runs with no network access.
 
 | File | Used for | Source |
 |---|---|---|
 | `Inter-Regular.ttf` | UI text: menus, labels, headings | [rsms/inter](https://github.com/rsms/inter) v4.0, `extras/ttf` |
+| `Inter-SemiBold.ttf` | Bold prose in the Research chat | [rsms/inter](https://github.com/rsms/inter) v4.0, `extras/ttf` |
 | `JetBrainsMono-Regular.ttf` | Numeric columns in tables | [JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono) |
 
 Two faces rather than one, for a specific reason: every number in this

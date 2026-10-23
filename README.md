@@ -71,10 +71,18 @@ a series repaints nothing and the leaderboard never stops matching the chart.
 ### Research (<kbd>F3</kbd>)
 
 A third view asks a different question: *is this idea any good, according to history?* A trading
-rule is written as a Strategy Form — by hand for now; the assistant that will fill it from plain
-English is not connected yet — and the research job runs it as a sweep, grades it against fixed
-gates, and returns a Results document. The screen reads in a fixed order: the verdict, the gates
-behind it, the stats, and only then any analysis, because analysis, however careful, can mislead.
+rule becomes a Strategy Form, either through a conversation with the assistant or filled in by
+hand, and the research job runs it as a sweep, grades it against fixed gates, and returns a
+Results document. The screen reads in a fixed order: the verdict, the gates behind it, the stats,
+and only then any analysis, because analysis, however careful, can mislead.
+
+The conversation is the job service's assistant, the same one the web app uses: set
+`MS_SERVICE_KEY` (and `MS_SERVICE_URL` for a service other than the deployed one) and the view
+offers it, its conversations shared with the web. Runs started from a conversation execute on the
+service; forms filled in by hand run here. See
+[`SPEC_DESKTOP_CHAT.md`](docs/specs/SPEC_DESKTOP_CHAT.md).
+
+![Research chat](docs/screenshots/research_chat.png)
 
 ![Research form](docs/screenshots/research_form.png)
 

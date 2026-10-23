@@ -94,6 +94,11 @@ data/cache/
 # to look at a divergence, which is a reasonable thing to do and must not end
 # in a commit.
 *.ndjson
+# The one exception: the recorded conversation the desktop chat's tests replay
+# (data/samples/research/chat/). It is the job service's NDJSON -- the
+# assistant's text and form fields, aggregate results only, no prices -- not
+# a market-data recording (data/samples/README.md).
+!data/samples/research/chat/*.ndjson
 data/recordings/
 recordings/
 

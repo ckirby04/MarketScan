@@ -20,3 +20,9 @@ Fixtures for the Research view (`contracts/research/`):
   the Results and trace the engine's research job produced for it. The engine must reproduce both
   exactly, and the research layer must regrade the trace to the same Results; see
   `contracts/README.md` for the command that writes them.
+- `chat/`, one conversation with the job service's assistant, recorded from a service running
+  locally: each turn's NDJSON exactly as streamed (a question card, the answer and the ready
+  form, the analysis), the conversation as the service showed it after each step, the run's
+  response and its polled statuses. The desktop chat's tests replay them through a fake transport
+  (`tests/test_research_chat.cpp`), so the client is tested against what the service actually
+  sends. Model text and form fields only; no prices.

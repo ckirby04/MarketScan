@@ -19,6 +19,8 @@ CAGR against an exact case
 CAGR of a degenerate span is undefined
 Calmar ratio
 INT64_MIN formats without overflowing on negation
+Markdown blocks: paragraphs, headings, lists and tables
+Results from before the scorecard still read, without one
 SHA-256 against the FIPS 180 example vectors
 Sharpe of a riskless series is undefined, not infinite
 Sharpe of a zero-mean series is zero, which is a real answer
@@ -49,6 +51,8 @@ a closed market and an uncovered date are different answers
 a colour assignment from a plain entity list matches one from a snapshot
 a compiled schema survives being copied and the original going away
 a constructor that refuses is reported, not fatal
+a conversation reopened later shows its run without analysing it again
+a conversation, end to end: ask, answer, run, Results, analysis
 a corrupt file in the cache fails the run
 a corrupt file is refused, and says why
 a corrupt recording throws rather than replaying part of itself
@@ -139,6 +143,7 @@ a recording round trips to the same event sequence
 a redacted credential is not a credential
 a refusal for an unknown order changes nothing
 a refused authorization is fatal and says so
+a refused key and an unreachable service are said, and the message is not kept
 a regular session converts to the right UTC instants
 a rejection reaches the strategy as a terminal status
 a rename keeps one security
@@ -161,6 +166,7 @@ a series survives a round trip
 a series that spans the gap and the era before it is continuous
 a series with a hole through the gap is discontinuous
 a series with no downside has no downside deviation
+a service URL is a scheme, a host and a port
 a session close fires once per session
 a session close never arrives before the session is over
 a session destroyed while running shuts down cleanly
@@ -175,6 +181,8 @@ a strategy can cancel an order that has not filled
 a strategy never sees a security outside its membership
 a strategy sees each partial as its own fill
 a strategy's path allocates only to keep what outlives the event
+a stream can be cancelled, and a line that is not JSON ends it without its content
+a streamed turn arrives as one event per line
 a submission that does not correspond fails with a diff
 a summary against a benchmark
 a summary audit that checked nothing is a failure, not a pass
@@ -304,6 +312,7 @@ errors name the document path that failed
 even the optimistic model honours a limit price
 event count is stable across runs
 events from one source arrive in order
+events the chat does not know, and errors, are handled
 every allowed broker host is a paper or data host
 every booked delisting return matches the reference row for row
 every booked fill is a blotter row
@@ -326,12 +335,14 @@ fractional seconds scale to nanoseconds
 indices wrap without losing anything
 information ratio against a worked example
 information ratio against an identical series is undefined
+inline Markdown: bold and code, and what is left as text
 integer means a whole number however it is written, and never a boolean
 items come out in the order they went in
 jitter stays inside its bound
 latency and partial fills replay exactly
 latency is deterministic, jitter included
 leap days are handled
+lines are delivered whole however the bytes were chunked
 loading a missing or malformed schema file is a compile error
 log returns compound to the total
 malformed input is refused, not skipped
@@ -378,6 +389,8 @@ pausing stops the replay where it is
 per_unit refuses to produce a NaN
 percentile interpolates and drops nulls
 periods per year respect the session length
+plain words cover every identifier the Results can carry
+plain words: lookups, fallbacks, and values with their units
 playing runs the replay to the end
 positions are reported in ascending symbol order
 pre-epoch timestamps land on the right day
@@ -443,6 +456,7 @@ the ABI is at version 2 and the vtable has ten slots
 the Research view mode is remembered like the other two
 the allocation counter sees an allocation
 the allocation counter sees nothing when nothing allocates
+the analysis turn: its text belongs to the run it analyses
 the assignment depends on the set of theories, not on their order
 the assistant's tool schemas compile inside the supported subset
 the assumed exit is worth what the difference between the models says
@@ -455,6 +469,7 @@ the boundary belongs to the session it opens
 the canonical form drops prompt and provenance and sorts keys
 the churn fixture is a fixture with churn in it
 the classifier agrees with the cases we are sure of
+the client talks only to the service, and only over TLS beyond this machine
 the clock reads the current event's timestamp during dispatch
 the close is dated to the session that ended
 the committed daily sample loads and converts
@@ -469,6 +484,7 @@ the day the clocks go back is 25 hours long
 the day the clocks go forward is 23 hours long
 the decision report records every call
 the delisting model refuses a name it does not recognise
+the desktop app carries no broker host
 the digest notices a one-bit price change
 the digest separates values a memcmp would confuse
 the drawdown_entry strategy is registered once the runner is linked
@@ -476,12 +492,14 @@ the engine and the research pipeline agree, exactly
 the engine's dispatch path allocates nothing per event
 the engine's drawdown_entry reproduces the research layer's fills exactly
 the engine's validator reproduces every verdict in the schema corpus
+the environment gives a client, or one sentence on why not
 the epoch is day zero
 the equity curve samples on an interval
 the equity invariant holds after every operation
 the exposure cap refuses rather than resizing
 the feed resolves each bar's identity by its own date
 the file size is exactly the format
+the first turn: the message shows at once, then the service's copy and its questions
 the fixture and the reference curve are the same length
 the form editor recognises every oneOf branch's default as that branch
 the form editor's defaults satisfy the schema where the schema can be satisfied
@@ -493,6 +511,7 @@ the guard's effect is a number, and the forced exits are the blotter's
 the harness can still fail
 the host context offers no way to ask about a non-member
 the invariant survives a long random sequence
+the key goes on the wire as a bearer token and nowhere else
 the last rolling value matches the whole-series value
 the later issuer's history alone cannot resolve the gap
 the ledger's average cost follows the pieces, not the first one
@@ -506,10 +525,12 @@ the optimistic model fills everything at the last print
 the original file stays writable while the plugin is loaded
 the prompt and provenance do not change the job
 the rails refuse a price or quantity that is not a number
+the recorded analysis parses into paragraphs, lists and bold
 the reference theories return exactly what they did at Spec 1
 the reference theory is discovered and loaded
 the registry keeps a stable order
 the research chart and the session chart are one chart
+the research hosts and the broker hosts are two lists that share nothing
 the research job reproduces its committed Results and trace exactly
 the research job's Results satisfy results.schema.json
 the research session runs a form off the GUI thread and can reopen the run
@@ -524,6 +545,7 @@ the same seed gives the same numbers
 the same seed replays exactly
 the sample replays identically
 the second pass over the same events allocates less than the first
+the second turn: streamed text reassembles into the service's record
 the share cap still fires inside the notional cap
 the simulator emits no status events when nothing goes wrong
 the status event carries what a strategy needs to act on it
@@ -562,5 +584,6 @@ whole dollars are exact
 winter is standard time and summer is not, every year
 with no latency configured nothing changes
 with no latency the guard costs nothing
+without a connection the chat is off, says why, and sends nothing
 without a master the feed interns once, as it always did
 without a universe nothing is filtered

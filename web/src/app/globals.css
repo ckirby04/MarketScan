@@ -1,6 +1,10 @@
 /* The token table, from apps/marketscan/palette.cpp, which SPEC_VIEW_MODES.md
    section 5 pins. One table, by role; no raw colour at a call site. The light
-   column is its own set of steps, not an inversion of the dark one. */
+   column is its own set of steps, not an inversion of the dark one.
+
+   The web app is light by default; the dark column applies when the reader
+   picks it (data-theme="dark", set before first paint by the layout). Every
+   tint, gradient and shadow below is mixed from these tokens. */
 :root {
   --background: #f4f4f1;
   --surface: #fcfcfb;
@@ -20,31 +24,45 @@
   --benchmark: #52514e;
   --series-1: #2a78d6;
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
-  --sans: Inter, ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --sans: var(--font-inter, Inter), ui-sans-serif, system-ui, "Segoe UI", sans-serif;
   color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --background: #0f1115;
-    --surface: #161a21;
-    --surface-raised: #1e232c;
-    --border: #2a313d;
-    --text: #ffffff;
-    --text-dim: #c3c2b7;
-    --text-faint: #898781;
-    --accent: #3987e5;
-    --status-good: #0ca30c;
-    --status-warning: #fab219;
-    --status-serious: #ec835a;
-    --status-critical: #d03b3b;
-    --chart-surface: #1a1a19;
-    --gridline: #2c2c2a;
-    --baseline: #383835;
-    --benchmark: #c3c2b7;
-    --series-1: #3987e5;
-    color-scheme: dark;
-  }
+:root[data-theme="dark"] {
+  --background: #0f1115;
+  --surface: #161a21;
+  --surface-raised: #1e232c;
+  --border: #2a313d;
+  --text: #ffffff;
+  --text-dim: #c3c2b7;
+  --text-faint: #898781;
+  --accent: #3987e5;
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --chart-surface: #1a1a19;
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --benchmark: #c3c2b7;
+  --series-1: #3987e5;
+  color-scheme: dark;
+}
+
+/* Mixed from the table above: tints, the one gradient, depth. */
+:root {
+  --line: color-mix(in srgb, var(--border) 55%, transparent);
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-softer: color-mix(in srgb, var(--accent) 6%, transparent);
+  --good-soft: color-mix(in srgb, var(--status-good) 12%, transparent);
+  --warning-soft: color-mix(in srgb, var(--status-warning) 14%, transparent);
+  --serious-soft: color-mix(in srgb, var(--status-serious) 13%, transparent);
+  --brand: linear-gradient(120deg, var(--accent) 10%, color-mix(in srgb, var(--accent) 45%, var(--status-good)) 100%);
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--text) 6%, transparent);
+  --shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent),
+    0 10px 30px -12px color-mix(in srgb, var(--text) 18%, transparent);
+  --radius: 16px;
+  --radius-sm: 10px;
 }
 
 * {
@@ -57,16 +75,27 @@ body {
   color: var(--text);
   font-family: var(--sans);
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
 }
 
 a {
   color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
 }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Shell and sidebar --------------------------------------------------------- */
 
 .shell {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 264px 1fr;
   min-height: 100vh;
 }
 
@@ -76,30 +105,58 @@ a {
   top: 0;
   height: 100vh;
   overflow-y: auto;
-  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
   background: var(--surface);
-  padding: 12px 10px;
+  padding: 14px 12px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 14px;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.brand-mark {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--brand);
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  font-size: 13px;
 }
 
 .rail .new {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: var(--text);
+  padding: 9px 12px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--brand);
+  box-shadow: var(--shadow-sm);
   text-decoration: none;
-  font-weight: 500;
+  font-weight: 600;
 }
 
-.rail .new:hover,
-.recent:hover {
-  background: var(--surface-raised);
+.rail .new:hover {
+  filter: brightness(1.05);
 }
 
 .rail-label {
-  margin: 20px 10px 6px;
-  font-size: 12px;
+  margin: 22px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-faint);
 }
 
@@ -110,8 +167,8 @@ a {
 
 .recent {
   display: block;
-  padding: 7px 10px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
   color: var(--text-dim);
   text-decoration: none;
   white-space: nowrap;
@@ -119,8 +176,36 @@ a {
   text-overflow: ellipsis;
 }
 
+.recent:hover {
+  background: var(--accent-softer);
+  color: var(--text);
+}
+
 .recent.current {
-  background: var(--surface-raised);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.rail-foot {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
+button.theme {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+
+button.theme:hover {
+  background: var(--accent-softer);
   color: var(--text);
 }
 
@@ -139,55 +224,12 @@ button.menu,
   padding: 0;
 }
 
-@media (max-width: 760px) {
-  .shell {
-    grid-template-columns: 1fr;
-  }
-
-  button.menu {
-    display: grid;
-    place-items: center;
-    position: fixed;
-    top: 10px;
-    left: 10px;
-    z-index: 20;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    border-radius: 10px;
-    background: var(--background);
-  }
-
-  .rail {
-    position: fixed;
-    z-index: 30;
-    left: 0;
-    width: 280px;
-    transform: translateX(-100%);
-    transition: transform 0.2s ease;
-  }
-
-  .rail.open {
-    transform: none;
-  }
-
-  .scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 25;
-    background: rgba(0, 0, 0, 0.4);
-  }
-
-  .main {
-    padding-top: 56px;
-  }
-}
+/* --- Shared pieces ----------------------------------------------------------- */
 
 .heading {
   margin: 20px 0 8px;
   padding-bottom: 4px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   color: var(--text-faint);
   font-size: 12px;
   letter-spacing: 0.06em;
@@ -203,12 +245,6 @@ button.menu,
 
 .mono {
   font-family: var(--mono);
-}
-
-.grade {
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
 }
 
 .good {
@@ -227,21 +263,39 @@ button {
   font: inherit;
   color: var(--text);
   background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 7px 14px;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--border);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
 }
 
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--brand);
+  border-color: transparent;
   color: #ffffff;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 8px 18px;
+  box-shadow: var(--shadow-sm);
+}
+
+button.primary:hover:not(:disabled) {
+  border-color: transparent;
+  filter: brightness(1.06);
 }
 
 button.small {
@@ -255,9 +309,9 @@ textarea {
   font: inherit;
   color: var(--text);
   background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
 }
 
 .field {
@@ -275,7 +329,7 @@ textarea {
 .nested {
   margin-left: 20px;
   padding-left: 12px;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--line);
 }
 
 .badge {
@@ -292,12 +346,13 @@ textarea {
 table {
   border-collapse: collapse;
   width: 100%;
+  font-variant-numeric: tabular-nums;
 }
 
 th,
 td {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
   text-align: right;
   white-space: nowrap;
 }
@@ -309,19 +364,40 @@ td:first-child {
 
 th {
   color: var(--text-faint);
-  font-weight: normal;
+  font-weight: 500;
+  font-size: 12px;
 }
 
+tbody tr:hover {
+  background: var(--accent-softer);
+}
+
+/* A segmented control. */
 .tabs {
-  display: flex;
-  gap: 4px;
+  display: inline-flex;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  gap: 2px;
+  padding: 3px;
+  margin-bottom: 14px;
+  border-radius: 999px;
+  background: var(--accent-softer);
+  border: 1px solid var(--line);
+}
+
+.tabs button {
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  padding: 5px 13px;
+  font-size: 13px;
+  color: var(--text-dim);
 }
 
 .tabs button[aria-selected="true"] {
-  border-color: var(--accent);
+  background: var(--surface-raised);
   color: var(--accent);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
 }
 
 .scroll {
@@ -330,18 +406,19 @@ th {
 
 .progress {
   height: 8px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: var(--accent-soft);
+  border-radius: 999px;
   overflow: hidden;
 }
 
 .progress > div {
   height: 100%;
-  background: var(--accent);
+  border-radius: 999px;
+  background: var(--brand);
+  transition: width 0.4s ease;
 }
 
-/* --- The conversation ------------------------------------------------------ */
+/* --- The conversation ---------------------------------------------------------- */
 
 .chat {
   display: flex;
@@ -352,32 +429,60 @@ th {
 .thread {
   flex: 1;
   width: 100%;
-  max-width: 780px;
+  max-width: 800px;
   margin: 0 auto;
-  padding: 32px 24px 24px;
+  padding: 36px 24px 24px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 22px;
 }
 
 /* An empty conversation: the question box in the middle of the page. */
 .chat.empty {
   justify-content: center;
+  background:
+    radial-gradient(60% 45% at 50% 30%, var(--accent-soft), transparent 70%),
+    var(--background);
 }
 
 .welcome {
   width: 100%;
-  max-width: 720px;
+  max-width: 700px;
   margin: 0 auto;
   padding: 0 24px 12vh;
+  text-align: center;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .welcome h1 {
-  font-size: 30px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  text-align: center;
-  margin: 0 0 24px;
+  font-size: 44px;
+  line-height: 1.08;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  margin: 0 0 12px;
+  background: var(--brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.welcome .lede {
+  margin: 0 auto 28px;
+  max-width: 520px;
+  font-size: 16px;
+  color: var(--text-dim);
 }
 
 .examples {
@@ -385,34 +490,36 @@ th {
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 18px;
 }
 
 button.example {
   border-radius: 999px;
-  padding: 7px 14px;
+  padding: 8px 15px;
   font-size: 13px;
   color: var(--text-dim);
-  background: transparent;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
   text-align: left;
 }
 
 button.example:hover {
-  color: var(--text);
-  background: var(--surface-raised);
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .message {
   min-width: 0;
   overflow-wrap: anywhere;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 .message.user {
   align-self: flex-end;
   max-width: 80%;
-  background: var(--surface-raised);
-  border-radius: 18px;
+  background: var(--accent-soft);
+  border-radius: 20px 20px 6px 20px;
   padding: 10px 16px;
   white-space: pre-wrap;
 }
@@ -445,6 +552,10 @@ button.example:hover {
   margin-top: 4px;
 }
 
+.md strong {
+  font-weight: 650;
+}
+
 .md code {
   font-family: var(--mono);
   font-size: 13px;
@@ -463,9 +574,9 @@ button.example:hover {
 
 .notice {
   margin: 0;
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--status-serious);
+  padding: 11px 15px;
+  border-radius: var(--radius-sm);
+  background: var(--serious-soft);
   color: var(--status-serious);
   font-size: 14px;
 }
@@ -484,10 +595,10 @@ button.example:hover {
 }
 
 .dots span {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--text-faint);
+  background: var(--accent);
   animation: blink 1.2s infinite ease-in-out;
 }
 
@@ -503,10 +614,12 @@ button.example:hover {
   0%,
   80%,
   100% {
-    opacity: 0.25;
+    opacity: 0.2;
+    transform: translateY(0);
   }
   40% {
     opacity: 1;
+    transform: translateY(-2px);
   }
 }
 
@@ -520,10 +633,10 @@ button.example:hover {
 /* The assistant's questions. */
 
 .questions {
-  margin-top: 12px;
+  margin-top: 14px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   align-items: flex-start;
 }
 
@@ -532,7 +645,7 @@ button.example:hover {
 }
 
 .question-text {
-  font-weight: 500;
+  font-weight: 600;
   margin-bottom: 8px;
 }
 
@@ -545,22 +658,25 @@ button.example:hover {
 .options button {
   text-align: left;
   white-space: normal;
-  border-radius: 12px;
-  padding: 8px 14px;
-  background: transparent;
+  border-radius: 14px;
+  padding: 9px 15px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
 }
 
 .options button:hover {
-  background: var(--surface-raised);
+  border-color: var(--accent);
 }
 
 .options button[aria-pressed="true"] {
   border-color: var(--accent);
-  background: var(--surface-raised);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent) inset;
 }
 
 .option-label {
   display: block;
+  font-weight: 500;
 }
 
 .options .hint {
@@ -572,9 +688,8 @@ button.example:hover {
 .question input {
   width: 100%;
   margin-top: 8px;
-  border-radius: 10px;
-  padding: 8px 12px;
-  background: transparent;
+  border-radius: 12px;
+  padding: 9px 13px;
 }
 
 /* Run, once the backtest is set up. */
@@ -587,29 +702,27 @@ button.example:hover {
 }
 
 .run-offer button {
-  border-radius: 999px;
-  padding: 8px 18px;
+  padding: 11px 22px;
+  font-size: 15px;
 }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px 18px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px 22px;
   min-width: 0;
+  box-shadow: var(--shadow);
+}
+
+.run-stage {
+  margin-bottom: 10px;
+  font-weight: 500;
 }
 
 /* Where "show the Results" scrolls to: clear of the phone's header strip. */
 .card.run {
   scroll-margin-top: 64px;
-}
-
-.run-stage {
-  margin-bottom: 8px;
-}
-
-.card.run > .heading:first-child {
-  margin-top: 0;
 }
 
 /* The message box. */
@@ -618,25 +731,32 @@ button.example:hover {
   position: sticky;
   bottom: 0;
   width: 100%;
-  max-width: 780px;
+  max-width: 800px;
   margin: 0 auto;
   padding: 0 24px 20px;
-  background: linear-gradient(to bottom, transparent, var(--background) 24px);
+  background: linear-gradient(to bottom, transparent, var(--background) 26px);
 }
 
 .composer {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  padding: 10px 10px 10px 18px;
+  padding: 10px 10px 10px 20px;
   background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: 22px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  box-shadow: var(--shadow);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .composer:focus-within {
-  border-color: var(--text-faint);
+  border-color: var(--accent);
+  box-shadow: var(--shadow), 0 0 0 4px var(--accent-soft);
+}
+
+.welcome .composer {
+  text-align: left;
+  padding: 14px 12px 14px 22px;
 }
 
 .composer textarea {
@@ -646,141 +766,149 @@ button.example:hover {
   padding: 7px 0;
   resize: none;
   outline: none;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.5;
   max-height: 220px;
 }
 
 button.send {
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   padding: 0;
   display: grid;
   place-items: center;
   border-radius: 50%;
   border: none;
-  background: var(--text);
-  color: var(--background);
+  background: var(--brand);
+  color: #ffffff;
 }
 
 button.send:disabled {
-  opacity: 0.25;
+  opacity: 0.3;
 }
 
-@media (max-width: 760px) {
-  .thread {
-    padding: 56px 16px 16px;
-  }
-
-  .welcome,
-  .dock {
-    padding-left: 16px;
-    padding-right: 16px;
-  }
-
-  .welcome h1 {
-    font-size: 24px;
-  }
-}
-
-/* On a phone, a strip under the menu button so text scrolls beneath it. */
-@media (max-width: 760px) {
-  .main.conversation::before {
-    content: "";
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 56px;
-    z-index: 10;
-    background: linear-gradient(var(--background) 75%, transparent);
-  }
-}
-
-/* --- The Results ----------------------------------------------------------- */
+/* --- The Results --------------------------------------------------------------- */
 
 .results .heading {
-  margin: 24px 0 10px;
-  padding-bottom: 6px;
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--text-dim);
+  margin: 28px 0 12px;
+  padding-bottom: 0;
+  border-bottom: none;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .verdict {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: 8px 10px;
 }
 
+/* The verdict as a pill. Insufficient evidence stays muted ink, not a status
+   colour: "not enough data" is not bad news about the idea. */
 .results .grade {
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: var(--accent-softer);
+  color: var(--text-dim);
+}
+
+.results .grade.good {
+  background: var(--good-soft);
+  color: var(--status-good);
+}
+
+.results .grade.warning {
+  background: var(--warning-soft);
+  color: var(--status-warning);
+}
+
+.results .grade.serious {
+  background: var(--serious-soft);
+  color: var(--status-serious);
 }
 
 .badge-warning {
   font-size: 12px;
-  padding: 2px 10px;
+  font-weight: 600;
+  padding: 4px 11px;
   border-radius: 999px;
-  border: 1px solid var(--status-warning);
+  background: var(--warning-soft);
   color: var(--status-warning);
 }
 
 .verdict-note {
-  margin: 4px 0 0;
+  margin: 8px 0 0;
   font-size: 13px;
 }
 
 .chosen {
-  margin-top: 16px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: var(--surface-raised);
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--accent-softer);
+  border: 1px solid var(--accent-soft);
 }
 
 .chosen-label,
 .pair-label {
   font-size: 12px;
+  font-weight: 500;
   color: var(--text-faint);
 }
 
 .chosen-value {
-  font-size: 17px;
+  font-size: 18px;
   margin: 2px 0;
   display: flex;
   flex-wrap: wrap;
   gap: 4px 16px;
 }
 
+.chosen-value strong {
+  color: var(--accent);
+}
+
 .period {
-  margin: 16px 0 8px;
+  margin: 18px 0 8px;
   font-size: 13px;
 }
 
 .pairs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 10px;
 }
 
 .pair {
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
 }
 
 .pair-values {
   display: flex;
-  gap: 24px;
+  gap: 26px;
   margin-top: 4px;
 }
 
 .pair-number {
-  font-size: 20px;
+  font-family: var(--sans);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 .pair .faint {
@@ -788,30 +916,43 @@ button.send:disabled {
 }
 
 .range-line {
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   font-size: 13px;
 }
 
 .notes {
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   padding: 0;
   list-style: none;
   font-size: 13px;
   color: var(--text-dim);
+  display: grid;
+  gap: 6px;
 }
 
 .notes li {
   position: relative;
-  padding-left: 18px;
-  margin-top: 4px;
+  padding: 8px 12px 8px 32px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
 }
 
 .notes li::before {
   content: "!";
   position: absolute;
-  left: 4px;
-  font-weight: 700;
-  color: var(--status-warning);
+  left: 12px;
+  top: 8px;
+  width: 14px;
+  height: 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--status-warning);
+  color: var(--surface-raised);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  margin-top: 2px;
 }
 
 /* The checks: a list, so a phone stacks each one instead of squeezing a column. */
@@ -819,41 +960,48 @@ button.send:disabled {
   margin: 0;
   padding: 0;
   list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
 }
 
 .checks li {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   align-items: flex-start;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
 }
 
 .checks li:last-child {
   border-bottom: none;
 }
 
+.checks li.deciding {
+  background: var(--accent-softer);
+}
+
 .checks .status {
   flex: none;
-  width: 84px;
+  width: 92px;
   margin-top: 1px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
   text-align: center;
-  padding: 2px 0;
+  padding: 3px 0;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  background: var(--accent-softer);
   color: var(--text-faint);
 }
 
 .checks .status.pass {
+  background: var(--good-soft);
   color: var(--status-good);
-  border-color: var(--status-good);
 }
 
 .checks .status.fail {
+  background: var(--serious-soft);
   color: var(--status-serious);
-  border-color: var(--status-serious);
 }
 
 .check-body {
@@ -863,47 +1011,30 @@ button.send:disabled {
 
 .check-name {
   font-size: 14px;
-  font-weight: 500;
-}
-
-.checks li.deciding .check-name {
-  color: var(--text);
-}
-
-.results .tabs button {
-  border-radius: 999px;
-  padding: 4px 12px;
-  font-size: 13px;
-  background: transparent;
+  font-weight: 600;
 }
 
 .chart-title {
   font-size: 12px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
-@media (max-width: 760px) {
-  .checks li {
-    flex-direction: column;
-    gap: 6px;
-  }
+/* --- The scorecard --------------------------------------------------------------- */
 
-  .checks .status {
-    width: auto;
-    padding: 2px 10px;
-  }
-
-  .pair-number {
-    font-size: 18px;
-  }
+.scorecard {
+  display: grid;
+  gap: 12px;
 }
 
-/* --- The scorecard ---------------------------------------------------------- */
-
-.score-overall {
-  display: flex;
-  gap: 14px;
+.score-hero {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 18px;
   align-items: center;
+  padding: 18px;
+  border-radius: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
 }
 
 .score-letter,
@@ -911,76 +1042,252 @@ button.send:disabled {
   display: grid;
   place-items: center;
   flex: none;
-  font-weight: 700;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
+  font-weight: 800;
+  border-radius: 14px;
 }
 
 .score-letter {
-  width: 56px;
-  height: 56px;
-  font-size: 28px;
+  width: 76px;
+  height: 76px;
+  font-size: 40px;
+  letter-spacing: -0.03em;
 }
 
 .sub-letter {
-  width: 30px;
-  height: 30px;
-  font-size: 15px;
-  border-radius: 8px;
+  width: 34px;
+  height: 34px;
+  font-size: 16px;
+  border-radius: 10px;
 }
 
-/* Letters lean on the status palette as reinforcement only; the letter itself carries the grade. */
+/* Letters lean on the status palette as reinforcement only; the letter itself
+   carries the grade. */
 .grade-A,
 .grade-B {
+  background: var(--good-soft);
   color: var(--status-good);
 }
 
 .grade-C {
+  background: var(--warning-soft);
   color: var(--status-warning);
 }
 
 .grade-D,
 .grade-F {
+  background: var(--serious-soft);
   color: var(--status-serious);
 }
 
+.grade-none {
+  background: var(--accent-softer);
+  color: var(--text-faint);
+}
+
 .score-title {
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 .score-number {
-  font-size: 15px;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
 }
 
-.score-overall .faint {
+.score-number small {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-faint);
+  margin-left: 2px;
+}
+
+.score-meter {
+  height: 6px;
+  margin: 8px 0 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+  max-width: 320px;
+}
+
+.score-meter > div {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--brand);
+}
+
+.score-hero .faint {
   font-size: 12px;
+}
+
+.spark {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  height: 44px;
+  margin-top: 6px;
 }
 
 .subgrades {
   list-style: none;
-  margin: 14px 0 0;
+  margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
   gap: 8px;
 }
 
 .subgrades li {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
   min-width: 0;
 }
 
 .sub-body {
   min-width: 0;
+  flex: 1;
   font-size: 13px;
 }
 
 .sub-name {
-  font-weight: 500;
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.sub-bar {
+  height: 4px;
+  margin: 5px 0 4px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+
+.sub-bar > div {
+  height: 100%;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+/* --- Narrow screens -------------------------------------------------------------- */
+
+@media (max-width: 760px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  button.menu {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    z-index: 20;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border-radius: 12px;
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .rail {
+    position: fixed;
+    z-index: 30;
+    left: 0;
+    width: 284px;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .rail.open {
+    transform: none;
+    box-shadow: var(--shadow);
+  }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    background: color-mix(in srgb, var(--text) 35%, transparent);
+  }
+
+  .main {
+    padding-top: 56px;
+  }
+
+  /* A strip under the menu button so text scrolls beneath it. */
+  .main.conversation::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 58px;
+    z-index: 10;
+    background: linear-gradient(var(--background) 75%, transparent);
+  }
+
+  .thread {
+    padding: 60px 16px 16px;
+  }
+
+  .welcome,
+  .dock {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .welcome h1 {
+    font-size: 32px;
+  }
+
+  .welcome .lede {
+    font-size: 15px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+
+  .checks li {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .checks .status {
+    width: auto;
+    padding: 3px 12px;
+  }
+
+  .pair-number {
+    font-size: 21px;
+  }
+
+  .score-letter {
+    width: 64px;
+    height: 64px;
+    font-size: 34px;
+  }
+}
+
+/* Inline figures in running text: the sans face, bold, with even digits. */
+.range-line .mono,
+.verdict-note .mono {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }

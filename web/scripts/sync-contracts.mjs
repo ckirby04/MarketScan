@@ -16,6 +16,7 @@ mkdirSync(out, { recursive: true });
 for (const [from, to] of [
   ["strategy_form.schema.json", "strategy_form.schema.json"],
   ["results.schema.json", "results.schema.json"],
+  ["plain_words.json", "plain_words.json"],
   [join("examples", "starter_form.json"), "starter_form.json"],
 ]) {
   copyFileSync(join(contracts, from), join(out, to));

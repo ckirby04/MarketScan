@@ -1,0 +1,24 @@
+[
+ {
+  "job_id": "b08ae5789b3b4a54",
+  "state": "running",
+  "stage": "",
+  "done": 0,
+  "total": 0,
+  "grade": null,
+  "errors": [],
+  "created_at": 1792709931.1259847,
+  "finished_at": null
+ },
+ {
+  "job_id": "b08ae5789b3b4a54",
+  "state": "done",
+  "stage": "bootstrap",
+  "done": 999,
+  "total": 1000,
+  "grade": "insufficient_evidence",
+  "errors": [],
+  "created_at": 1792709931.1259847,
+  "finished_at": 1792709937.1753912
+ }
+]

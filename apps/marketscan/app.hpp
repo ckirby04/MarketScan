@@ -22,6 +22,9 @@ struct AppOptions {
 
     /// A Strategy Form to load into the Research view and run at startup.
     std::filesystem::path research_form;
+    /// The chat, for screenshots: a conversation to open, or a question to ask.
+    std::string research_conversation;
+    std::string research_ask;
 
     /// Directory holding fonts/. Defaults to `assets` beside the executable,
     /// falling back to the source tree so a build tree runs without an install

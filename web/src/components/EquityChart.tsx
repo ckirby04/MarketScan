@@ -8,7 +8,7 @@
 // is placing points on the page. Roles and colours follow the desktop chart: the
 // rule in the first series slot, the benchmark in its own fixed token, one
 // y-axis, no second scale.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import type { Curve } from "@/lib/results";
 
@@ -51,6 +51,7 @@ export default function EquityChart({ curves }: { curves: Curve[] }) {
   // rather than being a scaled-down picture of a wide chart.
   const box = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(900);
+  const area = `area-${useId().replace(/:/g, "")}`;
   useEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -116,13 +117,26 @@ export default function EquityChart({ curves }: { curves: Curve[] }) {
               {new Date(t * 1000).getUTCFullYear()}
             </text>
           ))}
+        <defs>
+          <linearGradient id={area} x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" stopColor="var(--series-1)" stopOpacity="0.18" />
+            <stop offset="1" stopColor="var(--series-1)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {subject && (
+          <path
+            d={`${pathOf(subject.times, subject.normalised, x, y)}L${x(subject.times[subject.times.length - 1]).toFixed(1)},${H - PAD.bottom}L${x(subject.times[0]).toFixed(1)},${H - PAD.bottom}Z`}
+            fill={`url(#${area})`}
+          />
+        )}
         {shown.map((c) => (
           <path
             key={c.id}
             d={pathOf(c.times, c.normalised, x, y)}
             fill="none"
             stroke={colour(c)}
-            strokeWidth={c.is_benchmark ? 1.4 : 2}
+            strokeWidth={c.is_benchmark ? 1.4 : 2.2}
+            strokeLinejoin="round"
           />
         ))}
       </svg>

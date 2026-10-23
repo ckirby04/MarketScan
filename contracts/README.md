@@ -8,7 +8,7 @@ Code validates against these files, not against a copy of them.
 
 | | |
 |---|---|
-| [`research/`](research/) | The Research view: Strategy Form, data catalog records, Results, and the assistant's prompt and tools. Built from [`SPEC_RESEARCH_VIEW.md`](../docs/specs/SPEC_RESEARCH_VIEW.md). |
+| [`research/`](research/) | The Research view: Strategy Form, data catalog records, Results, the assistant's prompt and tools, and `plain_words.json`, the words both the web and desktop apps show for the Results' identifiers. Built from [`SPEC_RESEARCH_VIEW.md`](../docs/specs/SPEC_RESEARCH_VIEW.md). |
 
 ## Two validators, on purpose
 

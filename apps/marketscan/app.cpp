@@ -16,6 +16,7 @@
 #include <GLFW/glfw3.h>
 #include <implot.h>
 
+#include "marketscan/research/service_client.hpp"
 #include "marketscan/util/logging.hpp"
 #include "marketscan/util/version.hpp"
 #include "panels/panels.hpp"
@@ -182,16 +183,34 @@ bool Application::initialise() {
     layout_built_ = layout_file_covers_all_panels();
 
     session_ = std::make_unique<Session>(options_.session);
+    // The chat reaches the job service from the desktop app itself and nowhere
+    // else: the key and the URL come from the environment
+    // (docs/specs/SPEC_DESKTOP_CHAT.md section 3). Tests leave this unset.
+    if (!options_.research.connect_service) {
+        options_.research.connect_service = [] {
+            return research::connect_from_environment(std::string("MarketScan/") +
+                                                      std::string(version::kString));
+        };
+    }
     research_ = std::make_unique<ResearchSession>(options_.research);
     if (!options_.research_form.empty()) {
         try {
             std::ifstream in(options_.research_form, std::ios::binary);
             research_->set_form(nlohmann::json::parse(in));
             research_->run();
+            ui_.research_chat = false;  // a form given on the command line shows its run
         } catch (const std::exception& error) {
             log::error("research",
                        "could not load " + options_.research_form.string() + ": " + error.what());
         }
+    }
+    // The chat, for reproducible screenshots of it: a conversation to open, or a
+    // question to ask. Both need the chat to be connected (MS_SERVICE_KEY).
+    if (!options_.research_conversation.empty()) {
+        research_->chat_open(options_.research_conversation);
+    }
+    if (!options_.research_ask.empty()) {
+        research_->chat_send(options_.research_ask);
     }
     session_->set_speed(options_.speed);
     if (options_.autoplay) {
