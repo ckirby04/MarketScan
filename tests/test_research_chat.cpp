@@ -300,7 +300,11 @@ struct FakeService final : research::ServiceTransport {
         } else if (method == "GET" && path == "/jobs/" + job + "/form") {
             r.body = read_json(kFixtures / "job_form.json").dump();
         } else if (method == "POST" && path == "/conversations/" + id + "/results") {
-            REQUIRE(json::parse(request.body) == json{{"job_id", job}});
+            if (json::parse(request.body) != json{{"job_id", job}}) {
+                r.status = 400;
+                r.body = R"({"detail":"analysis asked for the wrong run"})";
+                return r;
+            }
             stream(kChat / "turn_3_analysis.ndjson", request, r);
             state->conversation_step = "turn_3_analysis";
         } else {
@@ -310,11 +314,22 @@ struct FakeService final : research::ServiceTransport {
         return r;
     }
 
+    // Runs on the chat worker's thread, so it may not REQUIRE: a failed REQUIRE
+    // throws what nothing on that thread catches. A missing file is a failed
+    // response instead, which the test then sees as the chat's problem.
     static void stream(const std::filesystem::path& file,
                        const research::ServiceRequest& request,
                        research::ServiceResponse& r) {
-        REQUIRE(request.on_line != nullptr);
-        for (const std::string& line : read_lines(file)) {
+        std::ifstream in(file, std::ios::binary);
+        if (request.on_line == nullptr || !in.good()) {
+            r.status = 500;
+            r.body = R"({"detail":"the recording is missing"})";
+            return;
+        }
+        for (std::string line; std::getline(in, line);) {
+            if (!line.empty() && line.back() == '\r') {
+                line.pop_back();
+            }
             if (!(*request.on_line)(line)) {
                 r.cancelled = true;
                 return;

@@ -136,6 +136,24 @@ jobs:
           --claims "cpp_tests,cpp_tests_full,abi_version,guards_wired,tests_offline"
           --test-dir out/build/${{ matrix.preset }}
 
+      # upload-artifact v4 takes files from one drive only, and vcpkg's
+      # buildtrees are on C: while the workspace is on D:. Copied in first.
+      - name: Gather vcpkg logs on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          $dest = Join-Path $PWD "out/vcpkg-logs"
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          $trees = Join-Path $env:VCPKG_ROOT "buildtrees"
+          if (Test-Path $trees) {
+            Get-ChildItem $trees -Recurse -Filter *.log | ForEach-Object {
+              $relative = $_.FullName.Substring($trees.Length).TrimStart('\', '/')
+              $target = Join-Path $dest $relative
+              New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
+              Copy-Item $_.FullName $target
+            }
+          }
+
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -143,7 +161,7 @@ jobs:
           name: vcpkg-logs-${{ matrix.preset }}
           path: |
             out/build/${{ matrix.preset }}/vcpkg-manifest-install.log
-            ${{ env.VCPKG_ROOT }}/buildtrees/**/*.log
+            out/vcpkg-logs/**/*.log
           if-no-files-found: ignore
           retention-days: 7
 
